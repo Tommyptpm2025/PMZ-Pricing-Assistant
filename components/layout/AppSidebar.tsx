@@ -17,6 +17,7 @@ import {
   Settings,
   Menu,
   X,
+  ClipboardList,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -37,6 +38,7 @@ const navItems: NavItem[] = [
   { href: "/work-types", label: "Work Types", icon: Tags },
   { href: "/overhead-profit", label: "Overhead & Profit", icon: Calculator },
   { href: "/project-pricer", label: "Project Pricer", icon: TrendingUp, emphasized: true },
+  { href: "/jobs", label: "Jobs / Foreman", icon: ClipboardList },
   { href: "/sales-tracker", label: "Sales Tracker", icon: BarChart3 },
   { href: "/reports", label: "Reports", icon: FileText, disabled: true },
   { href: "/settings", label: "Settings", icon: Settings },

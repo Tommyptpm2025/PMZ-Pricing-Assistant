@@ -138,6 +138,30 @@ export default function ProjectPricerPage() {
   const [editableGrossProfitPercent, setEditableGrossProfitPercent] = React.useState(0);
   const [gpPercentEdit, setGpPercentEdit] = React.useState<string>("");
 
+  // Editable Margin % for the bottom yellow bar (simple bid section)
+  const [barMarginPercent, setBarMarginPercent] = React.useState(0);
+  const [barMarginEdit, setBarMarginEdit] = React.useState<string>("");
+
+  // Collapsed state for BID ITEMS section, persisted in localStorage, default expanded (false)
+  const [bidItemsCollapsed, setBidItemsCollapsed] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("pmz_bid_items_collapsed");
+      return saved === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  // Collapsed state for Full Real LEM Breakdown (Pro View) section, persisted in localStorage, default expanded (false)
+  const [proViewCollapsed, setProViewCollapsed] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("pmz_pro_view_collapsed");
+      return saved === "true";
+    } catch {
+      return false;
+    }
+  });
+
   // Salesperson required validation
   const [salespersonError, setSalespersonError] = React.useState(false);
 
@@ -200,18 +224,36 @@ export default function ProjectPricerPage() {
     } catch {}
   }, [estimate]);
 
+  // Persist BID ITEMS collapsed state
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("pmz_bid_items_collapsed", bidItemsCollapsed.toString());
+    } catch {}
+  }, [bidItemsCollapsed]);
+
+  // Persist Pro View collapsed state
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("pmz_pro_view_collapsed", proViewCollapsed.toString());
+    } catch {}
+  }, [proViewCollapsed]);
+
   // Running Total Revenue (the detailed bid the user is building)
   const totalRevenue = React.useMemo(() => {
     return estimate.bidItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   }, [estimate.bidItems]);
 
-  // Target Margin % — pulled from selected Work Type + the Estimated Job Size in the top section
+  // Target Margin % — now driven by the BID ITEMS table total revenue (current bid total determines the Work Type pricing tier)
   // Only returns a real value AFTER a work type is selected (no default 20 until chosen)
   const targetMargin = React.useMemo(() => {
     if (!estimate.workTypeName || workTypes.length === 0) return 0;
     const wt = workTypes.find((w) => w.name === estimate.workTypeName);
     if (!wt || !wt.tiers || wt.tiers.length === 0) return 0;
-    const size = estimate.estimatedRevenue || 0;
+    let size = totalRevenue || 0;
+    if (size === 0) {
+      // when no bid items yet, use the first (smallest) tier as reasonable default for pro view
+      return wt.tiers[0].targetGpPercent;
+    }
     for (let i = 0; i < wt.tiers.length; i++) {
       const t = wt.tiers[i];
       const low = t.low ?? 0;
@@ -219,21 +261,47 @@ export default function ProjectPricerPage() {
       if (size >= low && size <= high) return t.targetGpPercent;
     }
     return wt.tiers[wt.tiers.length - 1].targetGpPercent;
-  }, [estimate.workTypeName, estimate.estimatedRevenue, workTypes]);
+  }, [estimate.workTypeName, totalRevenue, workTypes]);
 
-  // Target Bid Price = the value the user put in "Estimated Job Size / Revenue" (the total they are bidding)
-  const targetBidPrice = estimate.estimatedRevenue;
+  // Default GP% for Pro view: the target from work type tier (based on current bid total), or 20% if none selected
+  const defaultTargetGP = targetMargin > 0 ? targetMargin : 20;
 
-  // Simple "On Target / Below Target" logic for Level 1 educational feel
-  // Compares the detailed table total to the top-level bid target
-  const isOnTarget = React.useMemo(() => {
-    if (targetBidPrice <= 0) return true;
-    const diff = Math.abs(totalRevenue - targetBidPrice);
-    const pctDiff = targetBidPrice > 0 ? (diff / targetBidPrice) * 100 : 0;
-    return pctDiff <= 5; // within 5% is "on target"
-  }, [totalRevenue, targetBidPrice]);
+  // currentGPPercent is either the user-edited value (if >0) or falls back to the auto default target.
+  // This allows the field to show the correct target automatically while remaining fully user-editable.
+  const currentGPPercent = editableGrossProfitPercent > 0 ? editableGrossProfitPercent : defaultTargetGP;
 
-  const belowTargetBy = targetBidPrice > 0 ? Math.max(0, targetBidPrice - totalRevenue) : 0;
+  // For the yellow bar in simple bid section: editable margin % , defaults to target
+  const defaultBarMargin = targetMargin > 0 ? targetMargin : 20;
+  const currentBarMargin = barMarginPercent > 0 ? barMarginPercent : defaultBarMargin;
+
+  // Dynamic tint classes for the Grand Total card (Pro view only) — light green when hitting target, light amber when below.
+  // Neutral when no work type / no target margin yet.
+  const isNoTarget = !estimate.workTypeName || targetMargin <= 0;
+  const isHittingTarget = currentGPPercent >= defaultTargetGP;
+  const grandTotalCardClass = cn(
+    "border-2 rounded-xl p-4",
+    isNoTarget
+      ? "bg-slate-50 border-slate-300"
+      : isHittingTarget
+        ? "bg-[#e6f4ea] border-emerald-200"
+        : "bg-[#fce8e6] border-amber-200"
+  );
+  const grandTotalTitleClass = isNoTarget
+    ? "text-slate-800"
+    : isHittingTarget
+      ? "text-emerald-800"
+      : "text-amber-800";
+  const grandTotalNumberClass = cn(
+    "tabular-nums text-3xl font-bold",
+    isNoTarget
+      ? "text-slate-800"
+      : isHittingTarget
+        ? "text-emerald-800"
+        : "text-amber-800"
+  );
+
+  // Target Bid Price now uses the BID ITEMS table total (current bid total)
+  const targetBidPrice = totalRevenue;
 
   const workTypeOptions = workTypes.map((wt) => wt.name);
 
@@ -329,7 +397,7 @@ export default function ProjectPricerPage() {
       jobName: "New Project",
       workTypeName: estimate.workTypeName,
       salesperson: estimate.salesperson,
-      estimatedRevenue: 20000,
+      estimatedRevenue: 0,
       bidItems: [],
     });
   }
@@ -351,11 +419,6 @@ export default function ProjectPricerPage() {
     });
   }
 
-  // Helper: sync the top "Estimated Job Size" to the current table total (makes tier lookup accurate)
-  function syncEstimatedToTable() {
-    updateEstimate({ estimatedRevenue: Math.round(totalRevenue) });
-  }
-
   // Validate required fields (esp. salesperson) before calculate/save actions
   function validateForAction(): boolean {
     const sp = (estimate.salesperson || "").trim();
@@ -365,6 +428,14 @@ export default function ProjectPricerPage() {
     }
     setSalespersonError(false);
     return true;
+  }
+
+  function toggleBidItemsCollapsed() {
+    setBidItemsCollapsed((prev) => !prev);
+  }
+
+  function toggleProViewCollapsed() {
+    setProViewCollapsed((prev) => !prev);
   }
 
   // === Real LEM interactive helpers (Pro green section only - pulls from actual saved profiles) ===
@@ -435,8 +506,28 @@ export default function ProjectPricerPage() {
   const realTrueGP = totalRevenue - realTotalLEM;
   const realGPPercent = totalRevenue > 0 ? (realTrueGP / totalRevenue) * 100 : 0;
 
-  // Computed for Grand Total using editable % as true margin
-  const p = editableGrossProfitPercent;
+  // Calculations for the bottom yellow bar (simple bid section)
+  // Break-even = total revenue from simple BID ITEMS table
+  const barBreakEven = totalRevenue;
+  // Margin % from this bar (editable, defaults to target)
+  const barMargin = currentBarMargin;
+  // Profit $ = Break-even / (1 - Margin/100) - Break-even
+  const barProfit = (barBreakEven > 0 && barMargin > 0 && barMargin < 100)
+    ? (barBreakEven / (1 - barMargin / 100) - barBreakEven)
+    : 0;
+  // Bid Total = Break-even + Profit $
+  const barBidTotal = barBreakEven + barProfit;
+  // Calculated profit % is the margin we are applying
+  const barProfitPercent = barMargin;
+
+  // current profit % for banner indicator: use the bar's margin % (calculated profit %)
+  const currentProfitPercent = barProfitPercent;
+
+  // For the indicator badge in the bar: compare bar's profit % to target
+  const barOnTarget = (barBreakEven > 0 && barProfitPercent >= targetMargin);
+
+  // Computed for Grand Total using (user-editable or auto-default target) % as true margin
+  const p = currentGPPercent;
   const computedGrossProfit = (p > 0 && p < 100) ? realTotalLEM * (p / (100 - p)) : 0;
   const computedGrandTotal = realTotalLEM + computedGrossProfit;
 
@@ -475,10 +566,10 @@ export default function ProjectPricerPage() {
         </div>
       </div>
 
-      {/* 1. Top section — Job Name, Work Type, Salesperson, Estimated Job Size / Revenue */}
+      {/* 1. Top section — Job Name, Work Type, Salesperson. Bid total from table now drives margin tier. */}
       <Card className="card">
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <div>
               <Label className="text-xs font-medium tracking-wider text-muted-foreground">JOB NAME</Label>
               <Input
@@ -495,7 +586,7 @@ export default function ProjectPricerPage() {
                 value={estimate.workTypeName}
                 onValueChange={(val) => updateEstimate({ workTypeName: val })}
               >
-                <SelectTrigger className="mt-1.5">
+                <SelectTrigger className="mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]">
                   <SelectValue placeholder="Select work type..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -533,36 +624,6 @@ export default function ProjectPricerPage() {
                 <p className="mt-1 text-[10px] text-red-600">Salesperson is required</p>
               )}
             </div>
-
-            <div>
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium tracking-wider text-muted-foreground">
-                  ESTIMATED JOB SIZE / REVENUE
-                </Label>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 px-1 text-[10px] text-primary"
-                  onClick={syncEstimatedToTable}
-                  disabled={Math.abs(totalRevenue - estimate.estimatedRevenue) < 1}
-                >
-                  Use table total
-                </Button>
-              </div>
-              <div className="relative mt-1.5">
-                <Input
-                  type="number"
-                  value={estimate.estimatedRevenue}
-                  onChange={(e) => updateEstimate({ estimatedRevenue: Math.max(0, Number(e.target.value)) })}
-                  className="pl-7 text-lg font-medium tabular-nums"
-                  placeholder="24500"
-                />
-                <span className="absolute left-3 top-2.5 text-muted-foreground">$</span>
-              </div>
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                This is the total you are bidding. Used to pick your target margin tier.
-              </p>
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -570,12 +631,28 @@ export default function ProjectPricerPage() {
       {/* 2. Main estimating area — "Bid Items" (feels like classic estimating paper) */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
-          <div className="text-sm font-semibold tracking-[0.5px] text-muted-foreground">BID ITEMS</div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={toggleBidItemsCollapsed}
+              className="text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer"
+              aria-label={bidItemsCollapsed ? "Expand BID ITEMS" : "Collapse BID ITEMS"}
+            >
+              {bidItemsCollapsed ? "▶" : "▼"}
+            </button>
+            <button
+              onClick={toggleBidItemsCollapsed}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
+            >
+              {bidItemsCollapsed ? "Expand" : "Collapse"}
+            </button>
+            <div className="text-sm font-semibold tracking-[0.5px] text-muted-foreground">EPP Method (Electronic Pen and Paper method)</div>
+          </div>
           <Button size="sm" onClick={addBidItem}>
             <Plus className="mr-1.5 h-4 w-4" /> Add Line
           </Button>
         </div>
 
+        {!bidItemsCollapsed && (
         <Card className="card overflow-hidden border">
           <div className="overflow-x-auto">
             <Table>
@@ -671,417 +748,357 @@ export default function ProjectPricerPage() {
           {/* Compact Target Banner — sits directly under Total Revenue (small, low vertical footprint) */}
           {estimate.workTypeName && targetMargin > 0 && (
             <div className="border-t border-amber-200 bg-amber-50 px-4 py-1.5 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-5 text-amber-900">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-amber-700/70">Target Margin</span>
-                  <span className="font-semibold tabular-nums text-sm">{targetMargin.toFixed(1)}%</span>
-                </div>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-amber-700/70">Target Bid</span>
-                  <span className="font-semibold tabular-nums text-sm">${targetBidPrice.toLocaleString(undefined, { minimumFractionDigits: 0 })}</span>
-                </div>
-                {realLEMItems.length > 0 && (
-                  <div className="pl-3 border-l border-amber-200 text-[10px] text-amber-800/90 whitespace-nowrap">
-                    Your profit <span className="font-semibold tabular-nums">{realGPPercent.toFixed(1)}%</span> vs target <span className="font-semibold tabular-nums">{targetMargin.toFixed(1)}%</span>
-                  </div>
-                )}
+              <div className="text-amber-900">
+                Break-even: ${barBreakEven.toLocaleString(undefined, { minimumFractionDigits: 0 })} | Margin: <span className="inline-flex items-center gap-0.5">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={barMarginEdit !== "" ? barMarginEdit : (barMarginPercent > 0 ? barMarginPercent.toString() : defaultBarMargin.toString())}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setBarMarginEdit(raw);
+                      const trimmed = raw.trim();
+                      if (trimmed === '' || trimmed === '.' || trimmed === '-') {
+                        setBarMarginPercent(0);
+                      } else {
+                        const num = parseFloat(trimmed);
+                        if (!isNaN(num)) {
+                          setBarMarginPercent(num);
+                        }
+                      }
+                    }}
+                    onBlur={() => setBarMarginEdit("")}
+                    className="h-4 w-10 text-xs text-right tabular-nums border border-amber-300 bg-white/70 px-1 rounded"
+                  />
+                  <span className="font-semibold tabular-nums text-sm">%</span>
+                </span> | Profit: ${barProfit.toLocaleString(undefined, { minimumFractionDigits: 0 })} | Bid Total: ${barBidTotal.toLocaleString(undefined, { minimumFractionDigits: 0 })}
               </div>
               <div
                 className={cn(
                   "px-2 py-0.5 rounded font-medium text-[10px]",
-                  isOnTarget ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                  barOnTarget ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
                 )}
               >
-                {isOnTarget
-                  ? "On Target (within 5%)"
-                  : totalRevenue < targetBidPrice
-                    ? `Below Target — $${belowTargetBy.toLocaleString()} short`
-                    : "Above Target"}
+                {barOnTarget ? "On Target" : "Below Target"}
               </div>
             </div>
           )}
         </Card>
+        )}
       </div>
 
-      {/* LEM action buttons — placed directly after bid table + compact target banner */}
-      {estimate.workTypeName && (
-        <div className="space-y-3">
-          {/* The prominent educational button — now fully activated */}
-          <Button
-            className="w-full h-12 text-base font-semibold bg-orange-600 hover:bg-orange-700 text-white"
-            onClick={() => {
-              const next = !showLEM;
-              if (next && !validateForAction()) return;
-              setShowLEM(next);
-            }}
+
+
+      {/* Full Real LEM Breakdown (Pro View) — basic structural placeholder */}
+      <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50/60 p-5 text-sm space-y-3">
+        <div
+          className="font-semibold text-emerald-900 flex items-center gap-2 cursor-pointer"
+          onClick={toggleProViewCollapsed}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleProViewCollapsed(); }}
+            className="text-emerald-900 hover:text-emerald-700 focus:outline-none cursor-pointer"
+            aria-label={proViewCollapsed ? "Expand Pro View" : "Collapse Pro View"}
           >
-            {showLEM ? "Hide Real LEM Breakdown" : "Calculate Real LEM Costs →"}
-          </Button>
-          <p className="text-center text-[11px] text-muted-foreground">
-            See what your actual labor, equipment &amp; material costs would be
-          </p>
-
-          {/* SECOND more prominent button for full real LEM using actual saved profiles */}
-          <Button
-            className="w-full h-12 text-base font-semibold bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-emerald-700"
-            onClick={() => {
-              const next = !showRealLEM;
-              if (next && !validateForAction()) return;
-              setShowRealLEM(next);
-            }}
+            {proViewCollapsed ? "▶" : "▼"}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleProViewCollapsed(); }}
+            className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-900"
           >
-            {showRealLEM ? "Hide My Real LEM Breakdown" : "Use My Actual Saved Rates"}
-          </Button>
-          <p className="text-center text-[11px] text-emerald-700/80 -mt-1">
-            Pulls directly from your saved Labor, Equipment &amp; Material profiles for accurate costing
-          </p>
+            {proViewCollapsed ? "Expand" : "Collapse"}
+          </button>
+          <Calculator className="h-4 w-4" /> Full Real LEM Breakdown (Pro View)
         </div>
-      )}
+        {!proViewCollapsed && (
+        <>
+        <div className="text-xs text-emerald-800/80">
+          Placeholder for selecting profiles and entering actual LEM quantities (to be implemented in later phases).
+        </div>
 
-      {/* LEM Breakdown - clean, educational, toggleable (full-width for spaciousness) */}
-      {showLEM && (
-        <div className="mt-4 rounded-lg border bg-orange-50/50 p-4 text-sm space-y-2">
-          <div className="font-semibold text-orange-900 flex items-center gap-2">
-            <Calculator className="h-4 w-4" /> Real LEM Cost Estimate (Level 1 default allocation)
-          </div>
-          <div className="text-xs text-orange-800/80">
-            Based on your saved rates and a typical cost mix for “{estimate.workTypeName || "this work type"}” at the target margin.
+        {/* Interactive adders - three columns */}
+        <div className="grid grid-cols-3 gap-3 pt-2">
+          {/* Labor column */}
+          <div className="border rounded p-2.5 bg-white/70">
+            <div className="font-medium text-emerald-900 mb-1">Labor</div>
+            {pendingLaborId && laborProfiles.find((p: any) => p.id === pendingLaborId) && (
+              <div className="text-[9px] text-emerald-800/90 truncate mb-1">
+                {laborProfiles.find((p: any) => p.id === pendingLaborId).role}
+              </div>
+            )}
+            <div className="flex gap-1 items-end">
+              <Select value={pendingLaborId} onValueChange={setPendingLaborId}>
+                <SelectTrigger className="h-8 text-xs flex-1 max-w-[110px] truncate"><SelectValue placeholder="Select role..." /></SelectTrigger>
+                <SelectContent>
+                  {laborProfiles.length > 0 ? laborProfiles.map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>{p.role}</SelectItem>
+                  )) : <div className="p-2 text-xs text-muted-foreground">No labor profiles saved. <Link href="/labor-rates" className="underline">Go add your rates in the Labor Builder</Link></div>}
+                </SelectContent>
+              </Select>
+              <input type="text" inputMode="numeric" value={pendingLaborQtyEdit !== "" ? pendingLaborQtyEdit : (pendingLaborQty === 0 ? '' : pendingLaborQty.toString())} onChange={e => {
+                const raw = e.target.value;
+                setPendingLaborQtyEdit(raw);
+                const trimmed = raw.trim();
+                if (trimmed === '' || trimmed === '.' || trimmed === '-') {
+                  setPendingLaborQty(0);
+                } else {
+                  const n = parseFloat(trimmed);
+                  if (!isNaN(n) && n >= 0) {
+                    setPendingLaborQty(n);
+                  }
+                }
+              }} onBlur={() => setPendingLaborQtyEdit("")} className="h-8 w-14 text-xs text-right tabular-nums" />
+              <Button size="sm" className="h-8 px-2 text-xs" onClick={() => {
+                if (pendingLaborId) {
+                  addRealLEMItem('labor', pendingLaborId, pendingLaborQty);
+                  setPendingLaborId('');
+                  setPendingLaborQty(0);
+                  setPendingLaborQtyEdit("");
+                }
+              }}>Add Labor</Button>
+            </div>
           </div>
 
-          <div className="pt-2 space-y-1 font-medium">
-            <div className="flex justify-between">
-              <span>Estimated Labor Cost</span>
-              <span className="tabular-nums">${lemAllocation.labor.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Estimated Equipment Cost</span>
-              <span className="tabular-nums">${lemAllocation.equipment.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Estimated Material Cost</span>
-              <span className="tabular-nums">${lemAllocation.material.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            </div>
-            <div className="flex justify-between border-t pt-1 font-semibold">
-              <span>Total Real LEM Cost</span>
-              <span className="tabular-nums">${lemAllocation.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+          {/* Equipment column */}
+          <div className="border rounded p-2.5 bg-white/70">
+            <div className="font-medium text-emerald-900 mb-1">Equipment</div>
+            {pendingEquipId && equipmentProfiles.find((p: any) => p.id === pendingEquipId) && (
+              <div className="text-[9px] text-emerald-800/90 truncate mb-1">
+                {equipmentProfiles.find((p: any) => p.id === pendingEquipId).description}
+              </div>
+            )}
+            <div className="flex gap-1 items-end">
+              <Select value={pendingEquipId} onValueChange={setPendingEquipId}>
+                <SelectTrigger className="h-8 text-xs flex-1 max-w-[110px] truncate"><SelectValue placeholder="Select equipment..." /></SelectTrigger>
+                <SelectContent>
+                  {equipmentProfiles.length > 0 ? equipmentProfiles.map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>{p.description}</SelectItem>
+                  )) : <div className="p-2 text-xs text-muted-foreground">No equipment profiles saved. <Link href="/equipment-rates" className="underline">Go add your rates in the Equipment Builder</Link></div>}
+                </SelectContent>
+              </Select>
+              <input type="text" inputMode="numeric" value={pendingEquipQtyEdit !== "" ? pendingEquipQtyEdit : (pendingEquipQty === 0 ? '' : pendingEquipQty.toString())} onChange={e => {
+                const raw = e.target.value;
+                setPendingEquipQtyEdit(raw);
+                const trimmed = raw.trim();
+                if (trimmed === '' || trimmed === '.' || trimmed === '-') {
+                  setPendingEquipQty(0);
+                } else {
+                  const n = parseFloat(trimmed);
+                  if (!isNaN(n) && n >= 0) {
+                    setPendingEquipQty(n);
+                  }
+                }
+              }} onBlur={() => setPendingEquipQtyEdit("")} className="h-8 w-14 text-xs text-right tabular-nums" />
+              <Button size="sm" className="h-8 px-2 text-xs" onClick={() => {
+                if (pendingEquipId) {
+                  addRealLEMItem('equipment', pendingEquipId, pendingEquipQty);
+                  setPendingEquipId('');
+                  setPendingEquipQty(0);
+                  setPendingEquipQtyEdit("");
+                }
+              }}>Add Equip</Button>
             </div>
           </div>
 
-          <div className="pt-2 border-t space-y-1">
-            <div className="flex justify-between font-semibold text-lg">
-              <span>True Gross Profit $</span>
-              <span className={cn("tabular-nums", trueGrossProfit >= 0 ? "text-emerald-700" : "text-red-700")}>
-                ${trueGrossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </span>
+          {/* Material column */}
+          <div className="border rounded p-2.5 bg-white/70">
+            <div className="font-medium text-emerald-900 mb-1">Material</div>
+            {pendingMatId && materialProfiles.find((p: any) => p.id === pendingMatId) && (
+              <div className="text-[9px] text-emerald-800/90 truncate mb-1">
+                {materialProfiles.find((p: any) => p.id === pendingMatId).description}
+              </div>
+            )}
+            <div className="flex gap-1 items-end">
+              <Select value={pendingMatId} onValueChange={setPendingMatId}>
+                <SelectTrigger className="h-8 text-xs flex-1 max-w-[110px] truncate"><SelectValue placeholder="Select material..." /></SelectTrigger>
+                <SelectContent>
+                  {materialProfiles.length > 0 ? materialProfiles.map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>{p.description}</SelectItem>
+                  )) : <div className="p-2 text-xs text-muted-foreground">No material profiles saved. <Link href="/material-rates" className="underline">Go add your rates in the Material Builder</Link></div>}
+                </SelectContent>
+              </Select>
+              <input type="text" inputMode="numeric" value={pendingMatQtyEdit !== "" ? pendingMatQtyEdit : (pendingMatQty === 0 ? '' : pendingMatQty.toString())} onChange={e => {
+                const raw = e.target.value;
+                setPendingMatQtyEdit(raw);
+                const trimmed = raw.trim();
+                if (trimmed === '' || trimmed === '.' || trimmed === '-') {
+                  setPendingMatQty(0);
+                } else {
+                  const n = parseFloat(trimmed);
+                  if (!isNaN(n) && n >= 0) {
+                    setPendingMatQty(n);
+                  }
+                }
+              }} onBlur={() => setPendingMatQtyEdit("")} className="h-8 w-14 text-xs text-right tabular-nums" />
+              <Button size="sm" className="h-8 px-2 text-xs" onClick={() => {
+                if (pendingMatId) {
+                  addRealLEMItem('material', pendingMatId, pendingMatQty);
+                  setPendingMatId('');
+                  setPendingMatQty(0);
+                  setPendingMatQtyEdit("");
+                }
+              }}>Add Mat</Button>
             </div>
-            <div className="flex justify-between text-sm">
-              <span>True Gross Profit %</span>
-              <span className={cn("font-semibold tabular-nums", grossProfitPercent >= targetMargin ? "text-emerald-700" : "text-red-700")}>
-                {grossProfitPercent.toFixed(1)}%
-              </span>
-            </div>
-          </div>
-
-          <div className="text-[10px] text-orange-900/70 pt-1">
-            Your saved rates avg: Labor ${avgLaborRate.toFixed(2)}/hr • Materials ${avgMaterialRate.toFixed(2)} • {equipmentCount} equipment profiles loaded.
-            This is an estimate — real numbers will come from linking your exact LEM quantities in future levels.
           </div>
         </div>
-      )}
 
-      {/* Full Real LEM Breakdown (green pro section) — spacious layout, horizontal summaries, breathing room on Added Items table */}
-      {showRealLEM && (
-        <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50/60 p-5 text-sm space-y-3">
-          <style>{`
-input[type="text"][inputmode="numeric"] {
-  -webkit-appearance: none;
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-`}</style>
-          <div className="font-semibold text-emerald-900 flex items-center gap-2">
-            <Calculator className="h-4 w-4" /> Full Real LEM Breakdown — Powered by Your Saved Profiles
-          </div>
-          <div className="text-xs text-emerald-800/80">
-            Select profiles from your builders and adjust quantities/hours. Costs update live using the actual saved rates (true burdened costs).
-          </div>
-
-          {/* Interactive adders - three clean columns with est totals directly under each */}
-          <div className="grid grid-cols-3 gap-3 pt-2">
-            {/* Labor column */}
-            <div className="border rounded p-2.5 bg-white/70">
-              {pendingLaborId && laborProfiles.find((p: any) => p.id === pendingLaborId) && (
-                <div className="text-[9px] text-emerald-800/90 truncate mb-1">
-                  {laborProfiles.find((p: any) => p.id === pendingLaborId).role}
-                </div>
-              )}
-              <div className="flex gap-1 items-end">
-                <Select value={pendingLaborId} onValueChange={setPendingLaborId}>
-                  <SelectTrigger className="h-8 text-xs flex-1 max-w-[110px] truncate"><SelectValue placeholder="Select role..." /></SelectTrigger>
-                  <SelectContent>
-                    {laborProfiles.length > 0 ? laborProfiles.map((p: any) => (
-                      <SelectItem key={p.id} value={p.id}>{p.role}</SelectItem>
-                    )) : <div className="p-2 text-xs text-muted-foreground">No labor profiles saved. <Link href="/labor-rates" className="underline">Go add your rates in the Labor Builder</Link></div>}
-                  </SelectContent>
-                </Select>
-                <input type="text" inputMode="numeric" value={pendingLaborQtyEdit !== "" ? pendingLaborQtyEdit : (pendingLaborQty === 0 ? '' : pendingLaborQty.toString())} onChange={e => {
-                  const raw = e.target.value;
-                  setPendingLaborQtyEdit(raw);
-                  const trimmed = raw.trim();
-                  if (trimmed === '' || trimmed === '.' || trimmed === '-') {
-                    setPendingLaborQty(0);
-                  } else {
-                    const n = parseFloat(trimmed);
-                    if (!isNaN(n) && n >= 0) {
-                      setPendingLaborQty(n);
-                    }
-                  }
-                }} onBlur={() => setPendingLaborQtyEdit("")} className="h-8 w-14 text-xs text-right tabular-nums" />
-                <Button size="sm" className="h-8 px-2 text-xs" onClick={() => {
-                  if (pendingLaborId) {
-                    addRealLEMItem('labor', pendingLaborId, pendingLaborQty);
-                    setPendingLaborId('');
-                    setPendingLaborQty(0);
-                    setPendingLaborQtyEdit("");
-                  }
-                }}>Add Labor</Button>
-              </div>
-              <div className="mt-2 pt-1 border-t text-[10px]">
-                <div className="flex justify-between">
-                  <span>Est. Labor</span>
-                  <span className="font-medium tabular-nums">${realLaborCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Equipment column */}
-            <div className="border rounded p-2.5 bg-white/70">
-              {pendingEquipId && equipmentProfiles.find((p: any) => p.id === pendingEquipId) && (
-                <div className="text-[9px] text-emerald-800/90 truncate mb-1">
-                  {equipmentProfiles.find((p: any) => p.id === pendingEquipId).description}
-                </div>
-              )}
-              <div className="flex gap-1 items-end">
-                <Select value={pendingEquipId} onValueChange={setPendingEquipId}>
-                  <SelectTrigger className="h-8 text-xs flex-1 max-w-[110px] truncate"><SelectValue placeholder="Select equipment..." /></SelectTrigger>
-                  <SelectContent>
-                    {equipmentProfiles.length > 0 ? equipmentProfiles.map((p: any) => (
-                      <SelectItem key={p.id} value={p.id}>{p.description}</SelectItem>
-                    )) : <div className="p-2 text-xs text-muted-foreground">No equipment profiles saved. <Link href="/equipment-rates" className="underline">Go add your rates in the Equipment Builder</Link></div>}
-                  </SelectContent>
-                </Select>
-                <input type="text" inputMode="numeric" value={pendingEquipQtyEdit !== "" ? pendingEquipQtyEdit : (pendingEquipQty === 0 ? '' : pendingEquipQty.toString())} onChange={e => {
-                  const raw = e.target.value;
-                  setPendingEquipQtyEdit(raw);
-                  const trimmed = raw.trim();
-                  if (trimmed === '' || trimmed === '.' || trimmed === '-') {
-                    setPendingEquipQty(0);
-                  } else {
-                    const n = parseFloat(trimmed);
-                    if (!isNaN(n) && n >= 0) {
-                      setPendingEquipQty(n);
-                    }
-                  }
-                }} onBlur={() => setPendingEquipQtyEdit("")} className="h-8 w-14 text-xs text-right tabular-nums" />
-                <Button size="sm" className="h-8 px-2 text-xs" onClick={() => {
-                  if (pendingEquipId) {
-                    addRealLEMItem('equipment', pendingEquipId, pendingEquipQty);
-                    setPendingEquipId('');
-                    setPendingEquipQty(0);
-                    setPendingEquipQtyEdit("");
-                  }
-                }}>Add Equip</Button>
-              </div>
-              <div className="mt-2 pt-1 border-t text-[10px]">
-                <div className="flex justify-between">
-                  <span>Est. Equipment</span>
-                  <span className="font-medium tabular-nums">${realEquipCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Material column */}
-            <div className="border rounded p-2.5 bg-white/70">
-              {pendingMatId && materialProfiles.find((p: any) => p.id === pendingMatId) && (
-                <div className="text-[9px] text-emerald-800/90 truncate mb-1">
-                  {materialProfiles.find((p: any) => p.id === pendingMatId).description}
-                </div>
-              )}
-              <div className="flex gap-1 items-end">
-                <Select value={pendingMatId} onValueChange={setPendingMatId}>
-                  <SelectTrigger className="h-8 text-xs flex-1 max-w-[110px] truncate"><SelectValue placeholder="Select material..." /></SelectTrigger>
-                  <SelectContent>
-                    {materialProfiles.length > 0 ? materialProfiles.map((p: any) => (
-                      <SelectItem key={p.id} value={p.id}>{p.description}</SelectItem>
-                    )) : <div className="p-2 text-xs text-muted-foreground">No material profiles saved. <Link href="/material-rates" className="underline">Go add your rates in the Material Builder</Link></div>}
-                  </SelectContent>
-                </Select>
-                <input type="text" inputMode="numeric" value={pendingMatQtyEdit !== "" ? pendingMatQtyEdit : (pendingMatQty === 0 ? '' : pendingMatQty.toString())} onChange={e => {
-                  const raw = e.target.value;
-                  setPendingMatQtyEdit(raw);
-                  const trimmed = raw.trim();
-                  if (trimmed === '' || trimmed === '.' || trimmed === '-') {
-                    setPendingMatQty(0);
-                  } else {
-                    const n = parseFloat(trimmed);
-                    if (!isNaN(n) && n >= 0) {
-                      setPendingMatQty(n);
-                    }
-                  }
-                }} onBlur={() => setPendingMatQtyEdit("")} className="h-8 w-14 text-xs text-right tabular-nums" />
-                <Button size="sm" className="h-8 px-2 text-xs" onClick={() => {
-                  if (pendingMatId) {
-                    addRealLEMItem('material', pendingMatId, pendingMatQty);
-                    setPendingMatId('');
-                    setPendingMatQty(0);
-                    setPendingMatQtyEdit("");
-                  }
-                }}>Add Mat</Button>
-              </div>
-              <div className="mt-2 pt-1 border-t text-[10px]">
-                <div className="flex justify-between">
-                  <span>Est. Material</span>
-                  <span className="font-medium tabular-nums">${realMatCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Added Items table — more breathing room (taller rows, wider columns, extra padding) */}
-          <div className="border-t pt-3">
-            {realLEMItems.length > 0 ? (
-              <div className="bg-white border rounded overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/30">
-                      <TableHead>Description</TableHead>
-                      <TableHead className="w-28 text-right">Unit Rate</TableHead>
-                      <TableHead className="w-28 text-right">Qty/Hrs</TableHead>
-                      <TableHead className="w-32 text-right">Line Total</TableHead>
-                      <TableHead className="w-10"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {realLEMItems.map(item => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium py-1">{item.description}</TableCell>
-                        <TableCell className="text-right tabular-nums text-xs py-1">${item.unitCost.toFixed(2)}</TableCell>
-                        <TableCell className="text-right py-1">
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={qtyEdits[item.id] !== undefined ? qtyEdits[item.id] : (item.quantity === 0 ? '' : item.quantity.toString())}
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              setQtyEdits(prev => ({ ...prev, [item.id]: raw }));
-
-                              const trimmed = raw.trim();
-                              if (trimmed === '' || trimmed === '.' || trimmed === '-') {
-                                updateRealLEMQuantity(item.id, 0);
-                              } else {
-                                const num = parseFloat(trimmed);
-                                if (!isNaN(num) && num >= 0) {
-                                  updateRealLEMQuantity(item.id, num);
-                                }
+        {/* Added Items list */}
+        <div className="border-t pt-3">
+          <div className="text-[10px] font-medium text-emerald-900 mb-1">Added Items</div>
+          {realLEMItems.length > 0 ? (
+            <div className="bg-white border rounded overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30">
+                    <TableHead>Description</TableHead>
+                    <TableHead className="w-20 text-right">Qty/Hrs</TableHead>
+                    <TableHead className="w-20 text-right">Unit Rate</TableHead>
+                    <TableHead className="w-24 text-right">Line Total</TableHead>
+                    <TableHead className="w-8"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {realLEMItems.map(item => (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-medium py-1">{item.description}</TableCell>
+                      <TableCell className="text-right py-1">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={qtyEdits[item.id] !== undefined ? qtyEdits[item.id] : (item.quantity === 0 ? '' : item.quantity.toString())}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setQtyEdits(prev => ({ ...prev, [item.id]: raw }));
+                            const trimmed = raw.trim();
+                            if (trimmed === '' || trimmed === '.' || trimmed === '-') {
+                              updateRealLEMQuantity(item.id, 0);
+                            } else {
+                              const num = parseFloat(trimmed);
+                              if (!isNaN(num) && num >= 0) {
+                                updateRealLEMQuantity(item.id, num);
                               }
-                            }}
-                            onBlur={() => {
-                              setQtyEdits(prev => {
-                                const { [item.id]: _, ...rest } = prev;
-                                return rest;
-                              });
-                            }}
-                            className="h-8 w-20 text-sm text-right tabular-nums border border-input px-2"
-                            placeholder="0"
-                          />
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums font-medium py-1">${(item.quantity * item.unitCost).toFixed(2)}</TableCell>
-                        <TableCell className="py-1">
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-800" onClick={() => removeRealLEMItem(item.id)}>
-                            ×
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : null}
-          </div>
-
-          {/* Profit Summary */}
-          <div className="pt-3 border-t">
-            <div className="border rounded p-2.5 bg-white/70">
-              <div className="text-[10px] font-medium text-emerald-900 mb-1">Profit Summary</div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span>Gross Profit %</span>
-                  <div className="flex items-center gap-0.5">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={gpPercentEdit !== "" ? gpPercentEdit : (editableGrossProfitPercent === 0 ? '' : editableGrossProfitPercent.toString())}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        setGpPercentEdit(raw);
-                        const trimmed = raw.trim();
-                        if (trimmed === '' || trimmed === '.' || trimmed === '-') {
-                          setEditableGrossProfitPercent(0);
-                        } else {
-                          const num = parseFloat(trimmed);
-                          if (!isNaN(num)) {
-                            setEditableGrossProfitPercent(num);
-                          }
-                        }
-                      }}
-                      onBlur={() => setGpPercentEdit("")}
-                      className="h-7 w-16 text-sm text-right tabular-nums border border-input px-1"
-                    />
-                    <span>%</span>
-                  </div>
-                  <div className="text-[10px] text-emerald-700/70 mt-1 leading-snug">This is true gross profit margin (not markup). Margin is what you actually keep out of the selling price.</div>
-                </div>
-                <div>
-                  <span>Gross Profit $</span>
-                  <span className="font-semibold tabular-nums">${computedGrossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                </div>
-              </div>
+                            }
+                          }}
+                          onBlur={() => {
+                            setQtyEdits(prev => {
+                              const { [item.id]: _, ...rest } = prev;
+                              return rest;
+                            });
+                          }}
+                          className="h-7 w-16 text-xs text-right tabular-nums border border-input px-1"
+                          placeholder="0"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-xs py-1">${item.unitCost.toFixed(2)}</TableCell>
+                      <TableCell className="text-right tabular-nums font-medium py-1">${(item.quantity * item.unitCost).toFixed(2)}</TableCell>
+                      <TableCell className="py-1">
+                        <Button variant="ghost" size="icon" className="h-5 w-5 text-red-600 hover:text-red-800" onClick={() => removeRealLEMItem(item.id)}>
+                          ×
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-          </div>
+          ) : (
+            <div className="text-[10px] text-muted-foreground">No items added yet. Use the columns above to add Labor, Equipment, or Material from your saved profiles.</div>
+          )}
+        </div>
 
-          {/* Grand Total */}
-          <div className="pt-4 border-t-2 border-emerald-400">
-            <div className="bg-emerald-50 border-2 border-emerald-500 rounded-xl p-4">
-              <div className="font-bold text-emerald-900 mb-2">Grand Total</div>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span>Total Real LEM Cost</span>
-                  <span className="font-semibold tabular-nums">${realTotalLEM.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Gross Profit %</span>
-                  <span className="font-semibold tabular-nums">{editableGrossProfitPercent.toFixed(1)}%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Gross Profit $</span>
-                  <span className="font-semibold tabular-nums">${computedGrossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div className="flex justify-between border-t pt-1 font-bold">
-                  <span>Grand Total</span>
-                  <span className="tabular-nums text-3xl text-emerald-900">
-                    ${computedGrandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-            </div>
+        {/* Summary totals */}
+        <div className="pt-2 border-t text-xs">
+          <div className="flex justify-between">
+            <span>Total Labor Cost</span>
+            <span className="font-medium tabular-nums">${realLaborCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
           </div>
-
-          <div className="text-[10px] text-emerald-900/80 pt-1 border-t border-emerald-200">
-            Live from your saved profiles. Adjust quantities above to see how different crew/equipment/material choices affect your true profit on this bid.
-            <br />This is the Pro view — experiment freely. (Future: auto-suggest quantities from bid items.)
+          <div className="flex justify-between">
+            <span>Total Equipment Cost</span>
+            <span className="font-medium tabular-nums">${realEquipCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Total Material Cost</span>
+            <span className="font-medium tabular-nums">${realMatCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
           </div>
         </div>
-      )}
+
+        {/* Profit Summary */}
+        <div className="pt-3 border-t">
+          <div className="border rounded p-2.5 bg-white/70">
+            <div className="text-[10px] font-medium text-emerald-900 mb-1">Profit Summary</div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="flex items-baseline gap-2">
+                  <span>Gross Profit %</span>
+                  <span className="text-[10px] text-emerald-700/80 font-normal">Target: {defaultTargetGP.toFixed(0)}%</span>
+                </div>
+                <div className="flex items-center gap-0.5">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={gpPercentEdit !== "" ? gpPercentEdit : (editableGrossProfitPercent > 0 ? editableGrossProfitPercent.toString() : defaultTargetGP.toString())}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setGpPercentEdit(raw);
+                      const trimmed = raw.trim();
+                      if (trimmed === '' || trimmed === '.' || trimmed === '-') {
+                        setEditableGrossProfitPercent(0);
+                      } else {
+                        const num = parseFloat(trimmed);
+                        if (!isNaN(num)) {
+                          setEditableGrossProfitPercent(num);
+                        }
+                      }
+                    }}
+                    onBlur={() => setGpPercentEdit("")}
+                    className="h-7 w-16 text-sm text-right tabular-nums border border-input px-1"
+                  />
+                  <span>%</span>
+                </div>
+                <div className="text-[10px] text-emerald-700/70 mt-1 leading-snug">This is true gross profit margin (not markup). Margin is what you actually keep out of the selling price.</div>
+              </div>
+              <div>
+                <span>Gross Profit $</span>
+                <span className="font-semibold tabular-nums">${computedGrossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Grand Total */}
+        <div className="pt-4 border-t-2 border-gray-300">
+          <div className={grandTotalCardClass}>
+            <div className={`font-bold mb-2 ${grandTotalTitleClass}`}>Grand Total</div>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span>Total Real LEM Cost</span>
+                <span className="font-semibold tabular-nums">${realTotalLEM.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Gross Profit %</span>
+                <span className="font-semibold tabular-nums">{currentGPPercent.toFixed(1)}%</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Gross Profit $</span>
+                <span className="font-semibold tabular-nums">${computedGrossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex justify-between border-t-2 pt-2 mt-1 font-bold text-base bg-white/30 -mx-1 px-1 rounded">
+                <span className="text-lg">Grand Total</span>
+                <span className={grandTotalNumberClass}>
+                  ${computedGrandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+
+
+
+        </>
+        )}
+      </div>
 
       {/* Educational Dialog (the curiosity hook) */}
       {showCostDialog && (
