@@ -1,0 +1,324 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-heading);
+    --font-sans: var(--font-sans);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    /* ============================================
+       PMZ Performance Margin Brand Palette (Light)
+       Primary Red #EB3300 — accent, buttons, highlights, headers
+       Rich Burgundy #7D1424 — secondary accent
+       Dark Charcoal #333333 / Black #212322 — text, sidebar, headers
+       Greys & Silvers — backgrounds, borders, subtle elements
+    ============================================ */
+    --background: #FAFAFA;
+    --foreground: #212322;
+    --card: #FFFFFF;
+    --card-foreground: #333333;
+    --popover: #FFFFFF;
+    --popover-foreground: #333333;
+    --primary: #EB3300;           /* Performance Margin Red */
+    --primary-foreground: #FFFFFF;
+    --primary-600: #C72A00;
+    --secondary: #F4F4F5;
+    --secondary-foreground: #333333;
+    --muted: #F4F4F5;
+    --muted-foreground: #5F5F5F;
+    --accent: #7D1424;            /* Rich Burgundy */
+    --accent-foreground: #FFFFFF;
+    --destructive: #B91C1C;
+    --destructive-foreground: #FFFFFF;
+    --border: #E5E5E7;
+    --input: #FFFFFF;
+    --ring: #EB3300;
+    --chart-1: #EB3300;
+    --chart-2: #7D1424;
+    --chart-3: #333333;
+    --chart-4: #5C5C5C;
+    --chart-5: #8A8A8A;
+    --radius: 0.625rem;
+
+    /* Sidebar (dark with brand red accents) */
+    --sidebar: #212322;
+    --sidebar-foreground: #E5E5E5;
+    --sidebar-primary: #EB3300;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #7D1424;
+    --sidebar-accent-foreground: #FFFFFF;
+    --sidebar-border: rgba(229, 229, 231, 0.12);
+    --sidebar-ring: #EB3300;
+
+    /* PMZ Extended Semantic Tokens */
+    --success: #15803D;
+    --success-foreground: #FFFFFF;
+    --warning: #B45309;
+    --warning-foreground: #FFFFFF;
+    --danger: #B91C1C;
+    --surface: #FFFFFF;
+    --surface-2: #F4F4F5;
+    --foreground-subtle: #6B6B6B;
+    --border-strong: #D4D4D8;
+    --input-border: #D4D4D8;
+    --price-positive: #15803D;
+    --price-negative: #EB3300;
+}
+
+/* Dark mode (brand-adapted with Performance Margin red accents) */
+.dark {
+    --background: #1C1C1D;
+    --foreground: #F2F2F2;
+    --card: #272728;
+    --card-foreground: #F2F2F2;
+    --popover: #272728;
+    --popover-foreground: #F2F2F2;
+    --primary: #FF4D1A;
+    --primary-foreground: #FFFFFF;
+    --primary-600: #EB3300;
+    --secondary: #2C2C2D;
+    --secondary-foreground: #F2F2F2;
+    --muted: #2C2C2D;
+    --muted-foreground: #9CA3AF;
+    --accent: #9B2C3A;
+    --accent-foreground: #F2F2F2;
+    --destructive: #EF4444;
+    --destructive-foreground: #FFFFFF;
+    --border: #3F3F40;
+    --input: #272728;
+    --ring: #FF4D1A;
+
+    --sidebar: #111112;
+    --sidebar-foreground: #E5E5E5;
+    --sidebar-primary: #FF4D1A;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #9B2C3A;
+    --sidebar-accent-foreground: #FFFFFF;
+    --sidebar-border: rgba(63, 63, 64, 0.4);
+    --sidebar-ring: #FF4D1A;
+
+    --success: #22C55E;
+    --warning: #F59E0B;
+    --surface: #272728;
+    --surface-2: #1C1C1D;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}
+
+/* ============================================
+   PMZ Pricing Assistant - Professional Enhancements
+   Performance Margin Brand (Red/Burgundy + Charcoal)
+   ============================================ */
+
+/* Professional Typography - Performance Margin fonts (Funnel Display for bold headings, Golos Text for body) */
+h1, h2, h3, h4, .font-heading {
+  font-family: var(--font-heading, "Funnel Display", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+body, input, select, textarea, .font-sans {
+  font-family: var(--font-sans, "Golos Text", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+}
+
+.price,
+.metric-value {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.currency {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle section labels */
+.label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--foreground-subtle);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Enhanced Cards */
+.card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgb(15 23 42 / 0.04);
+}
+
+.card-hover:hover {
+  box-shadow: 0 4px 6px -1px rgb(15 23 42 / 0.06), 
+              0 2px 4px -2px rgb(15 23 42 / 0.06);
+  transition: box-shadow 0.2s ease;
+}
+
+/* Professional Sidebar Styles (for custom sidebar) */
+.sidebar {
+  background-color: var(--sidebar);
+  color: var(--sidebar-foreground);
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar-link:hover {
+  background-color: rgba(235, 51, 0, 0.18);
+  color: white;
+}
+
+.sidebar-link.active {
+  background-color: var(--sidebar-accent);
+  color: white;
+  font-weight: 600;
+}
+
+.sidebar-link svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+}
+
+/* Form Enhancements */
+input, select, textarea {
+  background-color: var(--input);
+  border: 1px solid var(--input-border);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  border-radius: 0.5rem;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--ring);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(235, 51, 0, 0.15);
+}
+
+.input-large {
+  font-size: 1.125rem;
+  font-weight: 600;
+  padding: 0.875rem 1rem;
+}
+
+/* Table Styling (tabular nums) */
+table {
+  font-feature-settings: "tnum";
+}
+
+th {
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+td {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Utility / Semantic Colors */
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+.text-danger  { color: var(--danger); }
+
+.bg-success { background-color: var(--success); color: white; }
+.bg-warning { background-color: var(--warning); color: white; }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
+}
+
+/* Layout utilities for main content area */
+.main-content {
+  min-height: 100dvh;
+  background: var(--background);
+}
+
+/* Focus states for accessibility (contractor desktop use) */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Print friendly tweaks (per PLAN non-functional) */
+@media print {
+  .sidebar, .topbar-actions {
+    display: none !important;
+  }
+  .main-content {
+    padding: 0 !important;
+  }
+}
