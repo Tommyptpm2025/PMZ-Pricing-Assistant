@@ -24,9 +24,7 @@ import {
   type EquipmentRateInputs,
   type EquipmentRateResult,
 } from "@/lib/calculations";
-
-// LocalStorage key for saved detailed equipment profiles
-const STORAGE_KEY = "pmz_equipment_rates_v2";
+import { useRateStore } from "@/lib/rate-store";
 
 function createId() {
   return Math.random().toString(36).slice(2, 11);
@@ -150,8 +148,6 @@ export default function EquipmentRateBuilder() {
   // Current working inputs (rich live calculator)
   const [inputs, setInputs] = React.useState<EquipmentBuilderInputs>(DEFAULT_BUILDER_INPUTS);
 
-  // Saved profiles
-  const [savedProfiles, setSavedProfiles] = React.useState<SavedEquipmentProfile[]>([]);
   const [editingId, setEditingId] = React.useState<string | null>(null);
 
   // Track the currently selected saved profile (persists after save for list/table highlight)
@@ -159,27 +155,28 @@ export default function EquipmentRateBuilder() {
 
   // Brief success message after saving changes
   const [justSaved, setJustSaved] = React.useState(false);
+  const [reloadMsg, setReloadMsg] = React.useState('');
 
   // Tab state for the new clean tabbed interface
   const [activeTab, setActiveTab] = React.useState<'builder' | 'saved'>('builder');
 
-  // Load saved profiles
-  React.useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed: SavedEquipmentProfile[] = JSON.parse(raw);
-        setSavedProfiles(parsed);
-      }
-    } catch {}
-  }, []);
+  // Centralized rate store (single source for labor/equip/material; survives tab switches, Fast Refresh, reloads)
+  const {
+    equipmentRates: savedProfiles,
+    saveEquipmentRate,
+    updateEquipmentRate,
+    deleteEquipmentRate,
+    getEquipmentRates,
+    reloadFromStorage,
+  } = useRateStore();
 
-  // Persist profiles
-  React.useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(savedProfiles));
-    } catch {}
-  }, [savedProfiles]);
+  // Manual reload from central store (forces fresh read from localStorage for recovery)
+  function reloadSavedRates() {
+    reloadFromStorage();
+    console.log('[Equipment Rates] reloadSavedRates -> delegated to rate-store reloadFromStorage');
+    setReloadMsg("Rates reloaded from storage");
+    setTimeout(() => setReloadMsg(''), 2000);
+  }
 
   // ==================== LIVE CALCULATIONS ====================
   const calculations = React.useMemo(() => {
@@ -283,25 +280,27 @@ export default function EquipmentRateBuilder() {
     setJustSaved(false);
   }
 
-  // ==================== SAVED PROFILES ====================
+  // ==================== SAVED PROFILES (delegates persistence to centralized store) ====================
   function addCurrentProfile() {
-    const newId = createId();
-    const newProfile: SavedEquipmentProfile = {
-      ...inputs,
-      id: newId,
-    };
-    setSavedProfiles((prev) => [...prev, newProfile]);
+    console.log("=== SAVE BUTTON CLICKED ===");
+    console.log("Current form data:", inputs);
+    const newId = saveEquipmentRate({ ...inputs });
+    console.log('[Equipment Rates] saveEquipmentRate delegated to store, new id:', newId);
     setEditingId(null);
     setSelectedId(newId);
     setJustSaved(false);
   }
 
   function updateSavedProfile() {
-    if (!editingId) return;
+    console.log("=== SAVE BUTTON CLICKED ===");
+    console.log("Current form data:", inputs);
+    if (!editingId) {
+      console.warn('[Equipment Rates] SAVE CHANGES but no editingId, aborting');
+      return;
+    }
     const currentId = editingId;
-    setSavedProfiles((prev) =>
-      prev.map((p) => (p.id === currentId ? { ...inputs, id: currentId } : p))
-    );
+    updateEquipmentRate(currentId, { ...inputs });
+    console.log('[Equipment Rates] updateEquipmentRate delegated to store for id:', currentId);
     // Clear editing state (hides banner and "EDITING" badges in form area)
     // but keep selectedId so the list and table rows stay highlighted as the active profile
     setEditingId(null);
@@ -324,16 +323,12 @@ export default function EquipmentRateBuilder() {
   }
 
   function duplicateProfile(profile: SavedEquipmentProfile) {
-    const duplicated: SavedEquipmentProfile = {
-      ...profile,
-      description: `${profile.description} (Copy)`,
-      id: createId(),
-    };
-    setSavedProfiles((prev) => [...prev, duplicated]);
+    // delegate to store (fresh id + persist + sync to other consumers)
+    saveEquipmentRate({ ...profile, description: `${profile.description} (Copy)` });
   }
 
   function deleteProfile(id: string) {
-    setSavedProfiles((prev) => prev.filter((p) => p.id !== id));
+    deleteEquipmentRate(id);
     if (editingId === id) setEditingId(null);
     if (selectedId === id) setSelectedId(null);
     setJustSaved(false);
@@ -363,6 +358,12 @@ export default function EquipmentRateBuilder() {
         <Button variant="outline" size="sm" onClick={resetToDefaults} className="self-start sm:self-auto">
           <RotateCcw className="mr-2 h-4 w-4" /> Reset to Defaults
         </Button>
+        <Button variant="outline" size="sm" onClick={reloadSavedRates} className="self-start sm:self-auto">
+          <RotateCcw className="mr-2 h-4 w-4" /> Reload Saved Rates
+        </Button>
+        {reloadMsg && (
+          <span className="text-xs text-emerald-600 self-start sm:self-auto ml-2">{reloadMsg}</span>
+        )}
       </div>
 
       {/* Clean modern tabbed interface at the very top */}
@@ -753,21 +754,21 @@ export default function EquipmentRateBuilder() {
 
         </div>
 
-        {/* RIGHT COLUMN — ESTIMATE VALUE SUMMARY (sticky) */}
+        {/* RIGHT COLUMN — LIVE RESULTS (sticky, matching Labor Rate Builder style) */}
         <div className="xl:col-span-5">
           <Card className="card border-primary/30 sticky top-20 shadow-lg">
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-sm tracking-[0.5px] text-muted-foreground">ESTIMATE VALUE — 2026</CardTitle>
+                  <CardTitle className="text-sm tracking-[0.5px] text-muted-foreground">LIVE RESULTS</CardTitle>
                   <div className="text-xl font-semibold tracking-tight mt-0.5">{inputs.description}</div>
                 </div>
                 {isEditing && <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30">Editing</Badge>}
               </div>
             </CardHeader>
 
-            <CardContent className="space-y-5 pt-1">
-              {/* Usage inputs */}
+            <CardContent className="space-y-6 pt-2">
+              {/* Usage inputs (kept for core functionality) */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs text-muted-foreground">Estimated Use (hours)</Label>
@@ -789,67 +790,41 @@ export default function EquipmentRateBuilder() {
                 </div>
               </div>
 
-              {/* Breakdown rows */}
-              <div className="space-y-3 rounded-xl border bg-white p-4 text-sm">
-                {/* Depreciation */}
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="font-medium">Depreciation</div>
-                    <div className="text-[10px] text-muted-foreground tabular-nums">{formatCurrency(calculations.annualDepreciation)} / yr</div>
-                  </div>
-                  <div className="text-right font-semibold tabular-nums">
-                    {formatCurrency(calculations.depreciationPerHour)}<span className="text-xs font-normal text-muted-foreground">/hr</span>
-                  </div>
+              {/* True Cost - prominent focal point like Labor's TRUE COST PER BILLABLE HOUR */}
+              <div>
+                <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">TOTAL COST PER UNIT</div>
+                <div className="text-6xl font-semibold tabular-nums tracking-[-0.04em] text-foreground">
+                  {formatCurrency(calculations.totalCostPerHour)}
                 </div>
-
-                {/* Ownership */}
-                <div className="flex justify-between items-center pt-2 border-t">
-                  <div>
-                    <div className="font-medium">Ownership Cost</div>
-                    <div className="text-[10px] text-muted-foreground tabular-nums">{formatCurrency(calculations.ownershipAnnual)} / yr</div>
-                  </div>
-                  <div className="text-right font-semibold tabular-nums">
-                    {formatCurrency(calculations.ownershipPerHour)}<span className="text-xs font-normal text-muted-foreground">/hr</span>
-                  </div>
-                </div>
-
-                {/* Operating */}
-                <div className="flex justify-between items-center pt-2 border-t">
-                  <div>
-                    <div className="font-medium">Operating Cost</div>
-                    <div className="text-[10px] text-muted-foreground tabular-nums">{formatCurrency(calculations.operatingAnnual)} / yr</div>
-                  </div>
-                  <div className="text-right font-semibold tabular-nums">
-                    {formatCurrency(calculations.operatingPerHour)}<span className="text-xs font-normal text-muted-foreground">/hr</span>
-                  </div>
-                </div>
-
-                {/* Total */}
-                <div className="flex justify-between items-center pt-3 border-t font-semibold text-base">
-                  <div>Total Cost per Unit</div>
-                  <div className="tabular-nums text-primary">
-                    {formatCurrency(calculations.totalCostPerHour)}
-                  </div>
-                </div>
+                <p className="mt-2 text-sm text-muted-foreground leading-snug">
+                  This is the accurate break-even cost per billable hour based on estimated use.
+                </p>
               </div>
 
-              {/* Big recommended box */}
-              <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-5">
-                <div className="text-xs uppercase tracking-[1px] text-primary font-semibold">RECOMMENDED HOURLY RATE</div>
-                <div className="text-[56px] leading-none font-semibold tabular-nums tracking-[-0.04em] text-primary mt-1">
-                  {formatCurrency(calculations.recommendedRate)}
+              {/* Clean breakdown list matching Labor style (grid list below main number) */}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm pt-2 border-t">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Depreciation</span>
+                  <span className="font-mono tabular-nums">{formatCurrency(calculations.depreciationPerHour)}<span className="text-xs font-normal text-muted-foreground">/hr</span></span>
                 </div>
-                <div className="mt-2 text-sm text-primary/90">
-                  This is the recommended hourly rate based on your true costs.
+                <div className="flex justify-between font-medium">
+                  <span className="text-muted-foreground">+ Ownership Cost</span>
+                  <span className="font-mono tabular-nums text-primary">{formatCurrency(calculations.ownershipPerHour)}<span className="text-xs font-normal text-muted-foreground">/hr</span></span>
                 </div>
-              </div>
 
-              <div className="text-[11px] text-muted-foreground text-center">
-                Based on {inputs.estimatedHours.toLocaleString()} estimated billable hours.
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">+ Operating Cost</span>
+                  <span className="font-mono tabular-nums">{formatCurrency(calculations.operatingPerHour)}<span className="text-xs font-normal text-muted-foreground">/hr</span></span>
+                </div>
+
+                <div className="col-span-2 pt-2 border-t flex justify-between text-base font-semibold">
+                  <span>Total Cost per Unit</span>
+                  <span className="font-mono tabular-nums">{formatCurrency(calculations.totalCostPerHour)}</span>
+                </div>
               </div>
 
               {/* Action buttons */}
-              <div className="flex flex-col sm:flex-row gap-3 pt-1">
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 {isEditing ? (
                   <Button onClick={updateSavedProfile} size="lg" className="flex-1 text-base">
                     <Edit2 className="mr-2 h-4 w-4" /> Update Saved Equipment
@@ -1009,8 +984,12 @@ export default function EquipmentRateBuilder() {
                     return (
                       <TableRow 
                         key={profile.id} 
+                        onClick={() => {
+                          loadProfile(profile);
+                          setActiveTab('builder');
+                        }}
                         className={cn(
-                          "transition-colors",
+                          "transition-colors cursor-pointer",
                           isSelected && "bg-primary/10 border-l-4 border-primary font-medium"
                         )}
                       >
@@ -1028,16 +1007,16 @@ export default function EquipmentRateBuilder() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => loadProfile(profile)} title="Load">
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); loadProfile(profile); setActiveTab('builder'); }} title="Load">
                               <Edit2 className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => duplicateProfile(profile)} title="Duplicate">
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); duplicateProfile(profile); }} title="Duplicate">
                               <Copy className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => deleteProfile(profile.id)}
+                              onClick={(e) => { e.stopPropagation(); deleteProfile(profile.id); }}
                               title="Delete"
                               className="text-destructive hover:text-destructive"
                             >

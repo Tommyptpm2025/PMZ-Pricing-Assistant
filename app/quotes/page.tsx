@@ -1,0 +1,759 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Eye,
+  Edit,
+  Copy,
+  Trash2,
+  RefreshCw,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  getAllQuotes,
+  deleteQuote,
+  updateQuote,
+  saveQuote,
+} from "@/lib/quote-storage";
+import type { SavedQuote } from "@/lib/quote-job-types";
+
+const STATUS_OPTIONS = ["Draft", "Ready for Approval", "Approved", "Declined"] as const;
+
+function formatMoney(amount: number): string {
+  return (amount || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatDate(iso?: string): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return (
+      d.toLocaleDateString() +
+      " " +
+      d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    );
+  } catch {
+    return iso;
+  }
+}
+
+function StatusBadge({ status }: { status: string }) {
+  let cls = "bg-slate-100 text-slate-700 border-slate-200";
+  if (status === "Approved") cls = "bg-emerald-100 text-emerald-800 border-emerald-200";
+  else if (status === "Ready for Approval") cls = "bg-amber-100 text-amber-800 border-amber-200";
+  else if (status === "Declined") cls = "bg-red-100 text-red-800 border-red-200";
+  return (
+    <Badge variant="outline" className={cn("font-medium text-xs", cls)}>
+      {status}
+    </Badge>
+  );
+}
+
+export default function QuotesPage() {
+  const router = useRouter();
+  const [allQuotes, setAllQuotes] = React.useState<SavedQuote[]>([]);
+  const [deleteTarget, setDeleteTarget] = React.useState<SavedQuote | null>(null);
+  const [previewTarget, setPreviewTarget] = React.useState<SavedQuote | null>(null);
+
+  // EPP list filters (independent)
+  const [eppStatus, setEppStatus] = React.useState<string[]>([]);
+  const [eppCustomer, setEppCustomer] = React.useState("");
+  const [eppWorkType, setEppWorkType] = React.useState("");
+  const [eppJobSearch, setEppJobSearch] = React.useState("");
+  const [eppDateFrom, setEppDateFrom] = React.useState("");
+  const [eppDateTo, setEppDateTo] = React.useState("");
+
+  // Full list filters (independent)
+  const [fullStatus, setFullStatus] = React.useState<string[]>([]);
+  const [fullCustomer, setFullCustomer] = React.useState("");
+  const [fullWorkType, setFullWorkType] = React.useState("");
+  const [fullJobSearch, setFullJobSearch] = React.useState("");
+  const [fullDateFrom, setFullDateFrom] = React.useState("");
+  const [fullDateTo, setFullDateTo] = React.useState("");
+
+  React.useEffect(() => {
+    setAllQuotes(getAllQuotes());
+  }, []);
+
+  function refresh() {
+    setAllQuotes(getAllQuotes());
+  }
+
+  const eppBase = React.useMemo(
+    () => allQuotes.filter((q) => q.quoteType === "EPP"),
+    [allQuotes]
+  );
+  const fullBase = React.useMemo(
+    () => allQuotes.filter((q) => q.quoteType === "Full"),
+    [allQuotes]
+  );
+
+  const eppWorkTypes = React.useMemo(() => {
+    const s = new Set(eppBase.map((q) => q.workType).filter((w) => !!w && w.trim() !== ''));
+    return Array.from(s).sort();
+  }, [eppBase]);
+
+  const fullWorkTypes = React.useMemo(() => {
+    const s = new Set(fullBase.map((q) => q.workType).filter((w) => !!w && w.trim() !== ''));
+    return Array.from(s).sort();
+  }, [fullBase]);
+
+  function toggleStatus(list: "epp" | "full", st: string) {
+    const isEpp = list === "epp";
+    const current = isEpp ? eppStatus : fullStatus;
+    const setter = isEpp ? setEppStatus : setFullStatus;
+    if (current.includes(st)) {
+      setter(current.filter((s) => s !== st));
+    } else {
+      setter([...current, st]);
+    }
+  }
+
+  function clearFilters(list: "epp" | "full") {
+    if (list === "epp") {
+      setEppStatus([]);
+      setEppCustomer("");
+      setEppWorkType("");
+      setEppJobSearch("");
+      setEppDateFrom("");
+      setEppDateTo("");
+    } else {
+      setFullStatus([]);
+      setFullCustomer("");
+      setFullWorkType("");
+      setFullJobSearch("");
+      setFullDateFrom("");
+      setFullDateTo("");
+    }
+  }
+
+  const filteredEpp = React.useMemo(() => {
+    let list = [...eppBase];
+    if (eppStatus.length > 0) {
+      list = list.filter((q) => eppStatus.includes(q.status));
+    }
+    if (eppCustomer.trim()) {
+      const s = eppCustomer.trim().toLowerCase();
+      list = list.filter((q) => (q.customer || "").toLowerCase().includes(s));
+    }
+    if (eppWorkType) {
+      list = list.filter((q) => q.workType === eppWorkType);
+    }
+    if (eppJobSearch.trim()) {
+      const s = eppJobSearch.trim().toLowerCase();
+      list = list.filter((q) => (q.jobName || "").toLowerCase().includes(s));
+    }
+    if (eppDateFrom) {
+      const from = new Date(eppDateFrom);
+      list = list.filter((q) => new Date(q.createdAt) >= from);
+    }
+    if (eppDateTo) {
+      const to = new Date(eppDateTo);
+      to.setHours(23, 59, 59, 999);
+      list = list.filter((q) => new Date(q.createdAt) <= to);
+    }
+    return list;
+  }, [
+    eppBase,
+    eppStatus,
+    eppCustomer,
+    eppWorkType,
+    eppJobSearch,
+    eppDateFrom,
+    eppDateTo,
+  ]);
+
+  const filteredFull = React.useMemo(() => {
+    let list = [...fullBase];
+    if (fullStatus.length > 0) {
+      list = list.filter((q) => fullStatus.includes(q.status));
+    }
+    if (fullCustomer.trim()) {
+      const s = fullCustomer.trim().toLowerCase();
+      list = list.filter((q) => (q.customer || "").toLowerCase().includes(s));
+    }
+    if (fullWorkType) {
+      list = list.filter((q) => q.workType === fullWorkType);
+    }
+    if (fullJobSearch.trim()) {
+      const s = fullJobSearch.trim().toLowerCase();
+      list = list.filter((q) => (q.jobName || "").toLowerCase().includes(s));
+    }
+    if (fullDateFrom) {
+      const from = new Date(fullDateFrom);
+      list = list.filter((q) => new Date(q.createdAt) >= from);
+    }
+    if (fullDateTo) {
+      const to = new Date(fullDateTo);
+      to.setHours(23, 59, 59, 999);
+      list = list.filter((q) => new Date(q.createdAt) <= to);
+    }
+    return list;
+  }, [
+    fullBase,
+    fullStatus,
+    fullCustomer,
+    fullWorkType,
+    fullJobSearch,
+    fullDateFrom,
+    fullDateTo,
+  ]);
+
+  function openQuote(quote: SavedQuote) {
+    try {
+      const estimateData = {
+        jobName: quote.jobName || "",
+        workTypeName: quote.workType || "",
+        salesperson: quote.salesperson || "",
+        estimatedRevenue: quote.totalRevenue || 0,
+        bidItems: (quote.eppLineItems || []).map((it: any) => ({ ...it })),
+        customer: quote.customer || "",
+      };
+      localStorage.setItem("pmz_current_estimate_v1", JSON.stringify(estimateData));
+
+      if (quote.proLemItems && quote.proLemItems.length > 0) {
+        localStorage.setItem(
+          "pmz_current_lem_v1",
+          JSON.stringify(quote.proLemItems.map((it: any) => ({ ...it })))
+        );
+      } else {
+        localStorage.removeItem("pmz_current_lem_v1");
+      }
+
+      if (quote.locked) {
+        localStorage.setItem("pmz_current_quote_readonly", "true");
+      } else {
+        localStorage.removeItem("pmz_current_quote_readonly");
+      }
+    } catch {
+      // ignore storage errors
+    }
+    router.push("/project-pricer");
+  }
+
+  function duplicateQuote(quote: SavedQuote) {
+    const now = new Date().toISOString();
+    const copy: SavedQuote = {
+      ...quote,
+      id: `copy_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
+      status: "Draft",
+      locked: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      saveQuote(copy);
+    } catch {
+      // fallback direct
+      const key = "pmz_saved_quotes";
+      const raw = localStorage.getItem(key);
+      const arr: SavedQuote[] = raw ? JSON.parse(raw) : [];
+      arr.push(copy);
+      localStorage.setItem(key, JSON.stringify(arr));
+    }
+    refresh();
+  }
+
+  function changeStatus(quote: SavedQuote, newStatus: SavedQuote["status"]) {
+    const updated: SavedQuote = {
+      ...quote,
+      status: newStatus,
+      locked: newStatus === "Approved" ? true : quote.locked,
+      updatedAt: new Date().toISOString(),
+    };
+    updateQuote(updated);
+    refresh();
+  }
+
+  function handleDelete() {
+    if (!deleteTarget) return;
+    deleteQuote(deleteTarget.id);
+    setDeleteTarget(null);
+    refresh();
+  }
+
+  function renderFilters(list: "epp" | "full") {
+    const isEpp = list === "epp";
+    const statusSel = isEpp ? eppStatus : fullStatus;
+    const cust = isEpp ? eppCustomer : fullCustomer;
+    const wt = isEpp ? eppWorkType : fullWorkType;
+    const jobS = isEpp ? eppJobSearch : fullJobSearch;
+    const dFrom = isEpp ? eppDateFrom : fullDateFrom;
+    const dTo = isEpp ? eppDateTo : fullDateTo;
+    const wts = isEpp ? eppWorkTypes : fullWorkTypes;
+
+    const setCust = isEpp ? setEppCustomer : setFullCustomer;
+    const setWt = isEpp ? setEppWorkType : setFullWorkType;
+    const setJob = isEpp ? setEppJobSearch : setFullJobSearch;
+    const setFrom = isEpp ? setEppDateFrom : setFullDateFrom;
+    const setTo = isEpp ? setEppDateTo : setFullDateTo;
+
+    return (
+      <div className="rounded-lg border bg-white p-3 space-y-3">
+        <div className="flex flex-wrap gap-x-4 gap-y-2 items-end">
+          {/* Status multi-select via toggle chips */}
+          <div className="min-w-[240px]">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Status (multi-select)</div>
+            <div className="flex flex-wrap gap-1">
+              {STATUS_OPTIONS.map((st) => {
+                const active = statusSel.includes(st);
+                return (
+                  <button
+                    key={st}
+                    onClick={() => toggleStatus(list, st)}
+                    className={cn(
+                      "text-xs px-2 py-0.5 rounded border transition-colors",
+                      active ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted border-border"
+                    )}
+                  >
+                    {st}
+                  </button>
+                );
+              })}
+              {statusSel.length > 0 && (
+                <button
+                  onClick={() => (isEpp ? setEppStatus([]) : setFullStatus([]))}
+                  className="text-xs px-1.5 text-muted-foreground underline"
+                >
+                  clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Customer text search */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Customer</div>
+            <Input
+              value={cust}
+              onChange={(e) => setCust(e.target.value)}
+              placeholder="Search customer..."
+              className="h-8 w-44 text-sm"
+            />
+          </div>
+
+          {/* Work Type dropdown */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Work Type</div>
+            <Select value={wt || "__all__"} onValueChange={(v) => setWt(v === "__all__" ? "" : v)}>
+              <SelectTrigger className="h-8 w-44">
+                <SelectValue placeholder="All work types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All work types</SelectItem>
+                {wts.filter((w) => !!w && w.trim() !== '').map((w) => (
+                  <SelectItem key={w} value={w}>{w}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Job Name search */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Job Name</div>
+            <Input
+              value={jobS}
+              onChange={(e) => setJob(e.target.value)}
+              placeholder="Search job name..."
+              className="h-8 w-44 text-sm"
+            />
+          </div>
+
+          {/* Date range (created) */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Created date</div>
+            <div className="flex items-center gap-1">
+              <Input
+                type="date"
+                value={dFrom}
+                onChange={(e) => setFrom(e.target.value)}
+                className="h-8 w-32 text-xs"
+              />
+              <span className="text-xs text-muted-foreground">–</span>
+              <Input
+                type="date"
+                value={dTo}
+                onChange={(e) => setTo(e.target.value)}
+                className="h-8 w-32 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="self-end pb-0.5">
+            <Button variant="ghost" size="sm" onClick={() => clearFilters(list)} className="h-8">
+              Clear filters
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderTable(quotes: SavedQuote[], typeLabel: string) {
+    return (
+      <Card className="overflow-hidden border">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                <TableHead className="min-w-[160px]">Job Name</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Work Type</TableHead>
+                <TableHead>Salesperson</TableHead>
+                <TableHead className="text-right">Total Revenue</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Last Updated</TableHead>
+                <TableHead className="text-right pr-4">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {quotes.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-20 text-center text-muted-foreground">
+                    No {typeLabel} quotes match the current filters.
+                    {allQuotes.length === 0 && " Create quotes using the Save buttons inside Project Pricer."}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                quotes.map((quote) => (
+                  <TableRow key={quote.id} className="hover:bg-muted/20">
+                    <TableCell className="font-medium">{quote.jobName || "Untitled"}</TableCell>
+                    <TableCell className="text-sm">{quote.customerName || quote.customer || "—"}</TableCell>
+                    <TableCell className="text-sm">{quote.workType || "—"}</TableCell>
+                    <TableCell className="text-sm">{quote.salesperson || "—"}</TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">
+                      ${formatMoney(quote.totalRevenue)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5">
+                        <StatusBadge status={quote.status} />
+                        <Select
+                          value={quote.status && STATUS_OPTIONS.includes(quote.status as any) ? quote.status : STATUS_OPTIONS[0]}
+                          onValueChange={(val) =>
+                            changeStatus(quote, val as SavedQuote["status"])
+                          }
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <SelectTrigger className="h-6 w-auto px-1.5 text-[10px] border border-input/50 bg-white/50">
+                            <span>Change</span>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STATUS_OPTIONS.filter((s) => !!s && s.trim() !== '').map((s) => (
+                              <SelectItem key={s} value={s} disabled={s === quote.status}>
+                                {s}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground tabular-nums">
+                      {formatDate(quote.updatedAt || quote.createdAt)}
+                    </TableCell>
+                    <TableCell className="text-right pr-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={(e) => { e.stopPropagation(); setPreviewTarget(quote); }}
+                        >
+                          <Eye className="h-3.5 w-3.5 mr-1" />
+                          Preview
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs"
+                          onClick={(e) => { e.stopPropagation(); openQuote(quote); }}
+                        >
+                          <Edit className="h-3.5 w-3.5 mr-1" />
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={(e) => { e.stopPropagation(); duplicateQuote(quote); }}
+                        >
+                          <Copy className="h-3.5 w-3.5 mr-1" />
+                          Duplicate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-1 text-destructive hover:text-destructive"
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(quote); }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="max-w-7xl space-y-8 pb-12">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-semibold tracking-[-0.02em]">Quotes</h1>
+            <Badge variant="outline" className="text-[10px] tracking-wider">LIBRARY</Badge>
+          </div>
+          <p className="mt-1 text-muted-foreground max-w-2xl">
+            All saved EPP and Full quotes from the Project Pricer. Use filters, change status, preview or edit, duplicate or delete.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={refresh} className="shrink-0">
+          <RefreshCw className="h-4 w-4 mr-2" /> Refresh from storage
+        </Button>
+      </div>
+
+      {/* EPP Quotes */}
+      <div className="space-y-2">
+        <div className="flex items-baseline gap-2 px-0.5">
+          <div className="font-semibold tracking-tight text-lg">EPP Quotes</div>
+          <div className="text-sm text-muted-foreground">
+            {filteredEpp.length} shown / {eppBase.length} total
+          </div>
+        </div>
+        {renderFilters("epp")}
+        {renderTable(filteredEpp, "EPP")}
+      </div>
+
+      {/* Full Quotes */}
+      <div className="space-y-2">
+        <div className="flex items-baseline gap-2 px-0.5">
+          <div className="font-semibold tracking-tight text-lg">Full Quotes</div>
+          <div className="text-sm text-muted-foreground">
+            {filteredFull.length} shown / {fullBase.length} total
+          </div>
+        </div>
+        {renderFilters("full")}
+        {renderTable(filteredFull, "Full")}
+      </div>
+
+      {/* Preview centered Dialog (modal) */}
+      <Dialog open={!!previewTarget} onOpenChange={(open) => !open && setPreviewTarget(null)}>
+        <DialogContent className="w-[92%] sm:w-[85%] md:w-[72%] lg:w-[60%] xl:w-[55%] max-w-[920px] !max-w-none">
+          <DialogClose asChild>
+            <button
+              className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+              aria-label="Close"
+            >
+              <span className="text-xl leading-none">×</span>
+              <span className="sr-only">Close</span>
+            </button>
+          </DialogClose>
+          <DialogHeader>
+            <DialogTitle>Quote Preview — {previewTarget?.quoteType}</DialogTitle>
+            <DialogDescription>
+              Read-only view. Click Edit to load into Project Pricer for changes.
+            </DialogDescription>
+          </DialogHeader>
+          {previewTarget && (
+            <>
+              <div className="overflow-y-auto max-h-[65vh] pr-2">
+                <div className="space-y-4 py-4 text-sm">
+                  <div className="grid grid-cols-1 gap-y-2">
+                    <div><span className="font-medium text-muted-foreground">Job Name:</span> <span className="font-semibold">{previewTarget.jobName || "Untitled"}</span></div>
+                    <div><span className="font-medium text-muted-foreground">Customer:</span> {previewTarget.customerName || previewTarget.customer || "—"}</div>
+                    <div><span className="font-medium text-muted-foreground">Work Type:</span> {previewTarget.workType || "—"}</div>
+                    <div><span className="font-medium text-muted-foreground">Salesperson:</span> {previewTarget.salesperson || "—"}</div>
+                    <div><span className="font-medium text-muted-foreground">Status:</span> <StatusBadge status={previewTarget.status} /></div>
+                    <div><span className="font-medium text-muted-foreground">Created:</span> {formatDate(previewTarget.createdAt)}</div>
+                    <div><span className="font-medium text-muted-foreground">Last Updated:</span> {formatDate(previewTarget.updatedAt || previewTarget.createdAt)}</div>
+                  </div>
+
+                  {previewTarget.quoteType === "Full" && previewTarget.proLemItems && previewTarget.proLemItems.length > 0 && (() => {
+                    const items = previewTarget.proLemItems;
+                    let labor = 0, equipment = 0, material = 0;
+                    items.forEach((item: any) => {
+                      const qty = item.quantity || 0;
+                      const cost = qty * (item.frozenUnitCost || item.unitCost || 0);
+                      const t = (item.type || item.resourceType || "").toLowerCase();
+                      if (t === "labor") labor += cost;
+                      else if (t === "equipment") equipment += cost;
+                      else material += cost;
+                    });
+                    const totalLEM = labor + equipment + material;
+                    const gpPercent = previewTarget.grossProfitPercent || 0;
+                    const gpDollars = previewTarget.grossProfitDollars || previewTarget.grossProfitAmount || 0;
+                    const grandTotal = totalLEM + gpDollars;
+                    // Group items
+                    const groups: Record<string, any[]> = { labor: [], equipment: [], material: [] };
+                    items.forEach((item: any) => {
+                      const t = (item.type || item.resourceType || "").toLowerCase();
+                      const key = t === "labor" ? "labor" : t === "equipment" ? "equipment" : "material";
+                      groups[key].push(item);
+                    });
+                    const typeLabels: Record<string, string> = { labor: "Labor", equipment: "Equipment", material: "Material" };
+                    return (
+                      <div className="space-y-3">
+                        <div>
+                          <div className="font-medium text-muted-foreground mb-1.5">Added Items — LEM (Full Quote)</div>
+                          <div className="max-h-[320px] overflow-y-auto pr-2 space-y-3">
+                            {(["labor", "equipment", "material"] as const).map((key) => {
+                              const groupItems = groups[key];
+                              if (groupItems.length === 0) return null;
+                              return (
+                                <div key={key} className="mb-3 last:mb-0">
+                                  <div className="text-lg font-semibold uppercase tracking-wider text-muted-foreground mb-2">{typeLabels[key]}</div>
+                                  <table className="w-full text-xs border-collapse">
+                                    <thead className="sticky top-0 bg-background z-10">
+                                      <tr className="border-b border-muted-foreground/30">
+                                        <th className="text-left py-1 pr-2 text-[10px] font-normal text-muted-foreground">Description</th>
+                                        <th className="text-right py-1 px-1 w-[60px] text-[10px] font-normal text-muted-foreground">Qty/Hrs</th>
+                                        <th className="text-right py-1 px-1 w-[70px] text-[10px] font-normal text-muted-foreground">Unit Rate</th>
+                                        <th className="text-right py-1 pl-2 w-[80px] text-[10px] font-normal text-muted-foreground">Line Total</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-muted-foreground/20">
+                                      {groupItems.map((item: any, i: number) => {
+                                        const desc = item.label || item.description || "Item";
+                                        const qty = item.quantity || 0;
+                                        const rate = item.frozenUnitCost || item.unitCost || 0;
+                                        const lineTotal = qty * rate;
+                                        return (
+                                          <tr key={i}>
+                                            <td className="py-1 pr-2 truncate max-w-[140px]" title={desc}>{desc}</td>
+                                            <td className="py-1 px-1 text-right tabular-nums">{qty}</td>
+                                            <td className="py-1 px-1 text-right tabular-nums">${formatMoney(rate)}</td>
+                                            <td className="py-1 pl-2 text-right tabular-nums font-medium">${formatMoney(lineTotal)}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* High-level summary kept visible */}
+                        <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1">
+                          <div className="flex justify-between"><span>Labor:</span><span className="tabular-nums">${formatMoney(labor)}</span></div>
+                          <div className="flex justify-between"><span>Equipment:</span><span className="tabular-nums">${formatMoney(equipment)}</span></div>
+                          <div className="flex justify-between"><span>Material:</span><span className="tabular-nums">${formatMoney(material)}</span></div>
+                          <div className="flex justify-between border-t pt-1 font-medium"><span>Total LEM:</span><span className="tabular-nums">${formatMoney(totalLEM)}</span></div>
+                        </div>
+                        <div className="text-xs">
+                          <span className="font-medium text-muted-foreground">Gross Profit:</span> {gpPercent.toFixed(1)}% (${formatMoney(gpDollars)})
+                        </div>
+                        <div className="text-xs font-medium">
+                          <span className="font-medium text-muted-foreground">Grand Total (Revenue):</span> ${formatMoney(grandTotal)}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {previewTarget.quoteType === "EPP" && previewTarget.eppLineItems && previewTarget.eppLineItems.length > 0 && (
+                    <div>
+                      <div className="font-medium text-muted-foreground mb-1">Bid Items Summary (EPP)</div>
+                      <div className="rounded-md border bg-muted/30 p-2 text-xs max-h-32 overflow-auto">
+                        {previewTarget.eppLineItems.slice(0, 8).map((item: any, idx: number) => (
+                          <div key={idx} className="flex justify-between py-0.5">
+                            <span>{item.description || "Item"}</span>
+                            <span className="tabular-nums">{item.quantity} × ${formatMoney(item.unitPrice)}</span>
+                          </div>
+                        ))}
+                        {previewTarget.eppLineItems.length > 8 && (
+                          <div className="text-muted-foreground pt-1">... +{previewTarget.eppLineItems.length - 8} more</div>
+                        )}
+                      </div>
+                      {previewTarget.grossProfitPercent != null && (
+                        <div className="mt-2 text-xs">
+                          <span className="font-medium text-muted-foreground">Gross Profit:</span> {previewTarget.grossProfitPercent.toFixed(1)}%
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {previewTarget.locked && (
+                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                      This quote is locked (Approved read-only).
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewTarget(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete quote?</DialogTitle>
+            <DialogDescription>
+              This will permanently remove “{deleteTarget?.jobName || "Untitled"}” ({deleteTarget?.quoteType}).
+              The action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              Delete Quote
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <p className="text-center text-xs text-muted-foreground pt-2">
+        Quotes are stored locally in your browser (key: pmz_saved_quotes). Opening a locked quote loads it read-only into the Project Pricer.
+      </p>
+    </div>
+  );
+}

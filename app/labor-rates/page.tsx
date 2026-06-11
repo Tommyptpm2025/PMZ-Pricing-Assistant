@@ -28,11 +28,9 @@ import {
   type LaborRateInputs,
   type LaborRateResult,
 } from "@/lib/calculations";
+import { useRateStore } from "@/lib/rate-store";
 
-// LocalStorage key
-const STORAGE_KEY = "pmz_labor_rates";
-
-// Helper to generate a simple id for saved rates
+// Helper to generate a simple id for saved rates (kept for any local needs; store now manages persistence ids)
 function createId() {
   return Math.random().toString(36).slice(2, 11);
 }
@@ -48,9 +46,6 @@ export default function LaborRateBuilder() {
   // Live calculation result
   const result: LaborRateResult = React.useMemo(() => calculateLaborRate(inputs), [inputs]);
 
-  // Saved rates (persisted)
-  const [savedRates, setSavedRates] = React.useState<SavedRate[]>([]);
-
   // Track which saved rate we are currently editing (if any)
   const [editingId, setEditingId] = React.useState<string | null>(null);
 
@@ -59,6 +54,7 @@ export default function LaborRateBuilder() {
 
   // Brief success message after saving changes
   const [justSaved, setJustSaved] = React.useState(false);
+  const [reloadMsg, setReloadMsg] = React.useState('');
 
   // Tab state for the clean tabbed interface (matching Equipment)
   const [activeTab, setActiveTab] = React.useState<'builder' | 'saved'>('builder');
@@ -66,34 +62,20 @@ export default function LaborRateBuilder() {
   // Sensitivity quick scenarios
   const [sensitivityDelta, setSensitivityDelta] = React.useState(3);
 
+  // Centralized rate store (single source for labor/equip/material; survives tab switches, Fast Refresh, reloads)
+  const {
+    laborRates: savedRates,
+    saveLaborRate,
+    updateLaborRate,
+    deleteLaborRate,
+    getLaborRates,
+    reloadFromStorage,
+  } = useRateStore();
+
   const sensitivity = React.useMemo(
     () => calculateSensitivity(inputs, sensitivityDelta),
     [inputs, sensitivityDelta]
   );
-
-  // Load from localStorage on mount (with normalization for old saved rates)
-  React.useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed: SavedRate[] = JSON.parse(raw);
-        // Normalize every saved rate so new union fields are always present
-        const normalized = parsed.map((r) => normalizeLaborRateInputs(r) as SavedRate);
-        setSavedRates(normalized);
-      }
-    } catch {
-      // ignore corrupted storage
-    }
-  }, []);
-
-  // Persist whenever savedRates changes
-  React.useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(savedRates));
-    } catch {
-      // storage full or private mode — graceful fail
-    }
-  }, [savedRates]);
 
   // Update a single field (keeps everything reactive)
   function updateField<K extends keyof LaborRateInputs>(field: K, value: LaborRateInputs[K]) {
@@ -111,26 +93,31 @@ export default function LaborRateBuilder() {
     setJustSaved(false);
   }
 
-  // Add current calculation as a new saved rate
+  // Add current calculation as a new saved rate (delegates persistence to centralized store)
   function addCurrentRate() {
-    const newId = createId();
-    const newRate: SavedRate = {
-      ...inputs,
-      id: newId,
-    };
-    setSavedRates((prev) => [...prev, newRate]);
+    console.log("=== SAVE BUTTON CLICKED ===");
+    console.log("Current form data:", inputs);
+    // store generates id + does defensive write + dispatch for cross-component sync + logs
+    const newId = saveLaborRate({ ...inputs });
+    console.log('[Labor Rates] saveLaborRate delegated to store, new id:', newId);
+    console.log('[Labor Rates] New profile added (via store):', inputs, 'new total count will be logged by store');
     setEditingId(null);
     setSelectedId(newId);
     setJustSaved(false);
   }
 
-  // Update an existing saved rate (when editing)
+  // Update an existing saved rate (when editing) (delegates persistence to centralized store)
   function updateSavedRate() {
-    if (!editingId) return;
+    console.log("=== SAVE BUTTON CLICKED ===");
+    console.log("Current form data:", inputs);
+    if (!editingId) {
+      console.warn('[Labor Rates] SAVE CHANGES but no editingId, aborting');
+      return;
+    }
     const currentId = editingId;
-    setSavedRates((prev) =>
-      prev.map((r) => (r.id === currentId ? { ...inputs, id: currentId } : r))
-    );
+    // store does the map + write + dispatch + log
+    updateLaborRate(currentId, { ...inputs });
+    console.log('[Labor Rates] updateLaborRate delegated to store for id:', currentId);
     // Clear editing state (hides banner and "EDITING" badges in form area)
     // but keep selectedId so the table row stays highlighted as the active profile
     setEditingId(null);
@@ -152,16 +139,21 @@ export default function LaborRateBuilder() {
   }
 
   function duplicateRate(rate: SavedRate) {
-    const duplicated: SavedRate = {
-      ...rate,
-      role: `${rate.role} (Copy)`,
-      id: createId(),
-    };
-    setSavedRates((prev) => [...prev, duplicated]);
+    // delegate to store (it will assign a fresh id and persist + sync)
+    saveLaborRate({ ...rate, role: `${rate.role} (Copy)` });
   }
 
   function deleteRate(id: string) {
-    setSavedRates((prev) => prev.filter((r) => r.id !== id));
+    console.log(`[Labor Rates] Deleting ID: ${id}`);
+    const currentList: SavedRate[] = savedRates || [];
+    const updatedList = currentList.filter((r: SavedRate) => r.id !== id);
+    console.log(`[Labor Rates] Items remaining after delete: ${updatedList.length}`);
+    // Write updated array back to localStorage immediately (do not clear/replace entire array)
+    localStorage.setItem('pmz_labor_rates', JSON.stringify(updatedList));
+    // Emit update so EPP/LEM dropdowns react
+    window.dispatchEvent(new CustomEvent(STORAGE_EVENT));
+    // Update this page's state from store (via reload which re-reads LS + sets)
+    reloadFromStorage();
     if (editingId === id) {
       setEditingId(null);
     }
@@ -169,6 +161,14 @@ export default function LaborRateBuilder() {
       setSelectedId(null);
     }
     setJustSaved(false);
+  }
+
+  // Manual reload from central store (forces fresh read from localStorage for recovery)
+  function reloadSavedRates() {
+    reloadFromStorage();
+    console.log('[Labor Rates] reloadSavedRates -> delegated to rate-store reloadFromStorage');
+    setReloadMsg("Rates reloaded from storage");
+    setTimeout(() => setReloadMsg(''), 2000);
   }
 
   // Quick sensitivity buttons
@@ -205,6 +205,18 @@ export default function LaborRateBuilder() {
           <RotateCcw className="mr-2 h-4 w-4" />
           Reset to Defaults
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={reloadSavedRates}
+          className="self-start sm:self-auto"
+        >
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Reload Saved Rates
+        </Button>
+        {reloadMsg && (
+          <span className="text-xs text-emerald-600 self-start sm:self-auto ml-2">{reloadMsg}</span>
+        )}
       </div>
 
       {/* Clean modern tabbed interface at the very top (exact match to Equipment Rate Builder) */}
@@ -430,7 +442,7 @@ export default function LaborRateBuilder() {
                           id="generalLiabilityPerThousand"
                           value={inputs.generalLiabilityPerThousand}
                           onChange={(v) => updateField("generalLiabilityPerThousand", v)}
-                          unit="/ 1,000 hrs"
+                          unit="/ $1,000 payroll"
                           className="font-medium"
                         />
                       </div>
@@ -568,17 +580,6 @@ export default function LaborRateBuilder() {
                 </p>
               </div>
 
-              {/* Recommended Rate — THE BIG ONE */}
-              <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-5 -mx-1">
-                <div className="text-xs uppercase tracking-[1px] text-primary font-semibold mb-1">RECOMMENDED BILLABLE RATE</div>
-                <div className="text-[68px] leading-none font-semibold tabular-nums tracking-[-0.045em] text-primary">
-                  {formatCurrency(result.recommendedBillableRate)}
-                </div>
-                <div className="mt-3 text-sm text-primary/90">
-                  This is the recommended billable rate to cover every real cost at breakeven.
-                </div>
-              </div>
-
               {/* Quick breakdown — now shows union-style contributions clearly */}
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm pt-2 border-t">
                 <div className="flex justify-between">
@@ -596,11 +597,18 @@ export default function LaborRateBuilder() {
                     {formatCurrency(
                       result.employerCostPerWorkedHour -
                       result.fixedFringesTotal -
+                      result.workersCompPerHour -
                       result.generalLiabilityPerHour -
-                      (inputs.perDiem || 0)
+                      (inputs.perDiem || 0) -
+                      inputs.baseWage
                     )}
                   </span>
                 </div>
+                <div className="flex justify-between font-medium">
+                  <span className="text-muted-foreground">+ Workers' Comp</span>
+                  <span className="font-mono tabular-nums">{formatCurrency(result.workersCompPerHour)}</span>
+                </div>
+
                 <div className="flex justify-between font-medium">
                   <span className="text-muted-foreground">+ General Liability</span>
                   <span className="font-mono tabular-nums">{formatCurrency(result.generalLiabilityPerHour)}</span>
@@ -682,11 +690,11 @@ export default function LaborRateBuilder() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {savedRates.map((rate, index) => {
+                  {savedRates.map((rate) => {
                     const r = calculateLaborRate(rate);
                     const isSelected = selectedId === rate.id;
                     const isActivelyEditing = editingId === rate.id;
-                    const rowKey = rate.id || `saved-rate-${index}`;
+                    const rowKey = rate.id;
                     return (
                       <TableRow 
                         key={rowKey} 

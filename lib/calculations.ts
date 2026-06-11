@@ -29,8 +29,8 @@ export interface LaborRateInputs {
   training: number;                    // $ / hr — Training / JATC / apprenticeship fund
   otherFixedFringes: number;           // $ / hr — Vacation, supplemental, other fixed fringes
 
-  // === Insurance (often priced per 1,000 hours) ===
-  generalLiabilityPerThousand: number; // $ per 1,000 hours worked (GL, umbrella, etc.)
+  // === Insurance (payroll-based rate) ===
+  generalLiabilityPerThousand: number; // $ per $1,000 of payroll (GL, umbrella, etc.)
 
   // Legacy field kept for backward compatibility with old saved rates
   // (no longer shown in the UI or used in new calculations)
@@ -40,7 +40,8 @@ export interface LaborRateInputs {
 export interface LaborRateResult {
   // === Breakdown for transparency (especially important for union work) ===
   fixedFringesTotal: number;             // Sum of all fixed $/hr fringes (H&W + Pension + Training + Other)
-  generalLiabilityPerHour: number;       // GL converted to per-hour cost
+  workersCompPerHour: number;            // WC converted to per-hour: (ratePer100 / 100) * baseWage
+  generalLiabilityPerHour: number;       // GL converted to per-hour: (ratePer1000 / 1000) * baseWage
 
   // Legacy aggregated % fields (kept for table compatibility & explanations)
   directBurdenPercent: number;           // Approximate % view of statutory burdens
@@ -85,18 +86,17 @@ export function calculateLaborRate(inputs: LaborRateInputs): LaborRateResult {
     healthAndWelfare + pension + training + otherFixedFringes
   );
 
-  // General Liability converted to per-hour cost (very common in heavy civil / highway)
-  const generalLiabilityPerHour = round2(generalLiabilityPerThousand / 1000);
+  // General Liability: payroll-based (GL_Rate_Per_1000 / 1000) × Base Wage
+  const generalLiabilityPerHour = round2((generalLiabilityPerThousand / 1000) * baseWage);
 
   // --- Statutory burdens (dollars) ---
 
   // Payroll taxes (FICA, etc.) almost always calculated on base wage only
   const payrollTaxDollars = baseWage * (payrollTaxes / 100);
 
-  // Workers' Comp in heavy construction / union work is usually applied to the
-  // total package (base + fringes) because the insurance carrier sees the full payroll cost.
-  const wcBase = baseWage + fixedFringesTotal;
-  const workersCompDollars = wcBase * (workersComp / 100);
+  // Workers' Comp: payroll-based (WC_Rate_Per_100 / 100) × Base Wage
+  const workersCompDollars = baseWage * (workersComp / 100);
+  const workersCompPerHour = round2(workersCompDollars);
 
   // PTO is typically a percentage of base wage
   const ptoDollars = baseWage * (pto / 100);
@@ -138,6 +138,7 @@ export function calculateLaborRate(inputs: LaborRateInputs): LaborRateResult {
 
   return {
     fixedFringesTotal,
+    workersCompPerHour,
     generalLiabilityPerHour,
     directBurdenPercent,
     totalBurdenPercent,
@@ -259,7 +260,7 @@ export const DEFAULT_LABOR_INPUTS: LaborRateInputs = {
   otherFixedFringes: 2.85,  // Vacation, supplemental unemployment, etc.
 
   // Insurance (very common presentation in heavy highway bids)
-  generalLiabilityPerThousand: 485,   // $485 per 1,000 hours worked
+  generalLiabilityPerThousand: 10,    // $10 per $1,000 payroll (payroll-based: produces realistic ~$0.49/hr at default base wage)
 };
 
 /* =====================================================

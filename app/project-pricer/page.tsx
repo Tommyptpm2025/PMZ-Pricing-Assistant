@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import {
   Card,
   CardContent,
@@ -30,17 +31,34 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
+import {
   TrendingUp,
   Plus,
   Trash2,
   RotateCcw,
   Calculator,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   calculateLaborRate,
   type LaborRateInputs,
 } from "@/lib/calculations";
+import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer } from "@/lib/pmz-types";
+import { useRateStore } from "@/lib/rate-store";
+
+// Stable ID generator (avoids Date.now/Math.random during SSR/hydration for client-only data)
+let stableIdCounter = 0;
+function generateStableId(prefix: string = 'item') {
+  return `${prefix}_${++stableIdCounter}`;
+}
 
 // Types for this page (Level 1 - simple digital paper & pencil)
 interface WorkTypeTier {
@@ -63,6 +81,22 @@ interface BidItem {
   quantity: number;
   unit: string;
   unitPrice: number; // selling price to customer
+  // EPP-only real per-line-item costing details (isolated from LEM) — now supports multiple entries per category
+  laborEntries?: Array<{
+    rateId?: string;
+    labor?: { id: string; role: string; burdenedHourlyRate: number };
+    hours?: number;
+  }>;
+  equipmentEntries?: Array<{
+    rateId?: string;
+    hours?: number;
+  }>;
+  materialEntries?: Array<{
+    rateId?: string;
+    quantity?: number;
+  }>;
+  realCost?: number;
+  realGrossProfitPercent?: number;
 }
 
 interface CurrentEstimate {
@@ -71,6 +105,42 @@ interface CurrentEstimate {
   salesperson: string;
   estimatedRevenue: number; // the total they are bidding (used for tier + target comparison)
   bidItems: BidItem[];
+  customerName: string;
+  customerId?: string;
+  billingAddress?: string;
+}
+
+interface RealLEMItem {
+  id: string;
+  type: 'labor' | 'equipment' | 'material';
+  profileId: string;
+  description: string;
+  quantity: number;
+  unitCost: number;
+}
+
+interface SavedQuote {
+  id: string;
+  jobName: string;
+  customer: string;
+  customerName?: string;
+  customerId?: string;
+  workType: string;
+  salesperson: string;
+  quoteType: "EPP" | "Full";
+  eppLineItems: BidItem[];
+  proLemItems: RealLEMItem[];
+  targetMargin: number;
+  totalRevenue: number;
+  status: string;
+  locked: boolean;
+  rateProfileSnapshot: {
+    labor: number;
+    equipment: number;
+    material: number;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
 const ESTIMATE_STORAGE = "pmz_current_estimate_v1";
@@ -82,24 +152,178 @@ const COMMON_UNITS = [
 
 const SALESPERSON_OPTIONS = ["Owner", "Scott Sinnott", "Mike Johnson", "Alex Rivera"];
 
+// Consistent currency formatter: always exactly 2 decimal places + thousands separators
+function formatMoney(amount: number | undefined | null): string {
+  if (amount === undefined || amount === null || isNaN(amount)) {
+    return "$0.00";
+  }
+  return amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+// --- Independent save helpers for EPP and Pro (using separate localStorage keys) ---
+
+function saveEPPQuote(data: {
+  jobName: string;
+  workType: string;
+  salesperson: string;
+  lineItems: BidItem[];
+  totalRevenue: number;
+}): void {
+  try {
+    const key = "pmz_epp_quotes";
+    const raw = localStorage.getItem(key);
+    const quotes: any[] = raw ? JSON.parse(raw) : [];
+    const now = new Date().toISOString();
+    const quote = {
+      id: generateStableId('epp'),
+      jobName: data.jobName || "Untitled",
+      workType: data.workType || "",
+      salesperson: data.salesperson || "",
+      lineItems: data.lineItems.map((item) => ({ ...item })),
+      totalRevenue: data.totalRevenue,
+      createdAt: now,
+      updatedAt: now,
+    };
+    quotes.push(quote);
+    localStorage.setItem(key, JSON.stringify(quotes));
+  } catch {
+    // fail silently (storage issues)
+  }
+}
+
+function saveProQuote(data: {
+  lemItems: RealLEMItem[];
+  grossProfitPercent: number;
+  totalRealLEM: number;
+  grandTotal: number;
+}): void {
+  try {
+    const key = "pmz_pro_quotes";
+    const raw = localStorage.getItem(key);
+    const quotes: any[] = raw ? JSON.parse(raw) : [];
+    const now = new Date().toISOString();
+    const quote = {
+      id: `pro_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
+      lemItems: data.lemItems.map((item) => ({ ...item })),
+      grossProfitPercent: data.grossProfitPercent,
+      totalRealLEM: data.totalRealLEM,
+      grandTotal: data.grandTotal,
+      createdAt: now,
+      updatedAt: now,
+    };
+    quotes.push(quote);
+    localStorage.setItem(key, JSON.stringify(quotes));
+  } catch {
+    // fail silently (storage issues)
+  }
+}
+
 export default function ProjectPricerPage() {
   // Loaded from other pillars
   const [workTypes, setWorkTypes] = React.useState<WorkType[]>([]);
-  const [laborProfiles, setLaborProfiles] = React.useState<any[]>([]);
-  const [equipmentProfiles, setEquipmentProfiles] = React.useState<any[]>([]);
-  const [materialProfiles, setMaterialProfiles] = React.useState<any[]>([]);
+
+  // Pull Labor/Equipment/Material options from the centralized rate store (reliable LS + cross-tab sync)
+  const {
+    laborRates: laborProfiles,
+    equipmentRates: equipmentProfiles,
+    materialRates: materialProfiles,
+    laborRates,
+    equipmentRates,
+    materialRates,
+    getLaborCostPerHour,
+    getEquipmentCostPerHour,
+    getMaterialCostPerUnit,
+  } = useRateStore();
+
+  // Correct labor burdened hourly rate using the imported calculateLaborRate (fixes broken labor calc in EPP panel)
+  const getLaborBurdenedRate = (id: string): number => {
+    if (!id) return 0;
+    const profile = laborRates.find((r: any) => r.id === id);
+    if (!profile) return 0;
+    try {
+      const res = calculateLaborRate(profile as LaborRateInputs);
+      return res.trueCostPerBillableHour || 0;
+    } catch { return 0; }
+  };
+
+  // Customers for selector - initialize empty; load from localStorage in useEffect (client-only, post-hydration)
+  // to prevent hydration mismatch (server render always sees no localStorage).
+  const [customers, setCustomers] = React.useState<Customer[]>([]);
+  const [customerSearch, setCustomerSearch] = React.useState("");
+  const [customerDropdownOpen, setCustomerDropdownOpen] = React.useState(false);
+  const customerSelectRef = React.useRef<HTMLDivElement>(null);
+  const customerDropdownRef = React.useRef<HTMLDivElement>(null);
+  const [customerDropdownPosition, setCustomerDropdownPosition] = React.useState({ top: 0, left: 0, width: 0 });
+
+  // Controlled customer selector state using customerId + customerName.
+  // Initialize to empty defaults (no localStorage read here) so server HTML matches client first render.
+  // Load/restore happens in useEffect after hydration for EPP persistence across tabs.
+  const [selectedCustomerId, setSelectedCustomerId] = React.useState<string | null>(null);
+  const [selectedCustomerName, setSelectedCustomerName] = React.useState<string | null>(null);
+  const [highlightedCustomerIndex, setHighlightedCustomerIndex] = React.useState(-1);
+
+  const filteredCustomers = React.useMemo(() => {
+    return customers
+      .filter((c) =>
+        c.name.toLowerCase().includes(customerSearch.toLowerCase())
+      )
+      .slice(0, 10);
+  }, [customers, customerSearch]);
+
+  React.useEffect(() => {
+    if (highlightedCustomerIndex >= 0 && customerDropdownOpen && customerDropdownRef.current) {
+      const items = customerDropdownRef.current.querySelectorAll('.customer-option');
+      const el = items[highlightedCustomerIndex] as HTMLElement | undefined;
+      if (el) {
+        el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+      }
+    }
+  }, [highlightedCustomerIndex, customerDropdownOpen]);
 
   // Current estimate (only revenue side in Level 1)
+  // Initialize to fixed default (no localStorage, no browser APIs) so that SSR HTML always matches
+  // the first client render (prevents hydration mismatch for EPP bid items / costing panels).
+  // Persisted LS load happens in useEffect (client only, after mount).
   const [estimate, setEstimate] = React.useState<CurrentEstimate>({
-    jobName: "Downtown Plaza Paving - Phase 1",
+    jobName: "",
     workTypeName: "",
     salesperson: "",
     estimatedRevenue: 24500,
     bidItems: [],
+    customerName: "",
+    customerId: "",
+    billingAddress: "",
   });
+
+  const currentCustomer = React.useMemo(() => {
+    const id = selectedCustomerId || estimate.customerId;
+    return customers.find((c: any) => c.id === id) || null;
+  }, [customers, selectedCustomerId, estimate.customerId]);
 
   // For the educational "See True Job Costs" dialog (kept for links)
   const [showCostDialog, setShowCostDialog] = React.useState(false);
+  const [showQuotePreview, setShowQuotePreview] = React.useState(false);
+  const [showUpdateExport, setShowUpdateExport] = React.useState(false);
+  const [exportType, setExportType] = React.useState<'quote' | 'estimate'>('quote');
+  const [showQuantities, setShowQuantities] = React.useState(true);
+  const [showUnits, setShowUnits] = React.useState(true);
+  const [showPerUnitPrice, setShowPerUnitPrice] = React.useState(true);
+  const [showLineItemPrices, setShowLineItemPrices] = React.useState(true);
+
+  // Logo upload support for PDF (base64 in localStorage for simplicity)
+  const [logoDataUrl, setLogoDataUrl] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    try {
+      const savedLogo = localStorage.getItem('pmz_quote_logo');
+      if (savedLogo) {
+        setLogoDataUrl(savedLogo);
+      }
+    } catch {}
+  }, []);
 
   // Toggle for the new LEM breakdown (the activated feature)
   const [showLEM, setShowLEM] = React.useState(false);
@@ -107,19 +331,14 @@ export default function ProjectPricerPage() {
   // Toggle for the second "full real" LEM breakdown using actual saved profiles
   const [showRealLEM, setShowRealLEM] = React.useState(false);
 
+  // Read-only mode when a locked (Approved) quote is opened from the Quotes tab
+  const [isReadOnly, setIsReadOnly] = React.useState(false);
+
   // Interactive real LEM lines for the Pro green section (pulls from actual saved profiles)
-  interface RealLEMItem {
-    id: string;
-    type: 'labor' | 'equipment' | 'material';
-    profileId: string;
-    description: string;
-    quantity: number;
-    unitCost: number;
-  }
   const [realLEMItems, setRealLEMItems] = React.useState<RealLEMItem[]>([]);
 
   // Transient state for the three adder controls in the green Pro section
-  const [pendingLaborId, setPendingLaborId] = React.useState("");
+  const [pendingLabor, setPendingLabor] = React.useState<any>(null);
   const [pendingLaborQty, setPendingLaborQty] = React.useState(0);
   const [pendingEquipId, setPendingEquipId] = React.useState("");
   const [pendingEquipQty, setPendingEquipQty] = React.useState(0);
@@ -128,6 +347,14 @@ export default function ProjectPricerPage() {
 
   // Per-row editing strings for the Qty/Hrs inputs in Added Items (enables full text editing + clearing while keeping live numbers)
   const [qtyEdits, setQtyEdits] = React.useState<Record<string, string>>({});
+  // Per-row editing string for Line Total in EPP (to support live bidirectional recalc as user types in total, updating unit rate immediately)
+  const [lineTotalEdits, setLineTotalEdits] = React.useState<Record<string, string>>({});
+  // Which EPP bid items have their costing details panel open
+  const [eppCostingOpen, setEppCostingOpen] = React.useState<Record<string, boolean>>({});
+  // For auto-focusing newly added costing entry inputs
+  const [pendingCostingFocus, setPendingCostingFocus] = React.useState(null); // {itemId: string, category: 'labor'|'equipment'|'material', idx: number }
+  // For showing the target margin result bar after clicking Apply, per item
+  const [costingTargetResult, setCostingTargetResult] = React.useState<Record<string, {requiredLineTotal: number, requiredGP: number, target: number}>>({});
 
   // Edit strings for adder qty fields to support full decimal typing without snap
   const [pendingLaborQtyEdit, setPendingLaborQtyEdit] = React.useState<string>("");
@@ -138,19 +365,18 @@ export default function ProjectPricerPage() {
   const [editableGrossProfitPercent, setEditableGrossProfitPercent] = React.useState(0);
   const [gpPercentEdit, setGpPercentEdit] = React.useState<string>("");
 
-  // Editable Margin % for the bottom yellow bar (simple bid section)
-  const [barMarginPercent, setBarMarginPercent] = React.useState(0);
-  const [barMarginEdit, setBarMarginEdit] = React.useState<string>("");
+  // Collapsed state for BID ITEMS section (EPP), persisted in localStorage, default expanded (false)
+  // Init to constant false (matches SSR); load from LS in useEffect only (client post-hydration).
+  const [bidItemsCollapsed, setBidItemsCollapsed] = React.useState(false);
 
-  // Collapsed state for BID ITEMS section, persisted in localStorage, default expanded (false)
-  const [bidItemsCollapsed, setBidItemsCollapsed] = React.useState(() => {
-    try {
-      const saved = localStorage.getItem("pmz_bid_items_collapsed");
-      return saved === "true";
-    } catch {
-      return false;
-    }
-  });
+  // Client-only stable ID generator (using ref so increments only on client post-hydration calls).
+  // Used for new EPP line items (bidItems) and EPP quote saves. Guarantees no unstable ID
+  // generation (no Date.now/Math.random/counter drift) can affect server render / hydration.
+  // The old module-level generateStableId remains for any dead code paths.
+  const stableIdRef = React.useRef(0);
+  function generateClientId(prefix: string = 'item') {
+    return `${prefix}_${++stableIdRef.current}`;
+  }
 
   // Collapsed state for Full Real LEM Breakdown (Pro View) section, persisted in localStorage, default expanded (false)
   const [proViewCollapsed, setProViewCollapsed] = React.useState(() => {
@@ -162,8 +388,59 @@ export default function ProjectPricerPage() {
     }
   });
 
-  // Salesperson required validation
-  const [salespersonError, setSalespersonError] = React.useState(false);
+  // Theme (light/dark) persisted in localStorage. Default to dark to preserve current behavior.
+  const [isDarkMode, setIsDarkMode] = React.useState(true);
+
+  // Success message for quote saves (auto-dismiss banner, shared for EPP/Pro)
+  const [saveMessage, setSaveMessage] = React.useState<string | null>(null);
+
+  // Track if user has attempted to save (to show inline validation errors only after interaction)
+  const [saveAttempted, setSaveAttempted] = React.useState(false);
+
+  // Per-section save attempts for independent validation
+  const [eppSaveAttempted, setEppSaveAttempted] = React.useState(false);
+  const [proSaveAttempted, setProSaveAttempted] = React.useState(false);
+
+  // Brief saving states for visual feedback (disable button briefly after click)
+  const [isSavingEPP, setIsSavingEPP] = React.useState(false);
+  const [isSavingFull, setIsSavingFull] = React.useState(false);
+
+  // Theme toggle handler + effect (defined early so available for header render)
+  function toggleTheme() {
+    const newIsDark = !isDarkMode;
+    setIsDarkMode(newIsDark);
+    try {
+      localStorage.setItem("pmz-theme", newIsDark ? "dark" : "light");
+    } catch {}
+    if (newIsDark) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }
+
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem("pmz-theme");
+      const shouldBeDark = saved ? saved === "dark" : true; // default dark
+      if (shouldBeDark !== isDarkMode) {
+        setIsDarkMode(shouldBeDark);
+      }
+      if (shouldBeDark) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    } catch {
+      // default already dark
+      document.documentElement.classList.add("dark");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Context-aware has-items for buttons (EPP vs Pro separate)
+  const eppHasItems = estimate.bidItems && estimate.bidItems.length > 0;
+  const proHasItems = realLEMItems && realLEMItems.length > 0;
 
   // Load work types, saved estimate, and rate profiles from other pillars
   React.useEffect(() => {
@@ -175,44 +452,208 @@ export default function ProjectPricerPage() {
       }
     } catch {}
 
+    // Rate profiles now come from the centralized useRateStore hook (see top of component).
+    // The hook handles defensive load, validation, LS keys, cross-component sync via events, and logs.
+    // No direct pmz_*_rates reads or sets here.
+
+    // Load customers on mount so the dropdown/combobox is populated from the Customers tab.
     try {
-      const raw = localStorage.getItem("pmz_labor_rates");
+      const raw = localStorage.getItem("pmz_customers");
       if (raw) {
-        const parsed = JSON.parse(raw);
-        setLaborProfiles(Array.isArray(parsed) ? parsed : []);
+        const parsed: any[] = JSON.parse(raw);
+        const loaded = parsed.map((c: any) => ({
+          ...c,
+          createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
+          updatedAt: c.updatedAt ? new Date(c.updatedAt) : new Date(),
+        }));
+        setCustomers(loaded);
       }
     } catch {}
 
-    try {
-      const raw = localStorage.getItem("pmz_equipment_rates_v2");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setEquipmentProfiles(Array.isArray(parsed) ? parsed : []);
-      }
-    } catch {}
-
-    try {
-      const raw = localStorage.getItem("pmz_material_rates");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setMaterialProfiles(Array.isArray(parsed) ? parsed : []);
-      }
-    } catch {}
-
+    // Load persisted EPP estimate (incl. bidItems for the EPP section and per-line costing panels).
+    // This runs only in useEffect (client, after hydration) so server-rendered HTML (always default/empty)
+    // matches the initial client render. Fixes hydration mismatch.
     try {
       const raw = localStorage.getItem(ESTIMATE_STORAGE);
       if (raw) {
         const saved = JSON.parse(raw);
-        if (saved.bidItems) {
+        if (saved && (saved.bidItems || saved.eppLineItems || saved.jobName || saved.customerId || saved.customerName || saved.customer)) {
+          let custId = saved.customerId || "";
+          const nameForLookup = saved.customerName || saved.customer || "";
+          if (!custId && nameForLookup) {
+            // backward compat: lookup by name if only old customer name present
+            try {
+              const rawC = localStorage.getItem("pmz_customers");
+              if (rawC) {
+                const custs: any[] = JSON.parse(rawC);
+                const match = custs.find((c: any) => c.name === nameForLookup);
+                if (match?.id) custId = match.id;
+              }
+            } catch {}
+          }
           setEstimate({
-            jobName: saved.jobName || "New Project",
-            workTypeName: saved.workTypeName || "",
+            jobName: saved.jobName || "",
+            workTypeName: saved.workTypeName || saved.workType || saved.workTypeId || "",
             salesperson: saved.salesperson || "",
-            estimatedRevenue: saved.estimatedRevenue || 20000,
-            bidItems: saved.bidItems || [],
+            estimatedRevenue: saved.estimatedRevenue || saved.totalRevenue || 20000,
+            bidItems: saved.bidItems || saved.eppLineItems || [],
+            customerName: saved.customerName || saved.customer || "",
+            customerId: custId,
+            billingAddress: saved.billingAddress || "",
           });
-          setSalespersonError(false);
+          // Seed the client ID counter from loaded bid item IDs. This ensures that
+          // generateClientId() will never produce duplicate IDs for newly added rows
+          // (e.g. after a page refresh or loading a previous quote). Duplicate IDs
+          // cause React to treat rows as the same, leading to cross-row value syncing.
+          try {
+            const loaded = saved.bidItems || saved.eppLineItems || [];
+            let maxNum = 0;
+            loaded.forEach((b: any) => {
+              if (b && b.id) {
+                const m = String(b.id).match(/bid_(\d+)/);
+                if (m) {
+                  maxNum = Math.max(maxNum, parseInt(m[1], 10) || 0);
+                }
+              }
+            });
+            stableIdRef.current = Math.max(stableIdRef.current || 0, maxNum);
+          } catch {}
         }
+      }
+    } catch {}
+
+    // Load bidItemsCollapsed for the EPP BID ITEMS section (client only).
+    try {
+      const saved = localStorage.getItem("pmz_bid_items_collapsed");
+      if (saved !== null) {
+        setBidItemsCollapsed(saved === "true");
+      }
+    } catch {}
+
+    // Restore customer from current estimate LS (used by Quotes tab for EPP quote opens).
+    // This + the LEM matching below ensures customer is pre-selected in dropdown for both EPP and Full.
+    try {
+      const estRaw = localStorage.getItem(ESTIMATE_STORAGE);
+      if (estRaw) {
+        const saved = JSON.parse(estRaw);
+        let qCustId = saved.customerId || "";
+        let qCustName = saved.customerName || saved.customer || "";
+        if (!qCustId && qCustName) {
+          // backward compat: lookup by name if only old customer name present
+          try {
+            const rawC = localStorage.getItem("pmz_customers");
+            if (rawC) {
+              const custs: any[] = JSON.parse(rawC);
+              const match = custs.find((c: any) => c.name === qCustName);
+              if (match?.id) qCustId = match.id;
+            }
+          } catch {}
+        }
+        if (qCustId || qCustName) {
+          if (qCustId) {
+            // find the matching customer (per requirements)
+            const match = customers.find((c: any) => c.id === qCustId);
+            if (match) {
+              qCustName = match.name;
+            }
+            setEstimate((prev) => ({
+              ...prev,
+              customerId: qCustId,
+              customerName: qCustName || "",
+              billingAddress: saved.billingAddress || (match ? match.billingAddress || "" : "") || "",
+            }));
+          } else if (qCustName) {
+            // old text-based customer name only (backward compat)
+            setEstimate((prev) => ({
+              ...prev,
+              customerId: "",
+              customerName: qCustName,
+              billingAddress: saved.billingAddress || "",
+            }));
+          }
+        }
+      }
+    } catch {}
+
+    // Support Open from Quotes tab: load pro LEM snapshot and readonly flag for Approved quotes
+    try {
+      const lemRaw = localStorage.getItem("pmz_current_lem_v1");
+      if (lemRaw) {
+        const parsed = JSON.parse(lemRaw);
+        if (Array.isArray(parsed)) {
+          // normalize from LemItem (label/frozenUnitCost from saved quotes) to RealLEMItem shape
+          const normalized = parsed.map((it: any) => ({
+            id: it.id || Math.random().toString(36).slice(2, 11),
+            type: it.type || it.resourceType || 'labor',
+            profileId: it.profileId || it.rateId || '',
+            description: it.description || it.label || 'Item',
+            quantity: it.quantity || 0,
+            unitCost: it.unitCost || it.frozenUnitCost || 0,
+          }));
+          setRealLEMItems(normalized);
+          setShowRealLEM(true);
+          setProViewCollapsed(false); // expand the pro view to show loaded data
+          // reset adder/editing states for clean load
+          setQtyEdits({});
+          setEppCostingOpen({});
+          setPendingLabor(null);
+          setPendingLaborQty(0);
+          setPendingLaborQtyEdit("");
+          setPendingEquipId("");
+          setPendingEquipQty(0);
+          setPendingEquipQtyEdit("");
+          setPendingMatId("");
+          setPendingMatQty(0);
+          setPendingMatQtyEdit("");
+          // restore GP% saved with the matching full quote (by matching pro item ids)
+          try {
+            const rawQuotes = localStorage.getItem("pmz_saved_quotes");
+            const allSaved = rawQuotes ? JSON.parse(rawQuotes) : [];
+            const matching = allSaved.find((q: any) =>
+              q.quoteType === 'Full' &&
+              Array.isArray(q.proLemItems) &&
+              q.proLemItems.length === normalized.length &&
+              q.proLemItems.every((p: any, idx: number) => p.id === normalized[idx].id)
+            );
+            if (matching) {
+              const gp = matching.grossProfitPercent || matching.targetGpPercent || 0;
+              setEditableGrossProfitPercent(gp);
+              setGpPercentEdit(gp > 0 ? gp.toString() : "");
+
+              // when loading a saved (Full) quote from Quotes tab (via lem snapshot + matching),
+              // restore the Customer using selected* states so the controlled dropdown shows it.
+              // If customerId, find the matching customer (from the loaded customers list).
+              // Fall back to name-only for backward compat.
+              const qCustId = matching.customerId || "";
+              const qCustNameFromQuote = matching.customerName || matching.customer || "";
+              if (qCustId) {
+                // find the matching customer
+                const match = customers.find((c: any) => c.id === qCustId);
+                const qCustName = match ? match.name : qCustNameFromQuote;
+                setEstimate((prev) => ({
+                  ...prev,
+                  customerId: qCustId,
+                  customerName: qCustName || "",
+                  billingAddress: match ? match.billingAddress || "" : "",
+                }));
+              } else if (qCustNameFromQuote) {
+                // old text-based customer name only (backward compat)
+                setEstimate((prev) => ({
+                  ...prev,
+                  customerId: "",
+                  customerName: qCustNameFromQuote,
+                  billingAddress: "",
+                }));
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+    try {
+      const ro = localStorage.getItem("pmz_current_quote_readonly");
+      if (ro === "true") {
+        setIsReadOnly(true);
       }
     } catch {}
   }, []);
@@ -223,6 +664,32 @@ export default function ProjectPricerPage() {
       localStorage.setItem(ESTIMATE_STORAGE, JSON.stringify(estimate));
     } catch {}
   }, [estimate]);
+
+  // Sync the controlled customer selector state (selectedCustomerId + selectedCustomerName)
+  // back into estimate so that dependent code (validation, saves, etc.) stays consistent.
+  // Also write directly to LS for the customer fields to guarantee the selected value
+  // survives even if unmount happens before a batched estimate effect.
+  React.useEffect(() => {
+    setEstimate((prev) => {
+      if (prev.customerId !== (selectedCustomerId || "") || prev.customerName !== (selectedCustomerName || "")) {
+        return { ...prev, customerId: selectedCustomerId || "", customerName: selectedCustomerName || "", billingAddress: prev.billingAddress || "" };
+      }
+      return prev;
+    });
+  }, [selectedCustomerId, selectedCustomerName]);
+
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ESTIMATE_STORAGE);
+      const curr = raw ? JSON.parse(raw) : {};
+      if (curr.customerId !== (selectedCustomerId || "") || curr.customerName !== (selectedCustomerName || "")) {
+        localStorage.setItem(
+          ESTIMATE_STORAGE,
+          JSON.stringify({ ...curr, customerId: selectedCustomerId || "", customerName: selectedCustomerName || "", billingAddress: curr.billingAddress || "" })
+        );
+      }
+    } catch {}
+  }, [selectedCustomerId, selectedCustomerName]);
 
   // Persist BID ITEMS collapsed state
   React.useEffect(() => {
@@ -237,6 +704,35 @@ export default function ProjectPricerPage() {
       localStorage.setItem("pmz_pro_view_collapsed", proViewCollapsed.toString());
     } catch {}
   }, [proViewCollapsed]);
+
+  // Close customer dropdown on outside click
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node;
+      const inTrigger = customerSelectRef.current && customerSelectRef.current.contains(target);
+      const inDropdown = customerDropdownRef.current && customerDropdownRef.current.contains(target);
+      if (!inTrigger && !inDropdown) {
+        setCustomerDropdownOpen(false);
+        setHighlightedCustomerIndex(-1);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  // Position the customer dropdown when open (using portal like SelectContent)
+  React.useEffect(() => {
+    if (customerDropdownOpen && customerSelectRef.current) {
+      const rect = customerSelectRef.current.getBoundingClientRect();
+      setCustomerDropdownPosition({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    }
+  }, [customerDropdownOpen]);
 
   // Running Total Revenue (the detailed bid the user is building)
   const totalRevenue = React.useMemo(() => {
@@ -263,6 +759,22 @@ export default function ProjectPricerPage() {
     return wt.tiers[wt.tiers.length - 1].targetGpPercent;
   }, [estimate.workTypeName, totalRevenue, workTypes]);
 
+  function getTargetMarginForSize(size: number): number {
+    if (!estimate.workTypeName || workTypes.length === 0) return 0;
+    const wt = workTypes.find((w) => w.name === estimate.workTypeName);
+    if (!wt || !wt.tiers || wt.tiers.length === 0) return 0;
+    if (size === 0) {
+      return wt.tiers[0].targetGpPercent;
+    }
+    for (let i = 0; i < wt.tiers.length; i++) {
+      const t = wt.tiers[i];
+      const low = t.low ?? 0;
+      const high = t.high ?? Infinity;
+      if (size >= low && size <= high) return t.targetGpPercent;
+    }
+    return wt.tiers[wt.tiers.length - 1].targetGpPercent;
+  }
+
   // Default GP% for Pro view: the target from work type tier (based on current bid total), or 20% if none selected
   const defaultTargetGP = targetMargin > 0 ? targetMargin : 20;
 
@@ -270,40 +782,35 @@ export default function ProjectPricerPage() {
   // This allows the field to show the correct target automatically while remaining fully user-editable.
   const currentGPPercent = editableGrossProfitPercent > 0 ? editableGrossProfitPercent : defaultTargetGP;
 
-  // For the yellow bar in simple bid section: editable margin % , defaults to target
-  const defaultBarMargin = targetMargin > 0 ? targetMargin : 20;
-  const currentBarMargin = barMarginPercent > 0 ? barMarginPercent : defaultBarMargin;
-
-  // Dynamic tint classes for the Grand Total card (Pro view only) — light green when hitting target, light amber when below.
-  // Neutral when no work type / no target margin yet.
+  // Dynamic tint classes for the Grand Total card (Pro view only).
+  // Comparison uses the live Gross Profit % (currentGPPercent, the editable value from Profit Summary section).
+  // The expressions re-evaluate on every render, including when GP% field changes or LEM items added/removed (causes re-render).
   const isNoTarget = !estimate.workTypeName || targetMargin <= 0;
   const isHittingTarget = currentGPPercent >= defaultTargetGP;
   const grandTotalCardClass = cn(
-    "border-2 rounded-xl p-4",
+    "rounded-xl p-4",
     isNoTarget
-      ? "bg-slate-50 border-slate-300"
-      : isHittingTarget
-        ? "bg-[#e6f4ea] border-emerald-200"
-        : "bg-[#fce8e6] border-amber-200"
+      ? "border-2 bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+      : (editableGrossProfitPercent > 0 ? editableGrossProfitPercent : defaultTargetGP) >= defaultTargetGP
+        ? "bg-[#e6f4ea] dark:bg-emerald-950 border-[#4ade80] dark:border-emerald-700 border-2"
+        : "bg-[#fce8e6] dark:bg-red-950 border-[#f87171] dark:border-red-700 border-2"
   );
   const grandTotalTitleClass = isNoTarget
-    ? "text-slate-800"
+    ? "text-slate-800 dark:text-slate-200"
     : isHittingTarget
-      ? "text-emerald-800"
-      : "text-amber-800";
+      ? "text-emerald-800 dark:text-emerald-300"
+      : "text-red-800 dark:text-red-300";
   const grandTotalNumberClass = cn(
     "tabular-nums text-3xl font-bold",
     isNoTarget
-      ? "text-slate-800"
+      ? "text-slate-800 dark:text-slate-200"
       : isHittingTarget
-        ? "text-emerald-800"
-        : "text-amber-800"
+        ? "text-emerald-800 dark:text-emerald-300"
+        : "text-red-800 dark:text-red-300"
   );
 
   // Target Bid Price now uses the BID ITEMS table total (current bid total)
   const targetBidPrice = totalRevenue;
-
-  const workTypeOptions = workTypes.map((wt) => wt.name);
 
   // === LEM Breakdown (Level 1: reasonable default allocation based on Work Type) ===
   // Uses saved rates for average references + work-type-specific % splits of the "allowed direct cost"
@@ -328,6 +835,24 @@ export default function ProjectPricerPage() {
     });
     return count > 0 ? Math.round((sum / count) * 100) / 100 : 50;
   }, [materialProfiles]);
+
+  const avgEquipmentRate = React.useMemo(() => {
+    if (equipmentProfiles.length === 0) return 50;
+    let sum = 0, count = 0;
+    equipmentProfiles.forEach((p: any) => {
+      try {
+        // inline equipment rate calc (matches getRealRateForProfile logic)
+        const ownershipAnnual = (p.ownership || []).reduce((s: number, l: any) => s + (l.cost || 0), 0);
+        const operatingAnnual = (p.operating || []).reduce((s: number, l: any) => s + (l.cost || 0), 0);
+        const hours = p.annualUtilizationHours || p.hoursForRate || 1000;
+        const dep = Math.max(0, (p.startingValue || 0) - (p.endingValue || 0));
+        const totalAnnual = dep + ownershipAnnual + operatingAnnual;
+        const rate = totalAnnual / hours;
+        if (rate > 0) { sum += rate; count++; }
+      } catch {}
+    });
+    return count > 0 ? Math.round((sum / count) * 100) / 100 : 50;
+  }, [equipmentProfiles]);
 
   const equipmentCount = equipmentProfiles.length;
 
@@ -362,23 +887,34 @@ export default function ProjectPricerPage() {
 
   function addBidItem() {
     const newItem: BidItem = {
-      id: Math.random().toString(36).slice(2, 11),
+      id: generateClientId('bid'),
       description: "",
-      quantity: 1,
+      quantity: 0,
       unit: "EA",
       unitPrice: 0,
+      laborEntries: [],
+      equipmentEntries: [],
+      materialEntries: [],
     };
     setEstimate((prev) => ({ ...prev, bidItems: [...prev.bidItems, newItem] }));
   }
 
-  function updateBidItem(id: string, field: keyof BidItem, value: string | number) {
+  function updateBidItem(id: string, field: keyof BidItem, value: any) {
+    if (["laborEntries", "equipmentEntries", "materialEntries"].includes(field as string)) {
+      setCostingTargetResult(prev => {
+        const { [id]: _, ...rest } = prev;
+        return rest;
+      });
+    }
     setEstimate((prev) => ({
       ...prev,
       bidItems: prev.bidItems.map((item) =>
         item.id === id
           ? {
               ...item,
-              [field]: field === "description" || field === "unit" ? value : Math.max(0, Number(value)),
+              [field]: (field === "labor" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries"].includes(field as string))
+                ? (value === "" ? undefined : value)
+                : Math.max(0, Number(value) || 0),
             }
           : item
       ),
@@ -390,16 +926,57 @@ export default function ProjectPricerPage() {
       ...prev,
       bidItems: prev.bidItems.filter((i) => i.id !== id),
     }));
+    setLineTotalEdits(prev => {
+      const { [id]: _, ...rest } = prev;
+      return rest;
+    });
+    setEppCostingOpen(prev => {
+      const { [id]: _, ...rest } = prev;
+      return rest;
+    });
+  }
+
+  function toggleEppDetails(id: string) {
+    setEppCostingOpen(prev => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
   }
 
   function clearAll() {
     setEstimate({
-      jobName: "New Project",
-      workTypeName: estimate.workTypeName,
-      salesperson: estimate.salesperson,
+      jobName: "",
+      workTypeName: "",
+      salesperson: "",
       estimatedRevenue: 0,
       bidItems: [],
+      customerName: "",
+      customerId: "",
+      billingAddress: "",
     });
+    setSelectedCustomerName(null);
+    setSelectedCustomerId(null);
+    setRealLEMItems([]);
+    setIsReadOnly(false);
+    setPendingLabor(null);
+    setPendingLaborQty(0);
+    setPendingEquipId("");
+    setPendingEquipQty(0);
+    setPendingMatId("");
+    setPendingMatQty(0);
+    setQtyEdits({});
+    setLineTotalEdits({});
+    setEppCostingOpen({});
+    setPendingLaborQtyEdit("");
+    setPendingEquipQtyEdit("");
+    setPendingMatQtyEdit("");
+    setEditableGrossProfitPercent(0);
+    setGpPercentEdit("");
+    setShowRealLEM(false);
+    try {
+      localStorage.removeItem("pmz_current_quote_readonly");
+      localStorage.removeItem("pmz_current_lem_v1");
+    } catch {}
   }
 
   function resetToDemo() {
@@ -416,18 +993,249 @@ export default function ProjectPricerPage() {
       salesperson: "Owner",
       estimatedRevenue: 24500,
       bidItems: demo,
+      customerName: "Downtown Plaza LLC",
+      customerId: "",
+      billingAddress: "",
     });
+    setSelectedCustomerName("Downtown Plaza LLC");
+    setSelectedCustomerId(null);
+    setRealLEMItems([]);
+    setQtyEdits({});
+    setLineTotalEdits({});
+    setEppCostingOpen({});
+    setIsReadOnly(false);
+    try {
+      localStorage.removeItem("pmz_current_quote_readonly");
+      localStorage.removeItem("pmz_current_lem_v1");
+    } catch {}
   }
 
-  // Validate required fields (esp. salesperson) before calculate/save actions
-  function validateForAction(): boolean {
-    const sp = (estimate.salesperson || "").trim();
-    if (!sp) {
-      setSalespersonError(true);
-      return false;
+  // Unified save to pmz_saved_quotes per spec. Captures snapshot of active rates at save time.
+  // Uses PMZ types from lib/pmz-types.ts for SavedQuote, LineItem, LemItem, Bucket.
+  function saveQuote(quoteType: "EPP" | "Full") {
+    try {
+      const key = "pmz_saved_quotes";
+      const raw = localStorage.getItem(key);
+      const quotes: PMZSavedQuote[] = raw ? JSON.parse(raw) : [];
+      const now = new Date();
+
+      const selectedWT = workTypes.find((w: any) => w.name === estimate.workTypeName);
+      const workTypeId = (selectedWT as any)?.id || estimate.workTypeName || "";
+      const workTypeName = estimate.workTypeName || (selectedWT as any)?.name || "";
+
+      // Determine the pricing tier that was used for target GP (based on revenue size)
+      let pricingTierId = "tier-0";
+      const tiers = (selectedWT as any)?.tiers || (selectedWT as any)?.pricingTiers || [];
+      let size = totalRevenue || 0;
+      let matchedIndex = -1;
+      if (tiers.length > 0) {
+        if (size === 0) {
+          matchedIndex = 0;
+        } else {
+          for (let i = 0; i < tiers.length; i++) {
+            const t = tiers[i];
+            const low = t.low ?? 0;
+            const high = t.high ?? Infinity;
+            if (size >= low && size <= high) {
+              matchedIndex = i;
+              break;
+            }
+          }
+          if (matchedIndex < 0) matchedIndex = tiers.length - 1;
+        }
+        if (matchedIndex >= 0) {
+          const t = tiers[matchedIndex];
+          pricingTierId = (t as any)?.id || (t as any)?.pricingTierId || `tier-${matchedIndex}`;
+        }
+      }
+      const targetGpSource = { workTypeId, pricingTierId };
+
+      const getBucketForType = (t: 'labor' | 'equipment' | 'material'): Bucket => {
+        // Tag LEM resource lines to buckets per model (labor/material as direct production; equipment as indirect for example coverage)
+        if (t === 'labor' || t === 'material') return 'direct';
+        return 'indirect';
+      };
+
+      let eppLines: LineItem[] = [];
+      let proLems: LemItem[] = [];
+      let directCogsDollars = 0;
+      let indirectCogsDollars = 0;
+
+      if (quoteType === "EPP") {
+        eppLines = estimate.bidItems.map((item): LineItem => ({
+          id: item.id,
+          description: item.description,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+        }));
+        proLems = [];
+        // For EPP (revenue-only), record basic cogs using target margin as proxy (no real LEM)
+        const eppCogs = totalRevenue * (1 - (targetMargin || 0) / 100);
+        directCogsDollars = eppCogs;
+        indirectCogsDollars = 0;
+      } else {
+        eppLines = [];
+        proLems = realLEMItems.map((item): LemItem => {
+          const bucket = getBucketForType(item.type);
+          const frozenUnitCost = item.unitCost;
+          const lineCost = item.quantity * frozenUnitCost;
+          if (bucket === "direct") {
+            directCogsDollars += lineCost;
+          } else {
+            indirectCogsDollars += lineCost;
+          }
+          return {
+            id: item.id,
+            resourceType: item.type,
+            rateId: item.profileId,
+            label: item.description,
+            quantity: item.quantity,
+            frozenUnitCost,
+            bucket,
+          };
+        });
+      }
+
+      const grossProfitDollars = totalRevenue - (directCogsDollars + indirectCogsDollars);
+      const grossProfitPercent = totalRevenue > 0 ? (grossProfitDollars / totalRevenue) * 100 : 0;
+
+      // Capture for Full Quote from Profit Summary state
+      let finalGrossProfitPercent = grossProfitPercent;
+      let finalGrossProfitAmount = grossProfitDollars;
+      let finalGrandTotal = totalRevenue;
+      if (quoteType === "Full") {
+        // read the editable GP% from Profit Summary or the Work Type target
+        finalGrossProfitPercent = editableGrossProfitPercent > 0 ? editableGrossProfitPercent : currentGPPercent;
+        finalGrossProfitAmount = computedGrossProfit;
+        finalGrandTotal = realTotalLEM + finalGrossProfitAmount;
+      }
+
+      // Capture customer from the controlled Customer selector state (selectedCustomerId + selectedCustomerName)
+      // at save time so both EPP and Full quotes reliably store the selected customer.
+      const savedCustomerId = selectedCustomerId || estimate.customerId || "";
+      const savedCustomerName = selectedCustomerName || estimate.customerName || "";
+      const savedCustomerBilling = estimate.billingAddress || "";
+
+      const newQuote: PMZSavedQuote & { customerName?: string } = {
+        id: generateClientId(quoteType.toLowerCase()),
+        quoteType,
+        jobName: estimate.jobName || "Untitled",
+        customer: savedCustomerName || "",
+        customerId: savedCustomerId || "",
+        customerName: savedCustomerName || "",
+        billingAddress: savedCustomerBilling,
+        workTypeId,
+        workType: workTypeName,
+        salesperson: estimate.salesperson || "",
+        // also store full customer snapshot for preview
+        customerDetails: {
+          id: savedCustomerId,
+          name: savedCustomerName,
+          billingAddress: savedCustomerBilling,
+        },
+        status: "Draft",
+        locked: false,
+        eppLineItems: eppLines,
+        proLemItems: proLems,
+        targetGpPercent: targetMargin,
+        targetGpSource,
+        totalRevenue,
+        directCogsDollars,
+        indirectCogsDollars,
+        grossProfitDollars: finalGrossProfitAmount,
+        grossProfitPercent: finalGrossProfitPercent,
+        grossProfitAmount: finalGrossProfitAmount,
+        grandTotal: finalGrandTotal,
+        createdAt: now,
+        updatedAt: now,
+      };
+      quotes.push(newQuote);
+      localStorage.setItem(key, JSON.stringify(quotes));
+    } catch {
+      // fail silently (storage issues)
     }
-    setSalespersonError(false);
-    return true;
+  }
+
+  function handleSaveEPPQuote() {
+    setSaveAttempted(true);
+    setEppSaveAttempted(true);
+    if (!eppHasItems) return;
+    setIsSavingEPP(true);
+    saveQuote("EPP");
+    setSaveMessage("EPP Quote saved successfully");
+    // brief disable cue
+    setTimeout(() => setIsSavingEPP(false), 1500);
+    // auto dismiss message
+    setTimeout(() => setSaveMessage(null), 4500);
+  }
+
+  function handleSaveFullQuote() {
+    setSaveAttempted(true);
+    setProSaveAttempted(true);
+    if (!proHasItems) return;
+    setIsSavingFull(true);
+    saveQuote("Full");
+    setSaveMessage("Full Quote saved successfully");
+    // brief disable cue
+    setTimeout(() => setIsSavingFull(false), 1500);
+    // auto dismiss message
+    setTimeout(() => setSaveMessage(null), 4500);
+  }
+
+  function handlePrintQuote() {
+    const previewEl = document.getElementById('quote-preview');
+    if (!previewEl) {
+      window.print();
+      return;
+    }
+    const printWindow = window.open('', '', 'width=900,height=700');
+    if (printWindow) {
+      const styles = `
+        body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; color: #111; background: #fff; line-height: 1.4; }
+        .quote-container { max-width: 800px; margin: 0 auto; font-size: 13px; }
+        .brand { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
+        .quote-title { font-size: 32px; font-weight: 700; text-align: center; margin: 12px 0 20px; letter-spacing: 2px; border-bottom: 3px solid #000; padding-bottom: 8px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 20px; }
+        .info-block h4 { font-size: 11px; font-weight: 600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+        th, td { border: 1px solid #666; padding: 6px 8px; text-align: left; }
+        th { background: #f0f0f0; font-weight: 600; }
+        .text-right { text-align: right; }
+        .total-row td { font-weight: 700; background: #f8f8f8; }
+        .summary { margin-top: 16px; padding-top: 12px; border-top: 1px solid #ccc; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: 12px; }
+        .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 32px; }
+        .sig-line { border-bottom: 1px solid #000; height: 24px; margin-bottom: 2px; }
+        .footer { margin-top: 24px; font-size: 10px; text-align: center; color: #555; }
+        @media print { body { margin: 0; } .no-print { display: none !important; } }
+      `;
+      printWindow.document.write(`<!doctype html><html><head><title>Quote - ${estimate.jobName || 'PMZ'}</title><style>${styles}</style></head><body>`);
+      printWindow.document.write(previewEl.innerHTML);
+      printWindow.document.write('</body></html>');
+      printWindow.document.close();
+      setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+      }, 250);
+    } else {
+      window.print();
+    }
+  }
+
+  function handleExportNext() {
+    const options = {
+      exportType,
+      showQuantities,
+      showUnits,
+      showPerUnitPrice,
+      showLineItemPrices,
+      logoDataUrl,
+    };
+    setShowUpdateExport(false);
+    // Open the large full-page Quote Preview (which respects the options)
+    setShowQuotePreview(true);
+    // Note: the actual PDF download can be triggered from the preview's Print/Export button
+    // For direct, we can still generate here if wanted, but per flow, preview first
   }
 
   function toggleBidItemsCollapsed() {
@@ -506,25 +1314,52 @@ export default function ProjectPricerPage() {
   const realTrueGP = totalRevenue - realTotalLEM;
   const realGPPercent = totalRevenue > 0 ? (realTrueGP / totalRevenue) * 100 : 0;
 
-  // Calculations for the bottom yellow bar (simple bid section)
-  // Break-even = total revenue from simple BID ITEMS table
-  const barBreakEven = totalRevenue;
-  // Margin % from this bar (editable, defaults to target)
-  const barMargin = currentBarMargin;
-  // Profit $ = Break-even / (1 - Margin/100) - Break-even
-  const barProfit = (barBreakEven > 0 && barMargin > 0 && barMargin < 100)
-    ? (barBreakEven / (1 - barMargin / 100) - barBreakEven)
+  // EPP bottom summary banner calculations (Estimate Total = sum of EPP line totals;
+  // Actual Cost = sum of real burdened L+E+M costs from per-line-item costing panels)
+  const eppSellingPrice = totalRevenue;
+  const eppRealCost = (estimate.bidItems || []).reduce((sum, item) => {
+    const lC = (item.laborEntries || []).reduce((s, entry) => {
+      const rate = (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
+        ? entry.labor.burdenedHourlyRate
+        : getLaborBurdenedRate(entry.rateId || "");
+      return s + rate * (entry.hours || 0);
+    }, 0);
+    const eC = (item.equipmentEntries || []).reduce((s, entry) => {
+      return s + getEquipmentCostPerHour(entry.rateId || "") * (entry.hours || 0);
+    }, 0);
+    const mC = (item.materialEntries || []).reduce((s, entry) => {
+      return s + getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
+    }, 0);
+    return sum + Math.round((lC + eC + mC) * 100) / 100;
+  }, 0);
+  const eppGrossProfitDollars = eppSellingPrice - eppRealCost;
+  const eppGrossProfitPercent = eppSellingPrice > 0
+    ? Math.round(((eppSellingPrice - eppRealCost) / eppSellingPrice * 100) * 10) / 10
     : 0;
-  // Bid Total = Break-even + Profit $
-  const barBidTotal = barBreakEven + barProfit;
-  // Calculated profit % is the margin we are applying
-  const barProfitPercent = barMargin;
+  const eppTargetPercent = targetMargin; // from selected Work Type tier for current job size, or 0
+  const eppOnTarget = eppGrossProfitPercent >= eppTargetPercent;
 
-  // current profit % for banner indicator: use the bar's margin % (calculated profit %)
-  const currentProfitPercent = barProfitPercent;
+  // Validation for header/common fields (EPP/Pro sections validate their items separately)
+  const validationErrors = React.useMemo(() => {
+    const errs: Partial<Record<"jobName" | "workType" | "customer", string>> = {};
+    if (!estimate.jobName || estimate.jobName.trim() === "") {
+      errs.jobName = "Job Name is required";
+    }
+    if (!estimate.workTypeName || estimate.workTypeName.trim() === "") {
+      errs.workType = "Work Type selection is required";
+    }
+    if (!estimate.customerName || estimate.customerName.trim() === "") {
+      errs.customer = "Customer is required";
+    }
+    // bidItems / pro items validated per-section only
+    return errs;
+  }, [estimate.jobName, estimate.workTypeName, estimate.customerName]);
 
-  // For the indicator badge in the bar: compare bar's profit % to target
-  const barOnTarget = (barBreakEven > 0 && barProfitPercent >= targetMargin);
+  const isValid = Object.keys(validationErrors).length === 0;
+
+  // Per-section item validation errors (independent)
+  const eppItemError = eppSaveAttempted && !eppHasItems ? "At least one line item is required" : null;
+  const proItemError = proSaveAttempted && !proHasItems ? "At least one item is required" : null;
 
   // Computed for Grand Total using (user-editable or auto-default target) % as true margin
   const p = currentGPPercent;
@@ -535,6 +1370,229 @@ export default function ProjectPricerPage() {
   const MaxDirectCost = targetBidPrice > 0 && targetMargin > 0
     ? Math.round(targetBidPrice * (1 - targetMargin / 100))
     : 0;
+
+  // Professional PDF styles + logo support
+  const styles = StyleSheet.create({
+    page: {
+      padding: 40,
+      fontFamily: 'Helvetica',
+      fontSize: 10,
+      color: '#111',
+    },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 12,
+      paddingBottom: 8,
+      borderBottomWidth: 2,
+      borderBottomColor: '#111',
+    },
+    logo: {
+      maxWidth: 120,
+      maxHeight: 50,
+    },
+    companyName: {
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    quoteTitle: {
+      fontSize: 28,
+      fontWeight: 'bold',
+      textAlign: 'center',
+      marginVertical: 10,
+      letterSpacing: 2,
+    },
+    infoSection: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 16,
+    },
+    infoCol: {
+      width: '48%',
+    },
+    infoLabel: {
+      fontSize: 8,
+      fontWeight: 'bold',
+      marginBottom: 2,
+      color: '#444',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    infoText: {
+      fontSize: 10,
+      marginBottom: 1,
+    },
+    table: {
+      width: '100%',
+      marginBottom: 12,
+    },
+    tableHeader: {
+      flexDirection: 'row',
+      backgroundColor: '#f5f5f5',
+      borderBottomWidth: 1,
+      borderBottomColor: '#111',
+    },
+    tableHeaderCell: {
+      padding: 6,
+      fontSize: 9,
+      fontWeight: 'bold',
+      borderRightWidth: 0.5,
+      borderRightColor: '#999',
+    },
+    tableRow: {
+      flexDirection: 'row',
+      borderBottomWidth: 0.5,
+      borderBottomColor: '#ccc',
+    },
+    tableCell: {
+      padding: 5,
+      fontSize: 9,
+      borderRightWidth: 0.5,
+      borderRightColor: '#ccc',
+    },
+    tableCellRight: {
+      padding: 5,
+      fontSize: 9,
+      textAlign: 'right',
+    },
+    totalRow: {
+      flexDirection: 'row',
+      marginTop: 4,
+      borderTopWidth: 1,
+      borderTopColor: '#111',
+      paddingTop: 4,
+    },
+    totalLabel: {
+      fontSize: 11,
+      fontWeight: 'bold',
+    },
+    totalValue: {
+      fontSize: 11,
+      fontWeight: 'bold',
+      textAlign: 'right',
+    },
+    summary: {
+      marginTop: 16,
+      paddingTop: 8,
+      borderTopWidth: 0.5,
+      borderTopColor: '#999',
+      fontSize: 9,
+    },
+    footer: {
+      marginTop: 24,
+      fontSize: 8,
+      color: '#555',
+      textAlign: 'center',
+    },
+  });
+
+  const QuotePDF = ({
+    estimate,
+    exportType = 'quote',
+    showQuantities = true,
+    showUnits = true,
+    showPerUnitPrice = true,
+    showLineItemPrices = true,
+    logoDataUrl = null,
+  }: any) => {
+    const items = estimate.bidItems || [];
+    const grandTotal = items.reduce((sum: number, item: any) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
+
+    // Compute column widths dynamically
+    const descWidth = '40%';
+    const qtyWidth = showQuantities ? '10%' : '0%';
+    const unitWidth = showUnits ? '10%' : '0%';
+    const priceWidth = showPerUnitPrice ? '15%' : '0%';
+    const totalWidth = showLineItemPrices ? '15%' : '0%';
+
+    return (
+      <Document>
+        <Page size="A4" style={styles.page}>
+          {/* Header with logo */}
+          <View style={styles.header}>
+            <View>
+              {logoDataUrl ? (
+                <Image src={logoDataUrl} style={styles.logo} />
+              ) : (
+                <Text style={styles.companyName}>Performance Margin Zone</Text>
+              )}
+              <Text style={{ fontSize: 8, color: '#555' }}>Total Profit Management</Text>
+            </View>
+            <View style={{ textAlign: 'right' }}>
+              <Text style={{ fontSize: 9 }}>Quote #{Date.now().toString().slice(-7)}</Text>
+              <Text style={{ fontSize: 9 }}>{new Date().toLocaleDateString()}</Text>
+            </View>
+          </View>
+
+          {/* Title */}
+          <Text style={styles.quoteTitle}>{exportType === 'quote' ? 'QUOTE' : 'ESTIMATE'}</Text>
+
+          {/* Customer / Project Info */}
+          <View style={styles.infoSection}>
+            <View style={styles.infoCol}>
+              <Text style={styles.infoLabel}>TO:</Text>
+              <Text style={styles.infoText}>{estimate.customerName || 'Valued Customer'}</Text>
+              <Text style={styles.infoText}>{estimate.billingAddress || 'Address on file'}</Text>
+              <Text style={styles.infoText}>Contact: {estimate.salesperson || '—'}</Text>
+            </View>
+            <View style={styles.infoCol}>
+              <Text style={styles.infoLabel}>PROJECT:</Text>
+              <Text style={styles.infoText}>{estimate.jobName || 'Project Name'}</Text>
+              <Text style={styles.infoText}>Sales Rep: {estimate.salesperson || '—'}</Text>
+            </View>
+          </View>
+
+          {/* Line Items Table */}
+          <View style={styles.table}>
+            {/* Header row */}
+            <View style={styles.tableHeader}>
+              <Text style={[styles.tableHeaderCell, { width: descWidth }]}>Description</Text>
+              {showQuantities && <Text style={[styles.tableHeaderCell, { width: qtyWidth }]}>Qty</Text>}
+              {showUnits && <Text style={[styles.tableHeaderCell, { width: unitWidth }]}>Unit</Text>}
+              {showPerUnitPrice && <Text style={[styles.tableHeaderCell, { width: priceWidth }]}>Unit Price</Text>}
+              {showLineItemPrices && <Text style={[styles.tableHeaderCell, { width: totalWidth }]}>Line Total</Text>}
+            </View>
+
+            {/* Data rows */}
+            {items.length > 0 ? items.map((item: any, idx: number) => {
+              const lt = (item.quantity || 0) * (item.unitPrice || 0);
+              return (
+                <View key={idx} style={styles.tableRow}>
+                  <Text style={[styles.tableCell, { width: descWidth }]}>{item.description || '—'}</Text>
+                  {showQuantities && <Text style={[styles.tableCell, { width: qtyWidth }]}>{item.quantity || 0}</Text>}
+                  {showUnits && <Text style={[styles.tableCell, { width: unitWidth }]}>{item.unit || ''}</Text>}
+                  {showPerUnitPrice && <Text style={[styles.tableCell, { width: priceWidth }]}>${formatMoney(item.unitPrice || 0)}</Text>}
+                  {showLineItemPrices && <Text style={[styles.tableCell, { width: totalWidth }]}>${formatMoney(lt)}</Text>}
+                </View>
+              );
+            }) : (
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { width: '100%' }]}>No line items</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Grand Total */}
+          <View style={styles.totalRow}>
+            <Text style={[styles.totalLabel, { width: '70%' }]}>TOTAL</Text>
+            <Text style={[styles.totalValue, { width: '30%' }]}>${formatMoney(grandTotal)}</Text>
+          </View>
+
+          {/* Optional Summary (clean) */}
+          <View style={styles.summary}>
+            <Text>Estimate Total: ${formatMoney(eppSellingPrice)}</Text>
+            <Text>Actual Cost: ${formatMoney(eppRealCost)}</Text>
+            <Text>Gross Profit: ${formatMoney(eppGrossProfitDollars)} ({eppGrossProfitPercent.toFixed(1)}%)</Text>
+          </View>
+
+          <Text style={styles.footer}>
+            This document is a {exportType}. Thank you for your business.
+          </Text>
+        </Page>
+      </Document>
+    );
+  };
 
   return (
     <div className="max-w-6xl space-y-6 pb-12">
@@ -556,43 +1614,264 @@ export default function ProjectPricerPage() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <Button variant="outline" size="sm" onClick={resetToDemo}>
             <RotateCcw className="mr-2 h-4 w-4" /> Load Demo
           </Button>
           <Button variant="ghost" size="sm" onClick={clearAll}>
             <RotateCcw className="mr-2 h-4 w-4" /> Clear
           </Button>
+          {/* Theme toggle - small, clean, top-right of header. Sun/Moon icons */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+            className="h-8 w-8"
+            title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
         </div>
       </div>
 
-      {/* 1. Top section — Job Name, Work Type, Salesperson. Bid total from table now drives margin tier. */}
+      {/* Save success banner (temporary, auto-dismisses) */}
+      {saveMessage && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-200 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200 flex items-center justify-between gap-3">
+          <span>{saveMessage}</span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 border-emerald-300 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900 dark:hover:text-emerald-100 px-2"
+              onClick={() => {
+                console.log("View Saved Quotes clicked");
+                try {
+                  const quotes = JSON.parse(localStorage.getItem("pmz_saved_quotes") || "[]");
+                  console.log("pmz_saved_quotes:", quotes);
+                } catch {
+                  console.log("pmz_saved_quotes: []");
+                }
+              }}
+            >
+              View Saved Quotes
+            </Button>
+            <button
+              onClick={() => setSaveMessage(null)}
+              className="text-emerald-700 hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-100 font-bold px-1 leading-none"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Read-only banner when viewing a locked quote loaded from Quotes tab */}
+      {isReadOnly && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-200 px-4 py-2 text-sm text-amber-800 dark:text-amber-200 flex items-center justify-between">
+          <span>Read-only mode — this quote is Approved and locked. Edit fields are disabled. Use “Duplicate” from Quotes to create an editable copy.</span>
+        </div>
+      )}
+
+      {/* 1. Top section — Customer (searchable), Job Name, Work Type (required), Salesperson. Bid total from table now drives margin tier. */}
       <Card className="card">
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
+            {/* Customer first (searchable combobox / dropdown, allows select or type new) */}
+            <div ref={customerSelectRef} className="relative">
+              <Label className="text-xs font-medium tracking-wider text-muted-foreground">CUSTOMER</Label>
+              <Input
+                value={customerDropdownOpen ? (customerSearch ?? "") : (selectedCustomerName ?? "")}
+                onChange={(e) => {
+                  setCustomerSearch(e.target.value);
+                  setCustomerDropdownOpen(true);
+                  setHighlightedCustomerIndex(0);
+                  // clear id while typing to allow free text / search; keep name for display compat
+                  setSelectedCustomerName(e.target.value || null);
+                  setSelectedCustomerId(null);
+                  updateEstimate({ customerName: e.target.value, customerId: "", billingAddress: "" });
+                }}
+                onFocus={() => {
+                  setCustomerDropdownOpen(true);
+                  setHighlightedCustomerIndex(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    if (!customerDropdownOpen) {
+                      setCustomerDropdownOpen(true);
+                      setHighlightedCustomerIndex(0);
+                      return;
+                    }
+                    if (filteredCustomers.length === 0) return;
+                    setHighlightedCustomerIndex((prev) =>
+                      prev < filteredCustomers.length - 1 ? prev + 1 : prev
+                    );
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    if (!customerDropdownOpen) {
+                      setCustomerDropdownOpen(true);
+                      setHighlightedCustomerIndex(0);
+                      return;
+                    }
+                    if (filteredCustomers.length === 0) return;
+                    setHighlightedCustomerIndex((prev) => (prev > 0 ? prev - 1 : prev));
+                  } else if (e.key === "Enter") {
+                    if (!customerDropdownOpen || highlightedCustomerIndex < 0 || highlightedCustomerIndex >= filteredCustomers.length) return;
+                    e.preventDefault();
+                    const c = filteredCustomers[highlightedCustomerIndex];
+                    setSelectedCustomerName(c.name);
+                    setSelectedCustomerId(c.id);
+                    setCustomerSearch("");
+                    setCustomerDropdownOpen(false);
+                    setHighlightedCustomerIndex(-1);
+                    try {
+                      const raw = localStorage.getItem(ESTIMATE_STORAGE);
+                      const curr = raw ? JSON.parse(raw) : {};
+                      localStorage.setItem(ESTIMATE_STORAGE, JSON.stringify({
+                        ...curr,
+                        customerId: c.id,
+                        customerName: c.name,
+                        billingAddress: c.billingAddress || "",
+                      }));
+                    } catch {}
+                    updateEstimate({ customerName: c.name, customerId: c.id, billingAddress: c.billingAddress || "" });
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setCustomerDropdownOpen(false);
+                    setHighlightedCustomerIndex(-1);
+                  }
+                }}
+                className={cn(
+                  "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]",
+                  saveAttempted && validationErrors.customer && "border-red-300 focus-visible:border-red-400"
+                )}
+                placeholder="Search or select customer..."
+              />
+              {saveAttempted && validationErrors.customer && (
+                <p className="mt-1 text-xs text-red-600">{validationErrors.customer}</p>
+              )}
+              {customerDropdownOpen && createPortal(
+                <div
+                  ref={customerDropdownRef}
+                  className="fixed z-[100] min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md max-h-[300px] overflow-y-auto"
+                  style={{
+                    top: customerDropdownPosition.top,
+                    left: customerDropdownPosition.left,
+                    width: customerDropdownPosition.width,
+                  }}
+                  onWheel={(e) => {
+                    e.stopPropagation();
+                    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                    const delta = e.deltaY;
+                    const isAtTop = scrollTop === 0 && delta < 0;
+                    const isAtBottom = scrollTop + clientHeight >= scrollHeight && delta > 0;
+                    if (isAtTop || isAtBottom) {
+                      e.preventDefault();
+                    }
+                    if (filteredCustomers.length > 0) {
+                      if (delta > 0) {
+                        setHighlightedCustomerIndex((prev) =>
+                          prev < filteredCustomers.length - 1 ? prev + 1 : prev
+                        );
+                      } else if (delta < 0) {
+                        setHighlightedCustomerIndex((prev) => (prev > 0 ? prev - 1 : prev));
+                      }
+                    }
+                  }}
+                >
+                  {customers.length > 0 ? (
+                    filteredCustomers.length > 0 ? (
+                      filteredCustomers.map((c, index) => (
+                        <div
+                          key={c.id}
+                          className={cn(
+                            "customer-option relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none",
+                            index === highlightedCustomerIndex && "bg-accent text-accent-foreground"
+                          )}
+                          onMouseEnter={() => setHighlightedCustomerIndex(index)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedCustomerName(c.name);
+                            setSelectedCustomerId(c.id);
+                            setCustomerSearch("");
+                            setCustomerDropdownOpen(false);
+                            setHighlightedCustomerIndex(-1);
+                            // Direct synchronous persist of the controlled (customerId + customerName)
+                            // selection ensures it is saved to storage even around tab unmount/remount.
+                            try {
+                              const raw = localStorage.getItem(ESTIMATE_STORAGE);
+                              const curr = raw ? JSON.parse(raw) : {};
+                              localStorage.setItem(ESTIMATE_STORAGE, JSON.stringify({
+                                ...curr,
+                                customerId: c.id,
+                                customerName: c.name,
+                                billingAddress: c.billingAddress || "",
+                              }));
+                            } catch {}
+                            updateEstimate({ customerName: c.name, customerId: c.id, billingAddress: c.billingAddress || "" });
+                          }}
+                        >
+                          {c.name}
+                          {c.contactName && (
+                            <span className="ml-1 text-[10px] text-muted-foreground">({c.contactName})</span>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">
+                        No matches. <a href="/customers" className="underline">Go to Customers tab</a> to add more.
+                      </div>
+                    )
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
+                      No customers found. Add customers in the Customers tab.
+                    </div>
+                  )}
+                </div>,
+                document.body
+              )}
+            </div>
+
             <div>
               <Label className="text-xs font-medium tracking-wider text-muted-foreground">JOB NAME</Label>
               <Input
                 value={estimate.jobName}
+                onFocus={() => {
+                  if (estimate.jobName === "Downtown Plaza Paving - Phase 1" || estimate.jobName === "New Project") {
+                    updateEstimate({ jobName: "" });
+                  }
+                }}
                 onChange={(e) => updateEstimate({ jobName: e.target.value })}
                 className="mt-1.5 text-lg font-medium"
-                placeholder="Project name or number"
               />
+              {saveAttempted && validationErrors.jobName && (
+                <p className="mt-1 text-xs text-red-600">{validationErrors.jobName}</p>
+              )}
             </div>
 
             <div>
-              <Label className="text-xs font-medium tracking-wider text-muted-foreground">WORK TYPE</Label>
+              <div className="flex items-baseline gap-1">
+                <Label className="text-xs font-medium tracking-wider text-muted-foreground">WORK TYPE</Label>
+                {!estimate.workTypeName && (
+                  <span className="text-[10px] text-red-500">Required</span>
+                )}
+              </div>
               <Select
                 value={estimate.workTypeName}
                 onValueChange={(val) => updateEstimate({ workTypeName: val })}
               >
-                <SelectTrigger className="mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]">
+                <SelectTrigger className={cn(
+                  "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]",
+                  !estimate.workTypeName && "border-red-300 focus-visible:border-red-400"
+                )}>
                   <SelectValue placeholder="Select work type..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {workTypeOptions.length > 0 ? (
-                    workTypeOptions.map((name) => (
-                      <SelectItem key={name} value={name}>{name}</SelectItem>
+                  {workTypes.length > 0 ? (
+                    workTypes.map((wt) => (
+                      <SelectItem key={wt.id} value={wt.name}>{wt.name}</SelectItem>
                     ))
                   ) : (
                     <div className="px-3 py-2 text-sm text-muted-foreground">
@@ -601,28 +1880,28 @@ export default function ProjectPricerPage() {
                   )}
                 </SelectContent>
               </Select>
+              {saveAttempted && validationErrors.workType && (
+                <p className="mt-1 text-xs text-red-600">{validationErrors.workType}</p>
+              )}
             </div>
 
             <div>
               <Label className="text-xs font-medium tracking-wider text-muted-foreground">SALESPERSON</Label>
-              <Input
-                list="salesperson-options"
+              <Select
                 value={estimate.salesperson}
-                onChange={(e) => {
-                  updateEstimate({ salesperson: e.target.value });
-                  if (salespersonError) setSalespersonError(false);
-                }}
-                className={cn("mt-1.5 text-lg font-medium", salespersonError && "border-red-500 focus-visible:border-red-500")}
-                placeholder="Select or type name"
-              />
-              <datalist id="salesperson-options">
-                {SALESPERSON_OPTIONS.map((name) => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-              {salespersonError && (
-                <p className="mt-1 text-[10px] text-red-600">Salesperson is required</p>
-              )}
+                onValueChange={(val) => updateEstimate({ salesperson: val })}
+              >
+                <SelectTrigger className={cn(
+                  "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]"
+                )}>
+                  <SelectValue placeholder="Select or type name" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SALESPERSON_OPTIONS.map((name) => (
+                    <SelectItem key={`sales-${name}`} value={name}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>
@@ -647,9 +1926,11 @@ export default function ProjectPricerPage() {
             </button>
             <div className="text-sm font-semibold tracking-[0.5px] text-muted-foreground">EPP Method (Electronic Pen and Paper method)</div>
           </div>
-          <Button size="sm" onClick={addBidItem}>
-            <Plus className="mr-1.5 h-4 w-4" /> Add Line
-          </Button>
+          {!isReadOnly && (
+            <Button size="sm" onClick={addBidItem}>
+              <Plus className="mr-1.5 h-4 w-4" /> Add Line
+            </Button>
+          )}
         </div>
 
         {!bidItemsCollapsed && (
@@ -663,7 +1944,7 @@ export default function ProjectPricerPage() {
                   <TableHead className="w-20">Unit</TableHead>
                   <TableHead className="w-28 text-right">Unit Price</TableHead>
                   <TableHead className="w-32 text-right">Line Total</TableHead>
-                  <TableHead className="w-10"></TableHead>
+                  <TableHead className="w-24"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -677,59 +1958,618 @@ export default function ProjectPricerPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  estimate.bidItems.map((item) => {
+                  estimate.bidItems.map((item, index) => {
                     const lineTotal = item.quantity * item.unitPrice;
+                    const isDetailsOpen = !!eppCostingOpen[item.id];
+                    // live computed costs from current rates + inputs (for panel display) — sum over multiple entries per category
+                    const laborCost = (item.laborEntries || []).reduce((sum, entry) => {
+                      const rate = (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
+                        ? entry.labor.burdenedHourlyRate
+                        : getLaborBurdenedRate(entry.rateId || "");
+                      return sum + rate * (entry.hours || 0);
+                    }, 0);
+                    const equipCost = (item.equipmentEntries || []).reduce((sum, entry) => {
+                      return sum + getEquipmentCostPerHour(entry.rateId || "") * (entry.hours || 0);
+                    }, 0);
+                    const matCost = (item.materialEntries || []).reduce((sum, entry) => {
+                      return sum + getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
+                    }, 0);
+                    const computedItemCost = Math.round((laborCost + equipCost + matCost) * 100) / 100;
+                    const effectiveLineTotal = lineTotal;
+                    const computedItemGpPct = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - computedItemCost) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                    const hasCosts = (item.laborEntries && item.laborEntries.length > 0) ||
+                      (item.equipmentEntries && item.equipmentEntries.length > 0) ||
+                      (item.materialEntries && item.materialEntries.length > 0);
+                    const lineTargetMargin = getTargetMarginForSize(lineTotal);
+                    // auto clear result if no costs anymore
+                    if (!hasCosts && costingTargetResult[item.id]) {
+                      // note: this is in render, will cause extra render but ok for reset
+                      setTimeout(() => setCostingTargetResult(prev => {
+                        const { [item.id]: _, ...rest } = prev;
+                        return rest;
+                      }), 0);
+                    }
+                    const targetPctForGuidance = lineTargetMargin;
+                    const hasEnteredCosts = hasCosts && computedItemCost > 0;
+                    const canShowTargetGuidance = hasEnteredCosts && targetPctForGuidance > 0;
+                    const requiredLineTotalLive = canShowTargetGuidance
+                      ? Math.round((computedItemCost / (1 - targetPctForGuidance / 100)) * 100) / 100
+                      : 0;
+                    const requiredGPLive = requiredLineTotalLive - computedItemCost;
+                    let guidanceStatus = "";
+                    let guidanceStatusClass = "";
+                    if (canShowTargetGuidance) {
+                      const tol = 0.005;
+                      const delta = effectiveLineTotal - requiredLineTotalLive;
+                      if (Math.abs(delta) < tol) {
+                        guidanceStatus = "On Target";
+                        guidanceStatusClass = "text-emerald-700 dark:text-emerald-400";
+                      } else if (delta < 0) {
+                        guidanceStatus = "Below Target";
+                        guidanceStatusClass = "text-red-700 dark:text-red-400";
+                      } else {
+                        guidanceStatus = "Above Target";
+                        guidanceStatusClass = "text-blue-700 dark:text-blue-400";
+                      }
+                    }
                     return (
-                      <TableRow key={item.id} className="border-b last:border-0 hover:bg-muted/20">
+                      <React.Fragment key={item.id || `row-${index}`}>
+                      <TableRow className="border-b last:border-0 hover:bg-muted/20">
                         <TableCell>
                           <Input
                             value={item.description}
+                            onFocus={() => {
+                              if (item.description === "Driveway Paving, Site Grading, etc.") {
+                                updateBidItem(item.id, "description", "");
+                              }
+                            }}
                             onChange={(e) => updateBidItem(item.id, "description", e.target.value)}
                             className="h-9 border-0 bg-transparent px-1 font-medium focus-visible:bg-white focus-visible:border focus-visible:border-border"
-                            placeholder="Driveway Paving, Site Grading, etc."
+                            disabled={isReadOnly}
                           />
                         </TableCell>
                         <TableCell className="text-right">
                           <Input
                             type="number"
-                            value={item.quantity}
-                            onChange={(e) => updateBidItem(item.id, "quantity", e.target.value)}
-                            className="h-11 w-28 text-right text-base tabular-nums font-mono border-0 bg-transparent focus-visible:bg-white focus-visible:border focus-visible:border-border px-2"
+                            value={item.quantity || ""}
+                            onChange={(e) => {
+                              const q = Math.max(0, parseFloat(e.target.value) || 0);
+                              updateBidItem(item.id, "quantity", q);
+                              setLineTotalEdits(prev => {
+                                const { [item.id]: _, ...rest } = prev;
+                                return rest;
+                              });
+                            }}
+                            className="h-11 w-28 text-right text-base tabular-nums font-mono border-0 bg-transparent focus-visible:bg-white focus-visible:border focus-visible:border-border px-2 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             step="0.01"
+                            disabled={isReadOnly}
                           />
                         </TableCell>
                         <TableCell>
-                          <Select value={item.unit} onValueChange={(val) => updateBidItem(item.id, "unit", val)}>
+                          <Select value={item.unit} onValueChange={(val) => updateBidItem(item.id, "unit", val)} disabled={isReadOnly}>
                             <SelectTrigger className="h-9 border-0 bg-transparent px-2 text-sm focus-visible:bg-white focus-visible:border focus-visible:border-border">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {COMMON_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                              {COMMON_UNITS.map((u) => <SelectItem key={`unit-${u}`} value={u}>{u}</SelectItem>)}
                             </SelectContent>
                           </Select>
                         </TableCell>
                         <TableCell className="text-right">
                           <CurrencyInput
                             value={item.unitPrice}
-                            onChange={(v) => updateBidItem(item.id, "unitPrice", v)}
+                            onChange={(v) => {
+                              updateBidItem(item.id, "unitPrice", v);
+                              setLineTotalEdits(prev => {
+                                const { [item.id]: _, ...rest } = prev;
+                                return rest;
+                              });
+                            }}
                             wrapperClassName="h-11 w-28"
                             className="text-base font-mono"
+                            disabled={isReadOnly}
                           />
                         </TableCell>
                         <TableCell className="text-right font-medium tabular-nums">
-                          ${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <div className="flex items-center justify-end gap-0.5">
+                            <span className="text-muted-foreground">$</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={lineTotalEdits[item.id] !== undefined ? lineTotalEdits[item.id] : (lineTotal === 0 ? '' : lineTotal.toFixed(2))}
+                              onChange={(e) => {
+                                // live bidirectional: update edit buffer and immediately recalc Unit Rate = Line Total / Qty
+                                const raw = e.target.value;
+                                setLineTotalEdits(prev => ({ ...prev, [item.id]: raw }));
+                                const trimmed = raw.trim();
+                                const qty = item.quantity || 0;
+                                if (trimmed === '' || trimmed === '.' || trimmed === '-') {
+                                  updateBidItem(item.id, "unitPrice", 0);
+                                } else {
+                                  const num = parseFloat(trimmed);
+                                  if (!isNaN(num) && num >= 0 && qty > 0) {
+                                    const newUnit = num / qty;
+                                    updateBidItem(item.id, "unitPrice", newUnit);
+                                  }
+                                  // if qty <=0 , do not divide by zero; leave unit rate unchanged
+                                }
+                              }}
+                              onBlur={() => {
+                                // clear edit on blur so display falls back to computed Line Total = Qty × Unit Rate
+                                setLineTotalEdits(prev => {
+                                  const { [item.id]: _, ...rest } = prev;
+                                  return rest;
+                                });
+                              }}
+                              className="h-11 w-24 text-right text-base tabular-nums font-mono border-0 bg-transparent focus-visible:bg-white focus-visible:border focus-visible:border-border px-1"
+                              placeholder="0.00"
+                              disabled={isReadOnly}
+                            />
+                          </div>
                         </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive/70 hover:text-destructive"
-                            onClick={() => removeBidItem(item.id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                        <TableCell className="text-right">
+                          {!isReadOnly && (
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[10px]"
+                                onClick={() => toggleEppDetails(item.id)}
+                              >
+                                Add Details
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive/70 hover:text-destructive"
+                                onClick={() => removeBidItem(item.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
+                      {isDetailsOpen && (
+                        <TableRow>
+                          <TableCell colSpan={6} className="p-0 bg-muted/5 dark:bg-muted/10">
+                            <div className="p-4 mx-2 my-0.5 border-t bg-background rounded-b w-full text-sm" data-panel="costing">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="text-base font-semibold tracking-wider text-muted-foreground">PER-LINE REAL COSTING (EPP only — does not affect Full LEM)</div>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => {
+                                    if (!estimate.workTypeName || lineTargetMargin <= 0 || !hasCosts || computedItemCost <= 0) return;
+                                    const target = lineTargetMargin;
+                                    const requiredLineTotal = computedItemCost / (1 - target / 100);
+                                    const requiredGP = requiredLineTotal - computedItemCost;
+                                    const newUnitPrice = item.quantity > 0 ? requiredLineTotal / item.quantity : 0;
+                                    updateBidItem(item.id, "unitPrice", newUnitPrice);
+                                    setLineTotalEdits(prev => {
+                                      const { [item.id]: _, ...rest } = prev;
+                                      return rest;
+                                    });
+                                    setCostingTargetResult(prev => ({
+                                      ...prev,
+                                      [item.id]: {requiredLineTotal, requiredGP, target}
+                                    }));
+                                  }}
+                                  disabled={isReadOnly || !estimate.workTypeName || lineTargetMargin <= 0 || !hasCosts || computedItemCost <= 0}
+                                >
+                                  Apply Target Margin
+                                </Button>
+                              </div>
+                              {/* Labor */}
+                              <div className="mb-3">
+                                <div className="flex items-center mb-1">
+                                  <div className="text-lg font-medium">Labor</div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs ml-2"
+                                    onClick={() => {
+                                      const current = item.laborEntries || [];
+                                      const newEntries = [...current, { rateId: undefined, hours: 0 }];
+                                      updateBidItem(item.id, "laborEntries", newEntries);
+                                      setPendingCostingFocus({ itemId: item.id, category: 'labor', idx: newEntries.length - 1 });
+                                    }}
+                                    disabled={isReadOnly}
+                                  >
+                                    + Add
+                                  </Button>
+                                </div>
+                                {(item.laborEntries || []).map((entry, idx) => {
+                                  const rate = (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
+                                    ? entry.labor.burdenedHourlyRate
+                                    : getLaborBurdenedRate(entry.rateId || "");
+                                  const entryCost = rate * (entry.hours || 0);
+                                  return (
+                                    <div key={idx} className="grid grid-cols-[1fr_9rem_1fr] gap-6 items-center mb-1">
+                                      <Select
+                                        value={entry.rateId || "none"}
+                                        onValueChange={(val) => {
+                                          const newId = val === "none" ? undefined : val;
+                                          const current = [...(item.laborEntries || [])];
+                                          current[idx] = { ...current[idx], rateId: newId };
+                                          if (newId) {
+                                            const profile = laborRates.find((r: any) => r.id === newId);
+                                            if (profile) {
+                                              current[idx].labor = {
+                                                id: profile.id,
+                                                role: profile.role,
+                                                burdenedHourlyRate: getLaborBurdenedRate(newId),
+                                              };
+                                            }
+                                          } else {
+                                            current[idx].labor = undefined;
+                                          }
+                                          updateBidItem(item.id, "laborEntries", current);
+                                          // recompute aggregate for item
+                                          const lC = current.reduce((s, e) => {
+                                            const r = (e.labor && typeof e.labor.burdenedHourlyRate === "number") ? e.labor.burdenedHourlyRate : getLaborBurdenedRate(e.rateId || "");
+                                            return s + r * (e.hours || 0);
+                                          }, 0);
+                                          const eC = (item.equipmentEntries || []).reduce((s, e) => s + getEquipmentCostPerHour(e.rateId || "") * (e.hours || 0), 0);
+                                          const mC = (item.materialEntries || []).reduce((s, m) => s + getMaterialCostPerUnit(m.rateId || "") * (m.quantity || 0), 0);
+                                          const tC = Math.round((lC + eC + mC) * 100) / 100;
+                                          const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                          updateBidItem(item.id, "realCost", tC);
+                                          updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                        }}
+                                        disabled={isReadOnly}
+                                      >
+                                        <SelectTrigger className="h-8 min-w-[220px] text-lg">
+                                          <SelectValue placeholder="Select labor rate" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {laborRates.length > 0 ? (
+                                            [
+                                              <SelectItem key="none" value="none">— None —</SelectItem>,
+                                              ...laborRates
+                                                .filter((r: any, i, self) => i === self.findIndex((t) => t.id === r.id))
+                                                .map((r: any) => (
+                                                  <SelectItem key={r.id} value={r.id}>{r.role}</SelectItem>
+                                                ))
+                                            ]
+                                          ) : (
+                                            <SelectItem key="no-labor" value="no-labor" disabled>No saved labor profiles</SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                      <div className="flex items-center gap-1">
+                                        <Input
+                                          type="number"
+                                          value={entry.hours || ""}
+                                          onChange={(e) => {
+                                            const h = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const current = [...(item.laborEntries || [])];
+                                            current[idx] = { ...current[idx], hours: h };
+                                            updateBidItem(item.id, "laborEntries", current);
+                                            const lC = current.reduce((s, ent) => {
+                                              const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              return s + r * (ent.hours || 0);
+                                            }, 0);
+                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
+                                            const mC = (item.materialEntries || []).reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                            const tC = Math.round((lC + eC + mC) * 100) / 100;
+                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                            updateBidItem(item.id, "realCost", tC);
+                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              const current = e.currentTarget as HTMLInputElement;
+                                              const panel = current.closest('div[data-panel="costing"]');
+                                              if (panel) {
+                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+                                                const i = numerics.indexOf(current);
+                                                if (i !== -1 && i < numerics.length - 1) {
+                                                  const next = numerics[i + 1];
+                                                  next.focus();
+                                                  next.select();
+                                                } else {
+                                                  current.blur();
+                                                }
+                                              }
+                                            }
+                                          }}
+                                          ref={(el) => {
+                                            if (el && pendingCostingFocus && pendingCostingFocus.itemId === item.id && pendingCostingFocus.category === 'labor' && pendingCostingFocus.idx === idx) {
+                                              el.focus();
+                                              el.select();
+                                              setPendingCostingFocus(null);
+                                            }
+                                          }}
+                                          className="h-8 w-20 text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          step="0.25"
+                                          placeholder=""
+                                          disabled={isReadOnly}
+                                        />
+                                        <span className="text-lg text-muted-foreground">hrs</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-lg">Cost: ${formatMoney(entryCost)}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {/* Equipment */}
+                              <div className="mb-3">
+                                <div className="flex items-center mb-1">
+                                  <div className="text-lg font-medium">Equipment</div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs ml-2"
+                                    onClick={() => {
+                                      const current = item.equipmentEntries || [];
+                                      const newEntries = [...current, { rateId: undefined, hours: 0 }];
+                                      updateBidItem(item.id, "equipmentEntries", newEntries);
+                                      setPendingCostingFocus({ itemId: item.id, category: 'equipment', idx: newEntries.length - 1 });
+                                    }}
+                                    disabled={isReadOnly}
+                                  >
+                                    + Add
+                                  </Button>
+                                </div>
+                                {(item.equipmentEntries || []).map((entry, idx) => {
+                                  const entryCost = getEquipmentCostPerHour(entry.rateId || "") * (entry.hours || 0);
+                                  return (
+                                    <div key={idx} className="grid grid-cols-[1fr_9rem_1fr] gap-6 items-center mb-1">
+                                      <Select
+                                        value={entry.rateId || "none"}
+                                        onValueChange={(val) => {
+                                          const newId = val === "none" ? undefined : val;
+                                          const current = [...(item.equipmentEntries || [])];
+                                          current[idx] = { ...current[idx], rateId: newId };
+                                          updateBidItem(item.id, "equipmentEntries", current);
+                                          const lC = (item.laborEntries || []).reduce((s, ent) => {
+                                            const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                            return s + r * (ent.hours || 0);
+                                          }, 0);
+                                          const eC = current.reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
+                                          const mC = (item.materialEntries || []).reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                          const tC = Math.round((lC + eC + mC) * 100) / 100;
+                                          const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                          updateBidItem(item.id, "realCost", tC);
+                                          updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                        }}
+                                        disabled={isReadOnly}
+                                      >
+                                        <SelectTrigger className="h-8 min-w-[220px] text-lg">
+                                          <SelectValue placeholder="Select equipment" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {equipmentRates.length > 0 ? (
+                                            [
+                                              <SelectItem key="none" value="none">— None —</SelectItem>,
+                                              ...equipmentRates.map((p: any) => (
+                                                <SelectItem key={p.id} value={p.id}>{p.description}</SelectItem>
+                                              ))
+                                            ]
+                                          ) : (
+                                            <SelectItem key="no-equip" value="no-equip" disabled>No saved equipment profiles</SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                      <div className="flex items-center gap-1">
+                                        <Input
+                                          type="number"
+                                          value={entry.hours || ""}
+                                          onChange={(e) => {
+                                            const h = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const current = [...(item.equipmentEntries || [])];
+                                            current[idx] = { ...current[idx], hours: h };
+                                            updateBidItem(item.id, "equipmentEntries", current);
+                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
+                                              const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              return s + r * (ent.hours || 0);
+                                            }, 0);
+                                            const eC = current.reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
+                                            const mC = (item.materialEntries || []).reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                            const tC = Math.round((lC + eC + mC) * 100) / 100;
+                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                            updateBidItem(item.id, "realCost", tC);
+                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              const current = e.currentTarget as HTMLInputElement;
+                                              const panel = current.closest('div[data-panel="costing"]');
+                                              if (panel) {
+                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+                                                const i = numerics.indexOf(current);
+                                                if (i !== -1 && i < numerics.length - 1) {
+                                                  const next = numerics[i + 1];
+                                                  next.focus();
+                                                  next.select();
+                                                } else {
+                                                  current.blur();
+                                                }
+                                              }
+                                            }
+                                          }}
+                                          ref={(el) => {
+                                            if (el && pendingCostingFocus && pendingCostingFocus.itemId === item.id && pendingCostingFocus.category === 'equipment' && pendingCostingFocus.idx === idx) {
+                                              el.focus();
+                                              el.select();
+                                              setPendingCostingFocus(null);
+                                            }
+                                          }}
+                                          className="h-8 w-20 text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          step="0.25"
+                                          placeholder=""
+                                          disabled={isReadOnly}
+                                        />
+                                        <span className="text-lg text-muted-foreground">hrs</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-lg">Cost: ${formatMoney(entryCost)}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {/* Material */}
+                              <div className="mb-3">
+                                <div className="flex items-center mb-1">
+                                  <div className="text-lg font-medium">Material</div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs ml-2"
+                                    onClick={() => {
+                                      const current = item.materialEntries || [];
+                                      const newEntries = [...current, { rateId: undefined, quantity: 0 }];
+                                      updateBidItem(item.id, "materialEntries", newEntries);
+                                      setPendingCostingFocus({ itemId: item.id, category: 'material', idx: newEntries.length - 1 });
+                                    }}
+                                    disabled={isReadOnly}
+                                  >
+                                    + Add
+                                  </Button>
+                                </div>
+                                {(item.materialEntries || []).map((entry, idx) => {
+                                  const matProfile = materialRates.find((m: any) => m.id === entry.rateId);
+                                  const unitLabel = matProfile?.unitOfMeasure || 'qty';
+                                  const entryCost = getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
+                                  return (
+                                    <div key={idx} className="grid grid-cols-[1fr_9rem_1fr] gap-6 items-center mb-1">
+                                      <Select
+                                        value={entry.rateId || "none"}
+                                        onValueChange={(val) => {
+                                          const newId = val === "none" ? undefined : val;
+                                          const current = [...(item.materialEntries || [])];
+                                          current[idx] = { ...current[idx], rateId: newId };
+                                          updateBidItem(item.id, "materialEntries", current);
+                                          const lC = (item.laborEntries || []).reduce((s, ent) => {
+                                            const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                            return s + r * (ent.hours || 0);
+                                          }, 0);
+                                          const eC = (item.equipmentEntries || []).reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
+                                          const mC = current.reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                          const tC = Math.round((lC + eC + mC) * 100) / 100;
+                                          const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                          updateBidItem(item.id, "realCost", tC);
+                                          updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                        }}
+                                        disabled={isReadOnly}
+                                      >
+                                        <SelectTrigger className="h-8 min-w-[220px] text-lg">
+                                          <SelectValue placeholder="Select material" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {materialRates.length > 0 ? (
+                                            [
+                                              <SelectItem key="none" value="none">— None —</SelectItem>,
+                                              ...materialRates.map((m: any) => (
+                                                <SelectItem key={m.id} value={m.id}>{m.description}</SelectItem>
+                                              ))
+                                            ]
+                                          ) : (
+                                            <SelectItem key="no-mat" value="no-mat" disabled>No saved material profiles</SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                      <div className="flex items-center gap-1">
+                                        <Input
+                                          type="number"
+                                          value={entry.quantity || ""}
+                                          onChange={(e) => {
+                                            const q = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const current = [...(item.materialEntries || [])];
+                                            current[idx] = { ...current[idx], quantity: q };
+                                            updateBidItem(item.id, "materialEntries", current);
+                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
+                                              const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              return s + r * (ent.hours || 0);
+                                            }, 0);
+                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
+                                            const mC = current.reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                            const tC = Math.round((lC + eC + mC) * 100) / 100;
+                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                            updateBidItem(item.id, "realCost", tC);
+                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              const current = e.currentTarget as HTMLInputElement;
+                                              const panel = current.closest('div[data-panel="costing"]');
+                                              if (panel) {
+                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+                                                const i = numerics.indexOf(current);
+                                                if (i !== -1 && i < numerics.length - 1) {
+                                                  const next = numerics[i + 1];
+                                                  next.focus();
+                                                  next.select();
+                                                } else {
+                                                  current.blur();
+                                                }
+                                              }
+                                            }
+                                          }}
+                                          ref={(el) => {
+                                            if (el && pendingCostingFocus && pendingCostingFocus.itemId === item.id && pendingCostingFocus.category === 'material' && pendingCostingFocus.idx === idx) {
+                                              el.focus();
+                                              el.select();
+                                              setPendingCostingFocus(null);
+                                            }
+                                          }}
+                                          className="h-8 w-20 text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          step="0.1"
+                                          placeholder=""
+                                          disabled={isReadOnly}
+                                        />
+                                        <span className="text-lg text-muted-foreground">{unitLabel}</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-lg">Cost: ${formatMoney(entryCost)}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div className="border-t pt-3 mt-2 flex flex-wrap gap-x-8 text-lg">
+                                <div>Total Cost: <span className="font-semibold tabular-nums">${formatMoney(computedItemCost)}</span></div>
+                                <div>Real GP: <span className="font-semibold tabular-nums">${formatMoney(effectiveLineTotal - computedItemCost)}</span> <span className="tabular-nums">({computedItemGpPct.toFixed(1)}%)</span></div>
+                                {estimate.workTypeName && targetMargin > 0 && (
+                                  <div className="text-muted-foreground">Target: {targetMargin.toFixed(0)}%</div>
+                                )}
+                              </div>
+                              <div className="text-base text-muted-foreground mt-2">Real GP% updates this EPP line item (replaces 100% assumption). Data is EPP-only.</div>
+                              {/* Persistent target margin guidance — always visible (live) when costs exist, positioned after the blue note */}
+                              <div className="mt-2 p-2 border border-amber-200 bg-amber-50/60 dark:bg-amber-950/60 dark:border-amber-800 rounded text-sm">
+                                {!hasEnteredCosts ? (
+                                  <div className="text-muted-foreground">Enter costs above to see target price guidance.</div>
+                                ) : canShowTargetGuidance ? (
+                                  <div className="space-y-0.5">
+                                    <div>
+                                      To hit your {targetPctForGuidance.toFixed(0)}% target margin you need to sell this line for: <span className="font-semibold tabular-nums">${formatMoney(requiredLineTotalLive)}</span>
+                                    </div>
+                                    <div>
+                                      Gross Profit on this line would be: <span className="font-semibold tabular-nums">${formatMoney(requiredGPLive)}</span> <span className="tabular-nums">({targetPctForGuidance.toFixed(0)}%)</span>
+                                    </div>
+                                    {guidanceStatus && (
+                                      <div className="pt-0.5">
+                                        <span className="text-muted-foreground">Status:</span> <span className={`font-medium ${guidanceStatusClass}`}>{guidanceStatus}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-muted-foreground">Select a Work Type to enable target margin guidance.</div>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -741,56 +2581,366 @@ export default function ProjectPricerPage() {
           <div className="border-t bg-muted/40 px-4 py-3 flex items-center justify-between">
             <div className="text-sm font-medium tracking-wide text-muted-foreground">TOTAL REVENUE (YOUR BID)</div>
             <div className="text-3xl font-semibold tabular-nums tracking-tighter">
-              ${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              ${formatMoney(totalRevenue)}
             </div>
           </div>
 
-          {/* Compact Target Banner — sits directly under Total Revenue (small, low vertical footprint) */}
-          {estimate.workTypeName && targetMargin > 0 && (
-            <div className="border-t border-amber-200 bg-amber-50 px-4 py-1.5 flex items-center justify-between text-xs">
-              <div className="text-amber-900">
-                Break-even: ${barBreakEven.toLocaleString(undefined, { minimumFractionDigits: 0 })} | Margin: <span className="inline-flex items-center gap-0.5">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={barMarginEdit !== "" ? barMarginEdit : (barMarginPercent > 0 ? barMarginPercent.toString() : defaultBarMargin.toString())}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      setBarMarginEdit(raw);
-                      const trimmed = raw.trim();
-                      if (trimmed === '' || trimmed === '.' || trimmed === '-') {
-                        setBarMarginPercent(0);
-                      } else {
-                        const num = parseFloat(trimmed);
-                        if (!isNaN(num)) {
-                          setBarMarginPercent(num);
-                        }
-                      }
-                    }}
-                    onBlur={() => setBarMarginEdit("")}
-                    className="h-4 w-10 text-xs text-right tabular-nums border border-amber-300 bg-white/70 px-1 rounded"
-                  />
-                  <span className="font-semibold tabular-nums text-sm">%</span>
-                </span> | Profit: ${barProfit.toLocaleString(undefined, { minimumFractionDigits: 0 })} | Bid Total: ${barBidTotal.toLocaleString(undefined, { minimumFractionDigits: 0 })}
-              </div>
-              <div
-                className={cn(
-                  "px-2 py-0.5 rounded font-medium text-[10px]",
-                  barOnTarget ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-                )}
-              >
-                {barOnTarget ? "On Target" : "Below Target"}
+          {/* EPP Summary Banner — Estimate Total (line totals) | Actual Cost (real costs from panels) | Gross Profit $ | Gross Margin % | Target % | status badge */}
+          <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 px-4 py-1.5 flex items-center justify-between text-lg">
+            <div className="text-amber-900 dark:text-amber-200 flex-1">
+              <div className="grid grid-cols-5 gap-x-6 text-center">
+                <div className="flex flex-col">
+                  <span className="font-semibold text-amber-950 dark:text-amber-100">Estimate Total:</span>
+                  <span className="tabular-nums">${formatMoney(eppSellingPrice)}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-semibold text-amber-950 dark:text-amber-100">Actual Cost:</span>
+                  <span className="tabular-nums">${formatMoney(eppRealCost)}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-semibold text-amber-950 dark:text-amber-100">Gross Profit:</span>
+                  <span className="tabular-nums">${formatMoney(eppGrossProfitDollars)}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-semibold text-amber-950 dark:text-amber-100">Gross Margin:</span>
+                  <span className="tabular-nums">{eppGrossProfitPercent.toFixed(1)}%</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-semibold text-amber-950 dark:text-amber-100">Target:</span>
+                  <span className="tabular-nums">{eppTargetPercent.toFixed(0)}%</span>
+                </div>
               </div>
             </div>
-          )}
+            <div
+              className={cn(
+                "px-2 py-0.5 rounded font-medium text-base",
+                eppOnTarget ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+              )}
+            >
+              {eppOnTarget ? "On Target" : "Below Target"}
+            </div>
+          </div>
+
+          {/* Save EPP Quote button — near the bottom of the EPP / BID ITEMS section */}
+          <div className="border-t px-4 py-3 flex items-center justify-end bg-muted/10 gap-2">
+            {isReadOnly && (
+              <div className="text-xs text-amber-700 mr-auto">Read-only (locked quote)</div>
+            )}
+            {eppSaveAttempted && eppItemError && !isReadOnly && (
+              <div className="text-xs text-red-600 mr-auto">{eppItemError}</div>
+            )}
+            <Button
+              variant="outline"
+              size="default"
+              onClick={() => {
+                // reset defaults each time modal opens
+                setExportType('quote');
+                setShowQuantities(true);
+                setShowUnits(true);
+                setShowPerUnitPrice(true);
+                setShowLineItemPrices(true);
+                setShowUpdateExport(true);
+              }}
+              disabled={!eppHasItems}
+              className="font-semibold"
+            >
+              Preview & Export Quote
+            </Button>
+            <Button
+              size="default"
+              onClick={handleSaveEPPQuote}
+              disabled={isReadOnly || !eppHasItems || isSavingEPP}
+              title={!eppHasItems ? "Add items first" : undefined}
+              className={cn(
+                "font-semibold shadow-sm",
+                (!eppHasItems || isReadOnly || isSavingEPP) && "opacity-60 cursor-not-allowed"
+              )}
+            >
+              Save EPP Quote
+            </Button>
+          </div>
         </Card>
         )}
       </div>
 
+      {/* Quote Preview Dialog */}
+      <Dialog open={showQuotePreview} onOpenChange={setShowQuotePreview}>
+        <DialogContent className="max-w-[min(1600px,96vw)] w-[96vw] p-0" showCloseButton={false}>
+          <div className="p-20 bg-white text-black h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-gray-100" style={{ scrollbarWidth: 'thin', scrollbarColor: '#ddd #fff' }}>
+            <div className="flex items-center justify-between mb-6 print:hidden text-black flex-wrap gap-2">
+              <div className="text-lg font-medium text-gray-700">Quote Preview — Print or Save as PDF from the dialog</div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowQuotePreview(false)}>Close</Button>
+                <Button size="sm" onClick={() => {
+                  const opts = {
+                    exportType,
+                    showQuantities,
+                    showUnits,
+                    showPerUnitPrice,
+                    showLineItemPrices,
+                    logoDataUrl,
+                  };
+                  pdf(<QuotePDF estimate={estimate} {...opts} />).toBlob().then((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${exportType}-${estimate.jobName || 'quote'}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  });
+                }}>Print / Export PDF</Button>
+              </div>
+            </div>
 
+            {/* Self-contained professional quote content (white paper look for fidelity) */}
+            <div
+              id="quote-preview"
+              className="bg-white text-black p-20 border border-gray-300 shadow-sm mx-auto w-full"
+              style={{ fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', fontSize: '18px', lineHeight: '1.5', maxWidth: 'none' }}
+            >
+              {/* Branding Header */}
+              <div className="flex justify-between items-start border-b-2 border-black pb-8 mb-6">
+                <div>
+                  <div className="font-bold text-[32px] tracking-[0.6px] leading-none">Performance Margin Zone</div>
+                  <div className="text-[14px] tracking-[0.5px] text-gray-600 -mt-px">Total Profit Management</div>
+                </div>
+                <div className="text-right text-[16px] leading-tight text-gray-600">
+                  Quote #{Date.now().toString().slice(-7)}<br />{new Date().toLocaleDateString()}
+                </div>
+              </div>
+
+              {/* Large Title */}
+              <div className="text-center text-[56px] font-bold tracking-[4px] my-8 pb-6 border-b border-black">QUOTE</div>
+
+              {/* Two Column Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-16 mb-12 text-[18px]">
+                <div className="min-w-0">
+                  <div className="font-semibold text-[14px] tracking-widest mb-2">TO:</div>
+                  <div className="font-medium break-words">{currentCustomer?.name || estimate.customerName || 'Valued Customer'}</div>
+                  <div className="break-words">{typeof (currentCustomer?.billingAddress) === 'string' ? currentCustomer.billingAddress : (typeof estimate.billingAddress === 'string' ? estimate.billingAddress : '123 Main St, Suite 100')}</div>
+                  <div>Anytown, ST 12345</div>
+                  <div className="mt-2 text-[16px]">Contact: {(currentCustomer?.contactName) || estimate.salesperson || 'Main Contact'}</div>
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-[14px] tracking-widest mb-2">PROJECT / JOB:</div>
+                  <div className="font-medium break-words">{estimate.jobName || 'Project Name'}</div>
+                  <div>Work Type: {estimate.workTypeName || '—'}</div>
+                  <div>Salesperson: {estimate.salesperson || '—'}</div>
+                  <div className="mt-2 text-[16px]">Date: {new Date().toLocaleDateString()}</div>
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <table className="w-full border-collapse mt-6" style={{ border: '1px solid #333' }}>
+                <thead>
+                  <tr style={{ background: '#f0f0f0' }}>
+                    <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'left', fontWeight: 600, fontSize: '17px' }}>Description</th>
+                    {showQuantities && <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontWeight: 600, width: '110px', fontSize: '17px' }}>Qty</th>}
+                    {showUnits && <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'center', fontWeight: 600, width: '100px', fontSize: '17px' }}>Unit</th>}
+                    {showPerUnitPrice && <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontWeight: 600, width: '130px', fontSize: '17px' }}>Unit Price</th>}
+                    {showLineItemPrices && <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontWeight: 600, width: '140px', fontSize: '17px' }}>Line Total</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {estimate.bidItems.length === 0 ? (
+                    <tr><td colSpan={5} style={{ border: '1px solid #333', padding: '16px', textAlign: 'center', color: '#666', fontStyle: 'italic', fontSize: '17px' }}>No line items added yet</td></tr>
+                  ) : (
+                    estimate.bidItems.map((item, idx) => {
+                      const lt = (item.quantity || 0) * (item.unitPrice || 0);
+                      return (
+                        <tr key={item.id || idx}>
+                          <td style={{ border: '1px solid #333', padding: '14px 16px', fontSize: '17px' }}>{item.description || '—'}</td>
+                          {showQuantities && <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontSize: '17px' }}>{item.quantity || 0}</td>}
+                          {showUnits && <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'center', fontSize: '17px' }}>{item.unit || ''}</td>}
+                          {showPerUnitPrice && <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontSize: '17px' }}>${formatMoney(item.unitPrice || 0)}</td>}
+                          {showLineItemPrices && <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontWeight: 500, fontSize: '17px' }}>${formatMoney(lt)}</td>}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: '#f5f5f5', fontWeight: 700 }}>
+                    <td colSpan={4} style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontSize: '18px' }}>TOTAL</td>
+                    <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontSize: '18px' }}>${formatMoney(estimate.bidItems.reduce((s, it) => s + ((it.quantity || 0) * (it.unitPrice || 0)), 0))}</td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              {/* Summary Section */}
+              <div className="mt-10 pt-6 border-t border-gray-400 text-[17px] grid grid-cols-2 gap-x-12 gap-y-3">
+                <div>Estimate Total: <span className="font-semibold">${formatMoney(eppSellingPrice)}</span></div>
+                <div>Actual Cost (Real): <span className="font-semibold">${formatMoney(eppRealCost)}</span></div>
+                <div>Gross Profit: <span className="font-semibold">${formatMoney(eppGrossProfitDollars)} ({eppGrossProfitPercent.toFixed(1)}%)</span></div>
+                <div>Target Margin: <span className="font-semibold">{eppTargetPercent.toFixed(0)}%</span> <span style={{ fontSize: '14px', padding: '3px 7px', borderRadius: '2px', background: eppOnTarget ? '#d1fae5' : '#fee2e2', color: eppOnTarget ? '#166534' : '#991b1b' }}>{eppOnTarget ? 'On Target' : 'Below Target'}</span></div>
+              </div>
+
+              {/* Signature Section */}
+              <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 gap-14 text-[16px]">
+                <div>
+                  <div style={{ borderBottom: '1px solid #000', height: '40px', marginBottom: '5px' }} />
+                  <div>Client Signature&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Date: ______________</div>
+                </div>
+                <div>
+                  <div style={{ borderBottom: '1px solid #000', height: '40px', marginBottom: '5px' }} />
+                  <div>Authorized Signature&nbsp;&nbsp;&nbsp;Date: ______________</div>
+                  <div style={{ fontSize: '14px', color: '#666', marginTop: '5px' }}>Tom Peterson / Performance Margin Zone</div>
+                </div>
+              </div>
+
+              <div className="text-center mt-14 pt-6 border-t text-[14px] text-gray-500">
+                This quote is valid for 30 days. Thank you for considering Performance Margin Zone.
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Update Export Modal */}
+      <Dialog open={showUpdateExport} onOpenChange={setShowUpdateExport}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Update Export</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Logo upload (simple, for PDF) */}
+            <div>
+              <Label className="text-xs font-medium tracking-wider text-muted-foreground mb-1.5 block">Company Logo (optional, PNG/JPG)</Label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const dataUrl = ev.target?.result as string;
+                        setLogoDataUrl(dataUrl);
+                        try {
+                          localStorage.setItem('pmz_quote_logo', dataUrl);
+                        } catch {}
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="text-xs"
+                />
+                {logoDataUrl && (
+                  <div className="flex items-center gap-2">
+                    <img src={logoDataUrl} alt="logo preview" className="h-8 w-auto border" />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => {
+                        setLogoDataUrl(null);
+                        try { localStorage.removeItem('pmz_quote_logo'); } catch {}
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Type section */}
+            <div>
+              <Label className="text-xs font-medium tracking-wider text-muted-foreground mb-1.5 block">Type</Label>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="exportType"
+                    value="quote"
+                    checked={exportType === 'quote'}
+                    onChange={() => setExportType('quote')}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Quote</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="exportType"
+                    value="estimate"
+                    checked={exportType === 'estimate'}
+                    onChange={() => setExportType('estimate')}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Estimate</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Checkboxes */}
+            <div>
+              <Label className="text-xs font-medium tracking-wider text-muted-foreground mb-1.5 block">Options</Label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showQuantities}
+                    onChange={(e) => setShowQuantities(e.target.checked)}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Show Quantities</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showUnits}
+                    onChange={(e) => setShowUnits(e.target.checked)}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Show Units of Measure</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showPerUnitPrice}
+                    onChange={(e) => setShowPerUnitPrice(e.target.checked)}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Show Per Unit Price</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showLineItemPrices}
+                    onChange={(e) => setShowLineItemPrices(e.target.checked)}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Show Line Item Prices</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-between pt-2">
+            <Button
+              variant="destructive"
+              size="default"
+              onClick={handleExportNext}
+              className="font-semibold"
+            >
+              Next
+            </Button>
+            <Button
+              variant="outline"
+              size="default"
+              onClick={() => setShowUpdateExport(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Full Real LEM Breakdown (Pro View) — basic structural placeholder */}
-      <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50/60 p-5 text-sm space-y-3">
+      <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/40 dark:border-emerald-700 p-5 text-sm space-y-3">
         <div
           className="font-semibold text-emerald-900 flex items-center gap-2 cursor-pointer"
           onClick={toggleProViewCollapsed}
@@ -812,27 +2962,45 @@ export default function ProjectPricerPage() {
         </div>
         {!proViewCollapsed && (
         <>
-        <div className="text-xs text-emerald-800/80">
-          Placeholder for selecting profiles and entering actual LEM quantities (to be implemented in later phases).
-        </div>
-
-        {/* Interactive adders - three columns */}
+        {/* Interactive adders - three columns (hidden in read-only) */}
+        {!isReadOnly && (
         <div className="grid grid-cols-3 gap-3 pt-2">
           {/* Labor column */}
           <div className="border rounded p-2.5 bg-white/70">
             <div className="font-medium text-emerald-900 mb-1">Labor</div>
-            {pendingLaborId && laborProfiles.find((p: any) => p.id === pendingLaborId) && (
-              <div className="text-[9px] text-emerald-800/90 truncate mb-1">
-                {laborProfiles.find((p: any) => p.id === pendingLaborId).role}
-              </div>
-            )}
+            {(() => {
+              const found = pendingLabor;
+              return found ? <div className="text-[9px] text-emerald-800/90 truncate mb-1">{found.role}</div> : null;
+            })()}
             <div className="flex gap-1 items-end">
-              <Select value={pendingLaborId} onValueChange={setPendingLaborId}>
+              <Select value={pendingLabor?.id || ""} onValueChange={(val) => {
+                if (!val) {
+                  setPendingLabor(null);
+                  return;
+                }
+                const profile = laborProfiles.find((p: any) => p.id === val);
+                if (profile) {
+                  let burdenedHourlyRate = 0;
+                  try {
+                    const res = calculateLaborRate(profile as LaborRateInputs);
+                    burdenedHourlyRate = res.trueCostPerBillableHour || 0;
+                  } catch {}
+                  setPendingLabor({
+                    id: profile.id,
+                    role: profile.role || "Labor",
+                    burdenedHourlyRate,
+                  });
+                }
+              }}>
                 <SelectTrigger className="h-8 text-xs flex-1 max-w-[110px] truncate"><SelectValue placeholder="Select role..." /></SelectTrigger>
                 <SelectContent>
-                  {laborProfiles.length > 0 ? laborProfiles.map((p: any) => (
-                    <SelectItem key={p.id} value={p.id}>{p.role}</SelectItem>
-                  )) : <div className="p-2 text-xs text-muted-foreground">No labor profiles saved. <Link href="/labor-rates" className="underline">Go add your rates in the Labor Builder</Link></div>}
+                  {laborProfiles.length > 0 ? (
+                    laborProfiles
+                      .filter((p: any, idx: number, self: any[]) => idx === self.findIndex((t: any) => t.id === p.id))
+                      .map((p: any) => (
+                        <SelectItem key={p.id} value={p.id}>{p.role}</SelectItem>
+                      ))
+                  ) : <div className="p-2 text-xs text-muted-foreground">No labor profiles saved. <Link href="/labor-rates" className="underline">Go add your rates in the Labor Builder</Link></div>}
                 </SelectContent>
               </Select>
               <input type="text" inputMode="numeric" value={pendingLaborQtyEdit !== "" ? pendingLaborQtyEdit : (pendingLaborQty === 0 ? '' : pendingLaborQty.toString())} onChange={e => {
@@ -849,9 +3017,19 @@ export default function ProjectPricerPage() {
                 }
               }} onBlur={() => setPendingLaborQtyEdit("")} className="h-8 w-14 text-xs text-right tabular-nums" />
               <Button size="sm" className="h-8 px-2 text-xs" onClick={() => {
-                if (pendingLaborId) {
-                  addRealLEMItem('labor', pendingLaborId, pendingLaborQty);
-                  setPendingLaborId('');
+                if (pendingLabor) {
+                  const rate = pendingLabor.burdenedHourlyRate;
+                  const finalQty = pendingLaborQty || 40;
+                  const newItem = {
+                    id: Math.random().toString(36).slice(2, 11),
+                    type: 'labor',
+                    profileId: pendingLabor.id,
+                    description: pendingLabor.role || 'Labor',
+                    quantity: finalQty,
+                    unitCost: rate,
+                  };
+                  setRealLEMItems((prev: any[]) => [...prev, newItem]);
+                  setPendingLabor(null);
                   setPendingLaborQty(0);
                   setPendingLaborQtyEdit("");
                 }
@@ -862,11 +3040,10 @@ export default function ProjectPricerPage() {
           {/* Equipment column */}
           <div className="border rounded p-2.5 bg-white/70">
             <div className="font-medium text-emerald-900 mb-1">Equipment</div>
-            {pendingEquipId && equipmentProfiles.find((p: any) => p.id === pendingEquipId) && (
-              <div className="text-[9px] text-emerald-800/90 truncate mb-1">
-                {equipmentProfiles.find((p: any) => p.id === pendingEquipId).description}
-              </div>
-            )}
+            {(() => {
+              const found = equipmentProfiles.find((p: any) => p.id === pendingEquipId);
+              return found ? <div className="text-[9px] text-emerald-800/90 truncate mb-1">{found.description}</div> : null;
+            })()}
             <div className="flex gap-1 items-end">
               <Select value={pendingEquipId} onValueChange={setPendingEquipId}>
                 <SelectTrigger className="h-8 text-xs flex-1 max-w-[110px] truncate"><SelectValue placeholder="Select equipment..." /></SelectTrigger>
@@ -891,7 +3068,20 @@ export default function ProjectPricerPage() {
               }} onBlur={() => setPendingEquipQtyEdit("")} className="h-8 w-14 text-xs text-right tabular-nums" />
               <Button size="sm" className="h-8 px-2 text-xs" onClick={() => {
                 if (pendingEquipId) {
-                  addRealLEMItem('equipment', pendingEquipId, pendingEquipQty);
+                  const profile = equipmentProfiles.find((p: any) => p.id === pendingEquipId);
+                  if (profile) {
+                    const rate = (typeof getRealRateForProfile === 'function') ? getRealRateForProfile('equipment', profile) : 0;
+                    const finalQty = pendingEquipQty || 20;
+                    const newItem = {
+                      id: Math.random().toString(36).slice(2, 11),
+                      type: 'equipment',
+                      profileId: pendingEquipId,
+                      description: profile.description || 'Equipment',
+                      quantity: finalQty,
+                      unitCost: rate,
+                    };
+                    setRealLEMItems((prev: any[]) => [...prev, newItem]);
+                  }
                   setPendingEquipId('');
                   setPendingEquipQty(0);
                   setPendingEquipQtyEdit("");
@@ -903,11 +3093,10 @@ export default function ProjectPricerPage() {
           {/* Material column */}
           <div className="border rounded p-2.5 bg-white/70">
             <div className="font-medium text-emerald-900 mb-1">Material</div>
-            {pendingMatId && materialProfiles.find((p: any) => p.id === pendingMatId) && (
-              <div className="text-[9px] text-emerald-800/90 truncate mb-1">
-                {materialProfiles.find((p: any) => p.id === pendingMatId).description}
-              </div>
-            )}
+            {(() => {
+              const found = materialProfiles.find((p: any) => p.id === pendingMatId);
+              return found ? <div className="text-[9px] text-emerald-800/90 truncate mb-1">{found.description}</div> : null;
+            })()}
             <div className="flex gap-1 items-end">
               <Select value={pendingMatId} onValueChange={setPendingMatId}>
                 <SelectTrigger className="h-8 text-xs flex-1 max-w-[110px] truncate"><SelectValue placeholder="Select material..." /></SelectTrigger>
@@ -932,7 +3121,20 @@ export default function ProjectPricerPage() {
               }} onBlur={() => setPendingMatQtyEdit("")} className="h-8 w-14 text-xs text-right tabular-nums" />
               <Button size="sm" className="h-8 px-2 text-xs" onClick={() => {
                 if (pendingMatId) {
-                  addRealLEMItem('material', pendingMatId, pendingMatQty);
+                  const profile = materialProfiles.find((p: any) => p.id === pendingMatId);
+                  if (profile) {
+                    const rate = (typeof getRealRateForProfile === 'function') ? getRealRateForProfile('material', profile) : 0;
+                    const finalQty = pendingMatQty || 10;
+                    const newItem = {
+                      id: Math.random().toString(36).slice(2, 11),
+                      type: 'material',
+                      profileId: pendingMatId,
+                      description: profile.description || 'Material',
+                      quantity: finalQty,
+                      unitCost: rate,
+                    };
+                    setRealLEMItems((prev: any[]) => [...prev, newItem]);
+                  }
                   setPendingMatId('');
                   setPendingMatQty(0);
                   setPendingMatQtyEdit("");
@@ -941,6 +3143,7 @@ export default function ProjectPricerPage() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Added Items list */}
         <div className="border-t pt-3">
@@ -987,14 +3190,17 @@ export default function ProjectPricerPage() {
                           }}
                           className="h-7 w-16 text-xs text-right tabular-nums border border-input px-1"
                           placeholder="0"
+                          disabled={isReadOnly}
                         />
                       </TableCell>
-                      <TableCell className="text-right tabular-nums text-xs py-1">${item.unitCost.toFixed(2)}</TableCell>
-                      <TableCell className="text-right tabular-nums font-medium py-1">${(item.quantity * item.unitCost).toFixed(2)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-xs py-1">${formatMoney(item.unitCost)}</TableCell>
+                      <TableCell className="text-right tabular-nums font-medium py-1">${formatMoney(item.quantity * item.unitCost)}</TableCell>
                       <TableCell className="py-1">
-                        <Button variant="ghost" size="icon" className="h-5 w-5 text-red-600 hover:text-red-800" onClick={() => removeRealLEMItem(item.id)}>
-                          ×
-                        </Button>
+                        {!isReadOnly && (
+                          <Button variant="ghost" size="icon" className="h-5 w-5 text-red-600 hover:text-red-800" onClick={() => removeRealLEMItem(item.id)}>
+                            ×
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1010,15 +3216,15 @@ export default function ProjectPricerPage() {
         <div className="pt-2 border-t text-xs">
           <div className="flex justify-between">
             <span>Total Labor Cost</span>
-            <span className="font-medium tabular-nums">${realLaborCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className="font-medium tabular-nums">${formatMoney(realLaborCost)}</span>
           </div>
           <div className="flex justify-between">
             <span>Total Equipment Cost</span>
-            <span className="font-medium tabular-nums">${realEquipCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className="font-medium tabular-nums">${formatMoney(realEquipCost)}</span>
           </div>
           <div className="flex justify-between">
             <span>Total Material Cost</span>
-            <span className="font-medium tabular-nums">${realMatCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className="font-medium tabular-nums">${formatMoney(realMatCost)}</span>
           </div>
         </div>
 
@@ -1030,7 +3236,9 @@ export default function ProjectPricerPage() {
               <div>
                 <div className="flex items-baseline gap-2">
                   <span>Gross Profit %</span>
-                  <span className="text-[10px] text-emerald-700/80 font-normal">Target: {defaultTargetGP.toFixed(0)}%</span>
+                  {!isNoTarget && (
+                    <span className="text-[10px] text-emerald-700/80 font-normal">Target: {defaultTargetGP.toFixed(0)}%</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-0.5">
                   <input
@@ -1052,14 +3260,20 @@ export default function ProjectPricerPage() {
                     }}
                     onBlur={() => setGpPercentEdit("")}
                     className="h-7 w-16 text-sm text-right tabular-nums border border-input px-1"
+                    disabled={isReadOnly}
                   />
                   <span>%</span>
                 </div>
                 <div className="text-[10px] text-emerald-700/70 mt-1 leading-snug">This is true gross profit margin (not markup). Margin is what you actually keep out of the selling price.</div>
+                {!estimate.workTypeName && (
+                  <div className="mt-1 text-[10px] text-amber-700">
+                    Select a Work Type above to activate your margin target and guardrails.
+                  </div>
+                )}
               </div>
               <div>
                 <span>Gross Profit $</span>
-                <span className="font-semibold tabular-nums">${computedGrossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="font-semibold tabular-nums">${formatMoney(computedGrossProfit)}</span>
               </div>
             </div>
           </div>
@@ -1068,33 +3282,60 @@ export default function ProjectPricerPage() {
         {/* Grand Total */}
         <div className="pt-4 border-t-2 border-gray-300">
           <div className={grandTotalCardClass}>
-            <div className={`font-bold mb-2 ${grandTotalTitleClass}`}>Grand Total</div>
+            <div className={`font-bold mb-2 flex items-start justify-between ${grandTotalTitleClass}`}>
+              <span>Grand Total</span>
+              {!isNoTarget && (
+                (editableGrossProfitPercent > 0 ? editableGrossProfitPercent : defaultTargetGP) >= defaultTargetGP ? (
+                  <span className="px-2 py-0.5 rounded-full bg-[#4ade80] dark:bg-emerald-700 text-white text-[10px] font-medium">On Target</span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full bg-[#f87171] dark:bg-red-700 text-white text-[10px] font-medium">Below Target — Margin is under your work type goal</span>
+                )
+              )}
+            </div>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>Total Real LEM Cost</span>
-                <span className="font-semibold tabular-nums">${realTotalLEM.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="font-semibold tabular-nums">${formatMoney(realTotalLEM)}</span>
               </div>
               <div className="flex justify-between">
-                <span>Gross Profit %</span>
+                <span>Gross Profit % {!isNoTarget && <span className="text-[9px] text-muted-foreground/70">(Target: {defaultTargetGP.toFixed(0)}%)</span>}</span>
                 <span className="font-semibold tabular-nums">{currentGPPercent.toFixed(1)}%</span>
               </div>
               <div className="flex justify-between">
                 <span>Gross Profit $</span>
-                <span className="font-semibold tabular-nums">${computedGrossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="font-semibold tabular-nums">${formatMoney(computedGrossProfit)}</span>
               </div>
-              <div className="flex justify-between border-t-2 pt-2 mt-1 font-bold text-base bg-white/30 -mx-1 px-1 rounded">
+              <div className="flex justify-between border-t-2 pt-2 mt-1 font-bold text-base bg-white/30 dark:bg-white/10 -mx-1 px-1 rounded">
                 <span className="text-lg">Grand Total</span>
                 <span className={grandTotalNumberClass}>
-                  ${computedGrandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  ${formatMoney(computedGrandTotal)}
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-
-
-
+          {/* Save Full Quote button — near the bottom of the Full Real LEM Breakdown (Pro View) section */}
+          <div className="pt-3 flex items-center justify-end gap-2">
+            {isReadOnly && (
+              <div className="text-xs text-amber-700 mr-auto">Read-only (locked quote)</div>
+            )}
+            {proSaveAttempted && proItemError && !isReadOnly && (
+              <div className="text-xs text-red-600 mr-auto">{proItemError}</div>
+            )}
+            <Button
+              size="default"
+              onClick={handleSaveFullQuote}
+              disabled={isReadOnly || !proHasItems || isSavingFull}
+              title={!proHasItems ? "Add items first" : undefined}
+              className={cn(
+                "font-semibold shadow-sm",
+                (!proHasItems || isReadOnly || isSavingFull) && "opacity-60 cursor-not-allowed"
+              )}
+            >
+              Save Full Quote
+            </Button>
+          </div>
 
         </>
         )}
@@ -1112,8 +3353,8 @@ export default function ProjectPricerPage() {
 
             <div className="rounded-lg bg-muted/50 p-4 text-sm mb-4">
               Based on the <strong>{targetMargin.toFixed(1)}%</strong> target margin for this work type and size, 
-              your total direct costs (L+E+M) need to stay at or below <strong>${MaxDirectCost.toLocaleString()}</strong> 
-              to hit your goal on a ${targetBidPrice.toLocaleString()} bid.
+              your total direct costs (L+E+M) need to stay at or below <strong>${formatMoney(MaxDirectCost)}</strong> 
+              to hit your goal on a ${formatMoney(targetBidPrice)} bid.
             </div>
 
             <p className="text-sm text-muted-foreground mb-4">

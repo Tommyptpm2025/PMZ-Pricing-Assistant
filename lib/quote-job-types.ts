@@ -11,16 +11,35 @@ export interface QuoteLineItem {
   unitPrice: number; // selling price to customer
 }
 
+export interface RealLEMItem {
+  id: string;
+  type: 'labor' | 'equipment' | 'material';
+  profileId: string;
+  description: string;
+  quantity: number;
+  unitCost: number;
+}
+
 export interface SavedQuote {
   id: string;
   jobName: string;
+  customer: string;
   workType: string;
-  lineItems: QuoteLineItem[];
-  targetMarginPercent: number;
+  salesperson: string;
+  quoteType: "EPP" | "Full";
+  eppLineItems: QuoteLineItem[];
+  proLemItems: RealLEMItem[];
+  targetMargin: number;
   totalRevenue: number;
-  status: 'Draft' | 'Accepted';
-  createdAt: string; // ISO string
-  updatedAt: string; // ISO string
+  status: "Draft" | "Ready for Approval" | "Approved" | "Declined";
+  locked: boolean;
+  rateProfileSnapshot: {
+    labor: number;
+    equipment: number;
+    material: number;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Job {

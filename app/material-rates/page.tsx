@@ -17,9 +17,7 @@ import {
 import { Package, Plus, RotateCcw, Edit2, Copy, Trash2, Save } from "lucide-react";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
-
-// LocalStorage key
-const STORAGE_KEY = "pmz_material_rates";
+import { useRateStore } from "@/lib/rate-store";
 
 function createId() {
   return Math.random().toString(36).slice(2, 11);
@@ -71,32 +69,31 @@ export default function MaterialRateBuilder() {
   // Current working profile (live calculator)
   const [inputs, setInputs] = React.useState<MaterialProfile>({ ...DEFAULT_MATERIAL });
 
-  // Saved profiles
-  const [savedMaterials, setSavedMaterials] = React.useState<SavedMaterial[]>([]);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [justSaved, setJustSaved] = React.useState(false);
+  const [reloadMsg, setReloadMsg] = React.useState('');
 
   // Tab state - exact same pattern as Labor & Equipment
   const [activeTab, setActiveTab] = React.useState<'builder' | 'saved'>('builder');
 
-  // Load from localStorage
-  React.useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed: SavedMaterial[] = JSON.parse(raw);
-        setSavedMaterials(parsed);
-      }
-    } catch {}
-  }, []);
+  // Centralized rate store (single source for labor/equip/material; survives tab switches, Fast Refresh, reloads)
+  const {
+    materialRates: savedMaterials,
+    saveMaterialRate,
+    updateMaterialRate,
+    deleteMaterialRate,
+    getMaterialRates,
+    reloadFromStorage,
+  } = useRateStore();
 
-  // Persist
-  React.useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(savedMaterials));
-    } catch {}
-  }, [savedMaterials]);
+  // Manual reload from central store (forces fresh read from localStorage for recovery)
+  function reloadSavedRates() {
+    reloadFromStorage();
+    console.log('[Material Rates] reloadSavedRates -> delegated to rate-store reloadFromStorage');
+    setReloadMsg("Rates reloaded from storage");
+    setTimeout(() => setReloadMsg(''), 2000);
+  }
 
   // Live landed / total true cost calculation (pure cost only)
   const landedCost = React.useMemo(() => {
@@ -117,25 +114,27 @@ export default function MaterialRateBuilder() {
     setJustSaved(false);
   }
 
-  // ==================== SAVED PROFILES (exact same pattern) ====================
+  // ==================== SAVED PROFILES (delegates to centralized store) ====================
   function addCurrentMaterial() {
-    const newId = createId();
-    const newProfile: SavedMaterial = {
-      ...inputs,
-      id: newId,
-    };
-    setSavedMaterials((prev) => [...prev, newProfile]);
+    console.log("=== SAVE BUTTON CLICKED ===");
+    console.log("Current form data:", inputs);
+    const newId = saveMaterialRate({ ...inputs });
+    console.log('[Material Rates] saveMaterialRate delegated to store, new id:', newId);
     setEditingId(null);
     setSelectedId(newId);
     setJustSaved(false);
   }
 
   function updateSavedMaterial() {
-    if (!editingId) return;
+    console.log("=== SAVE BUTTON CLICKED ===");
+    console.log("Current form data:", inputs);
+    if (!editingId) {
+      console.warn('[Material Rates] SAVE CHANGES but no editingId, aborting');
+      return;
+    }
     const currentId = editingId;
-    setSavedMaterials((prev) =>
-      prev.map((m) => (m.id === currentId ? { ...inputs, id: currentId } : m))
-    );
+    updateMaterialRate(currentId, { ...inputs });
+    console.log('[Material Rates] updateMaterialRate delegated to store for id:', currentId);
     // Clear editing UI after successful save (banner + Save Changes button disappear)
     // but keep selectedId so the table row stays highlighted
     setEditingId(null);
@@ -152,16 +151,12 @@ export default function MaterialRateBuilder() {
   }
 
   function duplicateMaterial(profile: SavedMaterial) {
-    const duplicated: SavedMaterial = {
-      ...profile,
-      description: `${profile.description} (Copy)`,
-      id: createId(),
-    };
-    setSavedMaterials((prev) => [...prev, duplicated]);
+    // delegate to store (fresh id + persist + sync)
+    saveMaterialRate({ ...profile, description: `${profile.description} (Copy)` });
   }
 
   function deleteMaterial(id: string) {
-    setSavedMaterials((prev) => prev.filter((m) => m.id !== id));
+    deleteMaterialRate(id);
     if (editingId === id) setEditingId(null);
     if (selectedId === id) setSelectedId(null);
     setJustSaved(false);
@@ -191,6 +186,12 @@ export default function MaterialRateBuilder() {
         <Button variant="outline" size="sm" onClick={resetToDefaults} className="self-start sm:self-auto">
           <RotateCcw className="mr-2 h-4 w-4" /> Reset to Defaults
         </Button>
+        <Button variant="outline" size="sm" onClick={reloadSavedRates} className="self-start sm:self-auto">
+          <RotateCcw className="mr-2 h-4 w-4" /> Reload Saved Rates
+        </Button>
+        {reloadMsg && (
+          <span className="text-xs text-emerald-600 self-start sm:self-auto ml-2">{reloadMsg}</span>
+        )}
       </div>
 
       {/* Clean modern tabbed interface - exact same as Labor & Equipment */}

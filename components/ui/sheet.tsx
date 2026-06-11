@@ -67,6 +67,7 @@ function SheetContent({
         )}
         {...props}
       >
+        <SheetTitle className="sr-only">Sheet</SheetTitle>
         {children}
         {showCloseButton && (
           <SheetPrimitive.Close data-slot="sheet-close" asChild>

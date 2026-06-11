@@ -978,8 +978,10 @@ export default function WorkTypesPage() {
                         <TableCell className="text-right tabular-nums font-medium">
                           {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(p.ttlRevenue)}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums font-semibold text-primary">
-                          {p.gpPercent.toFixed(1)}%
+                        <TableCell className="text-right tabular-nums font-semibold">
+                          <span className={p.gpPercent >= weightedTarget ? "text-[#16a34a]" : "text-[#dc2626]"}>
+                            {p.gpPercent.toFixed(1)}%
+                          </span>
                           <div className="text-[10px] text-muted-foreground font-normal">target {weightedTarget.toFixed(1)}%</div>
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-emerald-600 font-semibold">
@@ -1000,7 +1002,15 @@ export default function WorkTypesPage() {
                   <TableRow className="bg-muted/50 font-semibold border-t-2">
                     <TableCell>TOTAL</TableCell>
                     <TableCell className="text-right tabular-nums">{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overall.ttlRevenue)}</TableCell>
-                    <TableCell className="text-right tabular-nums text-primary">{overall.gpPercent.toFixed(1)}%</TableCell>
+                    <TableCell className="text-right tabular-nums text-primary">
+                      {(() => {
+                        const tgt = overall.ttlRevenue > 0
+                          ? overviewItems.reduce((s, p) => s + getWeightedTargetGp(p) * p.ttlRevenue, 0) / overall.ttlRevenue
+                          : 0;
+                        const isGood = overall.gpPercent >= tgt;
+                        return <span className={isGood ? "text-[#16a34a]" : "text-[#dc2626]"}>{overall.gpPercent.toFixed(1)}%</span>;
+                      })()}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums text-emerald-600">{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overall.totalGp)}</TableCell>
                     <TableCell className="text-right tabular-nums">{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overall.targetRevenue)}</TableCell>
                     <TableCell className={cn("text-right tabular-nums font-semibold", overallVariance >= 0 ? "text-emerald-600" : "text-red-600")}>

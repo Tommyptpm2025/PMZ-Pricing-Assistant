@@ -11,7 +11,11 @@ import {
   Calculator,
   TrendingUp,
   ArrowRight,
+  AlertTriangle,
+  X,
+  Info,
 } from "lucide-react"
+import React, { useMemo, useState } from "react"
 
 interface ToolCardProps {
   href: string
@@ -45,6 +49,18 @@ function ToolCard({ href, icon: Icon, title, description, featured }: ToolCardPr
   )
 }
 
+// Consistent currency formatter: always exactly 2 decimal places + thousands separators
+function formatMoney(amount: number | undefined | null): string {
+  if (amount === undefined || amount === null || isNaN(amount)) {
+    return "$0.00";
+  }
+  const formatted = amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `$${formatted}`;
+}
+
 export default function OverviewPage() {
   // Demo data for the executive dashboard (in real use this would come from saved profiles + overhead chart)
   const revenue = 185000
@@ -57,6 +73,53 @@ export default function OverviewPage() {
   const overheadPerHour = (totalOverhead / billableHours).toFixed(2)
   const netProfit = grossProfit - totalOverhead
   const netProfitPercent = ((netProfit / revenue) * 100).toFixed(1)
+
+  // Money Map snapshot data — pulls live from Project Pricer (current estimate or last saved quote) when available
+  const moneyMapSnapshot = useMemo(() => {
+    let currentRevenue = revenue
+    let currentGpPercent = parseFloat(grossProfitPercent)
+    let indirectPercent = 8 // illustrative "silent killer" % from typical bids
+    try {
+      const estRaw = localStorage.getItem("pmz_current_estimate_v1")
+      if (estRaw) {
+        const est = JSON.parse(estRaw)
+        if (est.bidItems && est.bidItems.length > 0) {
+          currentRevenue = est.bidItems.reduce((sum: number, item: any) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0)
+        }
+      }
+      const quotesRaw = localStorage.getItem("pmz_saved_quotes")
+      if (quotesRaw) {
+        const qs = JSON.parse(quotesRaw)
+        if (qs.length > 0) {
+          const last = qs[qs.length - 1]
+          if (last.totalRevenue) currentRevenue = last.totalRevenue
+          if (last.targetMargin) currentGpPercent = last.targetMargin
+        }
+      }
+    } catch {}
+    const directCogs = Math.round(currentRevenue * 0.65)
+    const indirectCogs = Math.round(currentRevenue * (indirectPercent / 100))
+    const gross = Math.round(currentRevenue * (currentGpPercent / 100))
+    const overhead = Math.round(currentRevenue * 0.12)
+    const net = gross - overhead
+    const netPct = currentRevenue > 0 ? Math.round((net / currentRevenue) * 100) : 10
+    return {
+      revenue: currentRevenue,
+      directCogs,
+      directPercent: 65,
+      indirectCogs,
+      indirectPercent,
+      grossProfit: gross,
+      grossPercent: currentGpPercent,
+      overhead,
+      overheadPercent: 12,
+      netProfit: net,
+      netPercent: netPct,
+    }
+  }, [revenue, grossProfitPercent])
+
+  const [showMoneyMap, setShowMoneyMap] = useState(false)
+  const [highlightedBucket, setHighlightedBucket] = useState<string | null>(null)
 
   return (
     <div className="max-w-6xl space-y-8 pb-12">
@@ -86,7 +149,7 @@ export default function OverviewPage() {
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">click for breakdown →</span>
           </div>
           <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
-            ${revenue.toLocaleString()}
+            {formatMoney(revenue)}
           </div>
           <div className="text-sm text-muted-foreground mt-2">This month (demo data)</div>
         </div>
@@ -101,7 +164,7 @@ export default function OverviewPage() {
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">click for breakdown →</span>
           </div>
           <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
-            ${cogs.toLocaleString()}
+            {formatMoney(cogs)}
           </div>
           <div className="text-sm text-muted-foreground mt-2">Labor + Equipment + Materials</div>
         </div>
@@ -110,7 +173,7 @@ export default function OverviewPage() {
         <div className="rounded-2xl border-2 border-border bg-white p-6">
           <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">GROSS PROFIT</div>
           <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4 text-emerald-600">
-            ${grossProfit.toLocaleString()}
+            {formatMoney(grossProfit)}
           </div>
           <div className="text-sm text-emerald-600 mt-2 tabular-nums">{grossProfitPercent}%</div>
         </div>
@@ -125,7 +188,7 @@ export default function OverviewPage() {
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">view details →</span>
           </div>
           <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
-            ${totalOverhead.toLocaleString()}
+            {formatMoney(totalOverhead)}
           </div>
           <div className="text-sm text-muted-foreground mt-2 tabular-nums">{overheadPercent}% of Revenue</div>
         </div>
@@ -143,7 +206,7 @@ export default function OverviewPage() {
         <div className="rounded-2xl border-2 border-border bg-white p-6">
           <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">NET PROFIT (after Overhead)</div>
           <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4 text-emerald-600">
-            ${netProfit.toLocaleString()}
+            {formatMoney(netProfit)}
           </div>
           <div className="text-sm text-emerald-600 mt-2 tabular-nums">{netProfitPercent}%</div>
         </div>
@@ -153,6 +216,65 @@ export default function OverviewPage() {
       <div className="text-center text-xs text-muted-foreground">
         This is your live executive snapshot. Click Revenue or COGS cards above for breakdowns. Full drill-down editor lives in <Link href="/overhead-profit" className="text-primary underline">Overhead &amp; Profit</Link>.
       </div>
+
+      {/* NEW: PMZ Money Map — Layer 1 Quick Snapshot (always visible, at-a-glance training tool) */}
+      <Card className="card border-2 border-primary/10">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600" /> PMZ Money Map — Quick Snapshot
+              </CardTitle>
+              <CardDescription className="text-xs">
+                How your current bid (from Project Pricer) maps to profit reality.
+              </CardDescription>
+            </div>
+            <Button size="sm" onClick={() => { setShowMoneyMap(true); setHighlightedBucket(null); }}>
+              View Full Money Map &amp; Glossary
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {/* Compact 6-rung ladder */}
+          <div className="space-y-1 text-sm">
+            <div className="flex items-center justify-between rounded border bg-blue-50 px-3 py-1.5">
+              <div className="font-medium">1. Revenue</div>
+              <div className="tabular-nums font-semibold">{formatMoney(moneyMapSnapshot.revenue)}</div>
+            </div>
+            <div className="flex items-center justify-between rounded border bg-orange-50 px-3 py-1.5">
+              <div className="font-medium">2. Direct COGS</div>
+              <div className="tabular-nums">{formatMoney(moneyMapSnapshot.directCogs)} <span className="text-xs text-muted-foreground">({moneyMapSnapshot.directPercent}%)</span></div>
+            </div>
+            <div className="flex items-center justify-between rounded border-2 border-red-300 bg-red-50 px-3 py-1.5">
+              <div>
+                <span className="font-medium text-red-700">3. Indirect COGS</span>
+                <span className="ml-1 text-[10px] text-red-600 font-semibold">SILENT PROFIT KILLER</span>
+              </div>
+              <div className="tabular-nums text-red-700">{formatMoney(moneyMapSnapshot.indirectCogs)} <span className="text-xs">({moneyMapSnapshot.indirectPercent}%)</span></div>
+            </div>
+            <div className="flex items-center justify-between rounded border bg-emerald-50 px-3 py-1.5">
+              <div className="font-medium">4. Gross Profit</div>
+              <div className="tabular-nums text-emerald-700">{formatMoney(moneyMapSnapshot.grossProfit)} <span className="text-xs">({moneyMapSnapshot.grossPercent}%)</span></div>
+            </div>
+            <div className="flex items-center justify-between rounded border bg-amber-50 px-3 py-1.5">
+              <div className="font-medium">5. Overhead</div>
+              <div className="tabular-nums">{formatMoney(moneyMapSnapshot.overhead)} <span className="text-xs text-muted-foreground">({moneyMapSnapshot.overheadPercent}%)</span></div>
+            </div>
+            <div className="flex items-center justify-between rounded border-2 border-emerald-300 bg-emerald-100 px-3 py-1.5">
+              <div className="font-semibold text-emerald-800">6. Net Profit (what you keep)</div>
+              <div className="tabular-nums font-semibold text-emerald-800">{formatMoney(moneyMapSnapshot.netProfit)} <span className="text-xs">({moneyMapSnapshot.netPercent}%)</span></div>
+            </div>
+          </div>
+
+          <div className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            Your current bid is allocating <strong>{moneyMapSnapshot.indirectPercent}%</strong> to Indirect COGS — the bucket that quietly kills margins.
+          </div>
+
+          <div className="mt-2 text-[10px] text-muted-foreground">
+            Values pulled live from Project Pricer current bid (or demo). Click the button for the full educational ladder.
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Tools grid - clean navigation */}
       <section>
@@ -165,6 +287,166 @@ export default function OverviewPage() {
           <ToolCard href="/project-pricer" icon={TrendingUp} title="Project Pricer" description="The daily driver. Build accurate bids from your real costs." />
         </div>
       </section>
+
+      {/* Layer 2: Full Money Map — modal (clean professional training view) */}
+      {showMoneyMap && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => { setShowMoneyMap(false); setHighlightedBucket(null); }}>
+          <div className="w-full max-w-4xl rounded-2xl bg-background shadow-2xl overflow-hidden border" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-xl font-semibold tracking-tight">PMZ Money Map — Full View &amp; Glossary</div>
+                  <div className="text-xs text-muted-foreground">Profit isn’t a number. It’s a culture.</div>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => { setShowMoneyMap(false); setHighlightedBucket(null); }}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[80vh] overflow-auto">
+              {/* The Ladder - 6 rungs, clean stacked design */}
+              <div className="max-w-lg mx-auto">
+                <div className="text-xs uppercase tracking-[1px] text-muted-foreground mb-2 text-center">THE PROFIT LADDER (how every dollar flows)</div>
+
+                {/* Rung 1: Revenue */}
+                <div
+                  onClick={() => setHighlightedBucket('revenue')}
+                  className="cursor-pointer rounded-xl border-2 border-blue-300 bg-blue-50 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
+                >
+                  <div>
+                    <div className="font-semibold text-blue-800">1. REVENUE</div>
+                    <div className="text-xs text-blue-700">Top line — what the customer pays you</div>
+                  </div>
+                  <div className="text-right text-sm font-semibold tabular-nums text-blue-800">{formatMoney(moneyMapSnapshot.revenue)}</div>
+                </div>
+
+                {/* Rung 2: Direct COGS */}
+                <div
+                  onClick={() => setHighlightedBucket('direct')}
+                  className="cursor-pointer rounded-xl border bg-orange-50 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
+                >
+                  <div>
+                    <div className="font-semibold text-orange-800">2. DIRECT COGS</div>
+                    <div className="text-xs text-orange-700">Obvious job costs you see in the Pricer (L+E+M)</div>
+                  </div>
+                  <div className="text-right text-sm tabular-nums text-orange-800">{formatMoney(moneyMapSnapshot.directCogs)} <span className="text-xs">({moneyMapSnapshot.directPercent}%)</span></div>
+                </div>
+
+                {/* Rung 3: Indirect COGS - the killer, red/maroon highlight */}
+                <div
+                  onClick={() => setHighlightedBucket('indirect')}
+                  className="cursor-pointer rounded-xl border-2 border-red-400 bg-red-50 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition ring-1 ring-red-200"
+                >
+                  <div>
+                    <div className="font-semibold text-red-800 flex items-center gap-1.5">
+                      3. INDIRECT COGS <span className="text-[10px] px-1.5 py-0 rounded bg-red-600 text-white font-medium">SILENT KILLER</span>
+                    </div>
+                    <div className="text-xs text-red-700">The hidden bucket: labor burden, shop supplies, small tools, untracked mobilization, admin creep, etc.</div>
+                  </div>
+                  <div className="text-right text-sm tabular-nums text-red-800">{formatMoney(moneyMapSnapshot.indirectCogs)} <span className="text-xs">({moneyMapSnapshot.indirectPercent}%)</span></div>
+                </div>
+
+                {/* Rung 4: Gross Profit - green */}
+                <div
+                  onClick={() => setHighlightedBucket('gross')}
+                  className="cursor-pointer rounded-xl border bg-emerald-50 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
+                >
+                  <div>
+                    <div className="font-semibold text-emerald-800">4. GROSS PROFIT</div>
+                    <div className="text-xs text-emerald-700">What’s left after all job costs (Direct + Indirect COGS)</div>
+                  </div>
+                  <div className="text-right text-sm tabular-nums text-emerald-800">{formatMoney(moneyMapSnapshot.grossProfit)} <span className="text-xs">({moneyMapSnapshot.grossPercent}%)</span></div>
+                </div>
+
+                {/* Rung 5: Overhead */}
+                <div
+                  onClick={() => setHighlightedBucket('overhead')}
+                  className="cursor-pointer rounded-xl border bg-amber-50 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
+                >
+                  <div>
+                    <div className="font-semibold text-amber-800">5. OVERHEAD</div>
+                    <div className="text-xs text-amber-700">Fixed cost of running the business (see Overhead &amp; Profit pillar)</div>
+                  </div>
+                  <div className="text-right text-sm tabular-nums text-amber-800">{formatMoney(moneyMapSnapshot.overhead)} <span className="text-xs">({moneyMapSnapshot.overheadPercent}%)</span></div>
+                </div>
+
+                {/* Rung 6: Net Profit - strong green */}
+                <div
+                  onClick={() => setHighlightedBucket('net')}
+                  className="cursor-pointer rounded-xl border-2 border-emerald-300 bg-emerald-100 p-4 flex items-center justify-between hover:shadow-sm transition"
+                >
+                  <div>
+                    <div className="font-semibold text-emerald-900">6. NET PROFIT — WHAT YOU KEEP</div>
+                    <div className="text-xs text-emerald-800">True owner profit after everything. The culture goal.</div>
+                  </div>
+                  <div className="text-right text-sm tabular-nums font-semibold text-emerald-900">{formatMoney(moneyMapSnapshot.netProfit)} <span className="text-xs">({moneyMapSnapshot.netPercent}%)</span></div>
+                </div>
+              </div>
+
+              {/* Subtle interactivity explain box */}
+              {highlightedBucket && (
+                <div className="mx-auto max-w-lg rounded-lg border bg-muted/60 p-4 text-sm">
+                  <div className="flex items-start gap-2">
+                    <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
+                    <div>
+                      {highlightedBucket === 'revenue' && "Revenue is the top line from your Project Pricer bid items total."}
+                      {highlightedBucket === 'direct' && "Direct COGS = the Labor + Equipment + Material costs you actively build in the Full Real LEM section of the Project Pricer."}
+                      {highlightedBucket === 'indirect' && "Indirect COGS hides in: labor burden rates (beyond base pay), shop supplies, small tools, unbillable time, mobilization “extras”, fuel surcharges not passed through, etc. These rarely appear explicitly in your LEM table but destroy your target margin. This is the bucket the Money Map exists to kill."}
+                      {highlightedBucket === 'gross' && "Gross Profit = Revenue minus (Direct + Indirect COGS). This is the number the Project Pricer’s Gross Profit % field is trying to protect."}
+                      {highlightedBucket === 'overhead' && "Overhead = fixed business costs (insurance, shop rent, admin salaries, etc.). Managed in the Overhead &amp; Profit pillar."}
+                      {highlightedBucket === 'net' && "Net Profit = Gross minus Overhead. This is the true owner take-home. Everything else is just moving money between buckets."}
+                    </div>
+                  </div>
+                  <button className="mt-2 text-xs text-muted-foreground underline" onClick={() => setHighlightedBucket(null)}>clear highlight</button>
+                </div>
+              )}
+
+              {/* Decision tree */}
+              <div className="pt-2">
+                <div className="text-sm font-semibold mb-2">Which bucket? Ask a question</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                  <div
+                    onClick={() => setHighlightedBucket('direct')}
+                    className="cursor-pointer rounded-lg border p-3 hover:bg-muted transition"
+                  >
+                    <div className="font-medium">Direct COGS</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">The obvious L+E+M you control per job in the Project Pricer Real LEM.</div>
+                  </div>
+                  <div
+                    onClick={() => setHighlightedBucket('indirect')}
+                    className="cursor-pointer rounded-lg border-2 border-red-300 bg-red-50 p-3 hover:bg-red-100 transition"
+                  >
+                    <div className="font-medium text-red-800">Indirect COGS <span className="text-[10px] align-super">(the killer)</span></div>
+                    <div className="text-xs text-red-700 mt-0.5">Burden, supplies, unbillable, hidden mobilization. Where your margin quietly disappears.</div>
+                  </div>
+                  <div
+                    onClick={() => setHighlightedBucket('overhead')}
+                    className="cursor-pointer rounded-lg border p-3 hover:bg-muted transition"
+                  >
+                    <div className="font-medium">Overhead</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">Fixed cost of running the business. See the Overhead &amp; Profit tool for details.</div>
+                  </div>
+                </div>
+                <p className="mt-3 text-center text-[11px] text-muted-foreground">Click any bucket above (or in the ladder) for a quick explanation of where it lives in your Project Pricer workflow.</p>
+              </div>
+
+              {/* Mini glossary / culture note */}
+              <div className="text-[11px] text-muted-foreground border-t pt-4">
+                <strong>Quick Glossary:</strong> Direct = job-visible costs in LEM. Indirect = the invisible tax on every job. Overhead = the price of being in business. Net = the only number that pays the owner. The culture is to shrink Indirect COGS first — it’s the fastest lever most contractors have.
+              </div>
+            </div>
+
+            <div className="border-t bg-muted/30 px-6 py-3 text-xs flex items-center justify-between text-muted-foreground">
+              <div>Close this anytime — it’s here to build the habit, not slow you down.</div>
+              <Button size="sm" variant="outline" onClick={() => { setShowMoneyMap(false); setHighlightedBucket(null); }}>Close</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
