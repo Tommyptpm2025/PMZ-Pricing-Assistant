@@ -37,14 +37,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
+import QuotePreview from "./QuotePreview";
 import {
   TrendingUp,
   Plus,
   Trash2,
   RotateCcw,
   Calculator,
-  Sun,
-  Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -53,6 +52,7 @@ import {
 } from "@/lib/calculations";
 import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer } from "@/lib/pmz-types";
 import { useRateStore } from "@/lib/rate-store";
+import { getAllTerms, type TermsBlock } from "@/lib/terms";
 
 // Stable ID generator (avoids Date.now/Math.random during SSR/hydration for client-only data)
 let stableIdCounter = 0;
@@ -86,14 +86,29 @@ interface BidItem {
     rateId?: string;
     labor?: { id: string; role: string; burdenedHourlyRate: number };
     hours?: number;
+    rate?: number;
+    // Stage 1: lightweight tag marking this line as populated from a crew (for grouped render + group removal)
+    group?: { id: string; crewId: string; name: string };
   }>;
   equipmentEntries?: Array<{
     rateId?: string;
     hours?: number;
+    rate?: number;
+    group?: { id: string; crewId: string; name: string };
   }>;
   materialEntries?: Array<{
     rateId?: string;
     quantity?: number;
+  }>;
+  miscellaneousEntries?: Array<{
+    rateId?: string;
+    description?: string;
+    quantity?: number;
+    rate?: number;
+  }>;
+  crewUsages?: Array<{
+    crewId: string;
+    hours?: number;
   }>;
   realCost?: number;
   realGrossProfitPercent?: number;
@@ -107,7 +122,8 @@ interface CurrentEstimate {
   bidItems: BidItem[];
   customerName: string;
   customerId?: string;
-  billingAddress?: string;
+  billingAddress?: string | any;
+  jobSiteAddress?: string | any;
 }
 
 interface RealLEMItem {
@@ -178,7 +194,7 @@ function saveEPPQuote(data: {
     const quotes: any[] = raw ? JSON.parse(raw) : [];
     const now = new Date().toISOString();
     const quote = {
-      id: generateStableId('epp'),
+      id: `epp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       jobName: data.jobName || "Untitled",
       workType: data.workType || "",
       salesperson: data.salesperson || "",
@@ -233,9 +249,11 @@ export default function ProjectPricerPage() {
     laborRates,
     equipmentRates,
     materialRates,
+    miscRates,
     getLaborCostPerHour,
     getEquipmentCostPerHour,
     getMaterialCostPerUnit,
+    getMiscCostPerUnit,
   } = useRateStore();
 
   // Correct labor burdened hourly rate using the imported calculateLaborRate (fixes broken labor calc in EPP panel)
@@ -296,6 +314,7 @@ export default function ProjectPricerPage() {
     customerName: "",
     customerId: "",
     billingAddress: "",
+    jobSiteAddress: "",
   });
 
   const currentCustomer = React.useMemo(() => {
@@ -305,13 +324,28 @@ export default function ProjectPricerPage() {
 
   // For the educational "See True Job Costs" dialog (kept for links)
   const [showCostDialog, setShowCostDialog] = React.useState(false);
-  const [showQuotePreview, setShowQuotePreview] = React.useState(false);
   const [showUpdateExport, setShowUpdateExport] = React.useState(false);
   const [exportType, setExportType] = React.useState<'quote' | 'estimate'>('quote');
   const [showQuantities, setShowQuantities] = React.useState(true);
   const [showUnits, setShowUnits] = React.useState(true);
   const [showPerUnitPrice, setShowPerUnitPrice] = React.useState(true);
   const [showLineItemPrices, setShowLineItemPrices] = React.useState(true);
+
+  // Customer & Location Information options for Update Export dialog (Phase 1)
+  const [showBillTo, setShowBillTo] = React.useState(true);
+  const [showJobSite, setShowJobSite] = React.useState(true);
+  const [showPrimaryContact, setShowPrimaryContact] = React.useState(true);
+  const [showAccessNotes, setShowAccessNotes] = React.useState(false);
+  const [showGPS, setShowGPS] = React.useState(false);
+
+  // Terms & Conditions selection for Update Export dialog (Stage 2)
+  const [selectedTermsId, setSelectedTermsId] = React.useState<string | null>(null);
+
+  // Holds the normalized EPP quote data from buildQuoteData for the preview
+  const [eppQuoteData, setEppQuoteData] = React.useState<any>(null);
+
+  // Frozen terms text loaded from a reopened saved quote (for Stage 4, to use original terms in preview/footer)
+  const [loadedQuoteTermsText, setLoadedQuoteTermsText] = React.useState<string | null>(null);
 
   // Logo upload support for PDF (base64 in localStorage for simplicity)
   const [logoDataUrl, setLogoDataUrl] = React.useState<string | null>(null);
@@ -323,6 +357,27 @@ export default function ProjectPricerPage() {
         setLogoDataUrl(savedLogo);
       }
     } catch {}
+  }, []);
+
+  // Detect if this is a print preview tab (opened via ?print=quote) and load stashed data from sessionStorage
+  const [isPrintPreview, setIsPrintPreview] = React.useState(false);
+  const [printQuoteData, setPrintQuoteData] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('print') === 'quote') {
+      setIsPrintPreview(true);
+      try {
+        const stored = sessionStorage.getItem('pmz_epp_print_quote');
+        if (stored) {
+          const data = JSON.parse(stored);
+          setPrintQuoteData(data);
+        }
+      } catch (e) {
+        console.error('Failed to load print quote data from sessionStorage', e);
+      }
+    }
   }, []);
 
   // Toggle for the new LEM breakdown (the activated feature)
@@ -361,6 +416,9 @@ export default function ProjectPricerPage() {
   const [pendingEquipQtyEdit, setPendingEquipQtyEdit] = React.useState<string>("");
   const [pendingMatQtyEdit, setPendingMatQtyEdit] = React.useState<string>("");
 
+  // Crews for EPP per-line costing (populated from Crew Builder under Resources; loaded post-mount for hydration safety)
+  const [crews, setCrews] = React.useState<any[]>([]);
+
   // Editable Gross Profit % for the Grand Total section (user enters %, GP$ and Grand Total computed)
   const [editableGrossProfitPercent, setEditableGrossProfitPercent] = React.useState(0);
   const [gpPercentEdit, setGpPercentEdit] = React.useState<string>("");
@@ -379,17 +437,8 @@ export default function ProjectPricerPage() {
   }
 
   // Collapsed state for Full Real LEM Breakdown (Pro View) section, persisted in localStorage, default expanded (false)
-  const [proViewCollapsed, setProViewCollapsed] = React.useState(() => {
-    try {
-      const saved = localStorage.getItem("pmz_pro_view_collapsed");
-      return saved === "true";
-    } catch {
-      return false;
-    }
-  });
-
-  // Theme (light/dark) persisted in localStorage. Default to dark to preserve current behavior.
-  const [isDarkMode, setIsDarkMode] = React.useState(true);
+  // Init to constant false (matches SSR); load from LS in useEffect only (client post-hydration).
+  const [proViewCollapsed, setProViewCollapsed] = React.useState(false);
 
   // Success message for quote saves (auto-dismiss banner, shared for EPP/Pro)
   const [saveMessage, setSaveMessage] = React.useState<string | null>(null);
@@ -404,39 +453,6 @@ export default function ProjectPricerPage() {
   // Brief saving states for visual feedback (disable button briefly after click)
   const [isSavingEPP, setIsSavingEPP] = React.useState(false);
   const [isSavingFull, setIsSavingFull] = React.useState(false);
-
-  // Theme toggle handler + effect (defined early so available for header render)
-  function toggleTheme() {
-    const newIsDark = !isDarkMode;
-    setIsDarkMode(newIsDark);
-    try {
-      localStorage.setItem("pmz-theme", newIsDark ? "dark" : "light");
-    } catch {}
-    if (newIsDark) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }
-
-  React.useEffect(() => {
-    try {
-      const saved = localStorage.getItem("pmz-theme");
-      const shouldBeDark = saved ? saved === "dark" : true; // default dark
-      if (shouldBeDark !== isDarkMode) {
-        setIsDarkMode(shouldBeDark);
-      }
-      if (shouldBeDark) {
-        document.documentElement.classList.add("dark");
-      } else {
-        document.documentElement.classList.remove("dark");
-      }
-    } catch {
-      // default already dark
-      document.documentElement.classList.add("dark");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Context-aware has-items for buttons (EPP vs Pro separate)
   const eppHasItems = estimate.bidItems && estimate.bidItems.length > 0;
@@ -500,6 +516,7 @@ export default function ProjectPricerPage() {
             customerName: saved.customerName || saved.customer || "",
             customerId: custId,
             billingAddress: saved.billingAddress || "",
+            jobSiteAddress: saved.jobSiteAddress || "",
           });
           // Seed the client ID counter from loaded bid item IDs. This ensures that
           // generateClientId() will never produce duplicate IDs for newly added rows
@@ -517,6 +534,24 @@ export default function ProjectPricerPage() {
               }
             });
             stableIdRef.current = Math.max(stableIdRef.current || 0, maxNum);
+          } catch {}
+
+          // Stage 4: restore frozen termsText from matching saved EPP quote record (to keep original terms even if template edited)
+          try {
+            const rawQuotes = localStorage.getItem("pmz_saved_quotes");
+            const allSaved = rawQuotes ? JSON.parse(rawQuotes) : [];
+            const loadedBids = saved.bidItems || saved.eppLineItems || [];
+            const matching = allSaved.find((q: any) =>
+              q.quoteType === 'EPP' &&
+              q.jobName === saved.jobName &&
+              Array.isArray(q.eppLineItems) &&
+              q.eppLineItems.length === loadedBids.length
+            );
+            if (matching && matching.termsText) {
+              setLoadedQuoteTermsText(matching.termsText);
+            } else {
+              setLoadedQuoteTermsText(null);
+            }
           } catch {}
         }
       }
@@ -561,6 +596,7 @@ export default function ProjectPricerPage() {
               customerId: qCustId,
               customerName: qCustName || "",
               billingAddress: saved.billingAddress || (match ? match.billingAddress || "" : "") || "",
+              jobSiteAddress: saved.jobSiteAddress || (match ? match.jobSiteAddress || "" : "") || "",
             }));
           } else if (qCustName) {
             // old text-based customer name only (backward compat)
@@ -569,6 +605,7 @@ export default function ProjectPricerPage() {
               customerId: "",
               customerName: qCustName,
               billingAddress: saved.billingAddress || "",
+              jobSiteAddress: saved.jobSiteAddress || "",
             }));
           }
         }
@@ -635,6 +672,7 @@ export default function ProjectPricerPage() {
                   customerId: qCustId,
                   customerName: qCustName || "",
                   billingAddress: match ? match.billingAddress || "" : "",
+                  jobSiteAddress: match ? match.jobSiteAddress || "" : "",
                 }));
               } else if (qCustNameFromQuote) {
                 // old text-based customer name only (backward compat)
@@ -643,6 +681,7 @@ export default function ProjectPricerPage() {
                   customerId: "",
                   customerName: qCustNameFromQuote,
                   billingAddress: "",
+                  jobSiteAddress: "",
                 }));
               }
             }
@@ -672,7 +711,7 @@ export default function ProjectPricerPage() {
   React.useEffect(() => {
     setEstimate((prev) => {
       if (prev.customerId !== (selectedCustomerId || "") || prev.customerName !== (selectedCustomerName || "")) {
-        return { ...prev, customerId: selectedCustomerId || "", customerName: selectedCustomerName || "", billingAddress: prev.billingAddress || "" };
+        return { ...prev, customerId: selectedCustomerId || "", customerName: selectedCustomerName || "", billingAddress: prev.billingAddress || "", jobSiteAddress: prev.jobSiteAddress || "" };
       }
       return prev;
     });
@@ -685,7 +724,7 @@ export default function ProjectPricerPage() {
       if (curr.customerId !== (selectedCustomerId || "") || curr.customerName !== (selectedCustomerName || "")) {
         localStorage.setItem(
           ESTIMATE_STORAGE,
-          JSON.stringify({ ...curr, customerId: selectedCustomerId || "", customerName: selectedCustomerName || "", billingAddress: curr.billingAddress || "" })
+          JSON.stringify({ ...curr, customerId: selectedCustomerId || "", customerName: selectedCustomerName || "", billingAddress: curr.billingAddress || "", jobSiteAddress: curr.jobSiteAddress || "" })
         );
       }
     } catch {}
@@ -704,6 +743,25 @@ export default function ProjectPricerPage() {
       localStorage.setItem("pmz_pro_view_collapsed", proViewCollapsed.toString());
     } catch {}
   }, [proViewCollapsed]);
+
+  // Load proViewCollapsed after mount (client only) to avoid hydration mismatch.
+  React.useEffect(() => {
+    const saved = localStorage.getItem("pmz_pro_view_collapsed");
+    if (saved !== null) {
+      setProViewCollapsed(saved === "true");
+    }
+  }, []);
+
+  // Load crews from Crew Builder (pmz_crews) after mount only (hydration safety: no LS read in initial render)
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem("pmz_crews");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setCrews(Array.isArray(parsed) ? parsed : []);
+      }
+    } catch {}
+  }, []);
 
   // Close customer dropdown on outside click
   React.useEffect(() => {
@@ -895,12 +953,14 @@ export default function ProjectPricerPage() {
       laborEntries: [],
       equipmentEntries: [],
       materialEntries: [],
+      miscellaneousEntries: [],
+      crewUsages: [],
     };
     setEstimate((prev) => ({ ...prev, bidItems: [...prev.bidItems, newItem] }));
   }
 
   function updateBidItem(id: string, field: keyof BidItem, value: any) {
-    if (["laborEntries", "equipmentEntries", "materialEntries"].includes(field as string)) {
+    if (["laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string)) {
       setCostingTargetResult(prev => {
         const { [id]: _, ...rest } = prev;
         return rest;
@@ -912,13 +972,163 @@ export default function ProjectPricerPage() {
         item.id === id
           ? {
               ...item,
-              [field]: (field === "labor" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries"].includes(field as string))
+              [field]: (field === "labor" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string))
                 ? (value === "" ? undefined : value)
                 : Math.max(0, Number(value) || 0),
             }
           : item
       ),
     }));
+  }
+
+  // Stage 1: Adding a crew POPULATES individual Labor + Equipment lines on the bid item
+  // (one line per unit), each with its own editable hours. Reuses the same entry shape and
+  // rate resolution (getLaborBurdenedRate / getEquipmentCostPerHour) the manual selects use.
+  // Lines are tagged with a shared `group` so they render together and can be removed at once.
+  function addCrewToLine(item: BidItem, crewId: string) {
+    if (!crewId || crewId === "none") return;
+    const crew = crews.find((c: any) => c.id === crewId);
+    if (!crew) return;
+    const group = { id: generateStableId("crewgrp"), crewId: crew.id, name: crew.name };
+
+    const newLabor = [...(item.laborEntries || [])];
+    (crew.laborLines || []).forEach((ln: any) => {
+      const profile = laborRates.find((r: any) => r.id === ln.profileId);
+      const r = getLaborBurdenedRate(ln.profileId || "");
+      const count = Math.max(1, Math.round(ln.quantity || 1));
+      for (let k = 0; k < count; k++) {
+        newLabor.push({
+          rateId: ln.profileId,
+          labor: profile ? { id: profile.id, role: profile.role, burdenedHourlyRate: r } : undefined,
+          rate: r,
+          hours: 1,
+          group,
+        });
+      }
+    });
+
+    const newEquip = [...(item.equipmentEntries || [])];
+    (crew.equipmentLines || []).forEach((en: any) => {
+      const r = getEquipmentCostPerHour(en.profileId || "");
+      const count = Math.max(1, Math.round(en.quantity || 1));
+      for (let k = 0; k < count; k++) {
+        newEquip.push({ rateId: en.profileId, rate: r, hours: 1, group });
+      }
+    });
+
+    updateBidItem(item.id, "laborEntries", newLabor);
+    updateBidItem(item.id, "equipmentEntries", newEquip);
+
+    // Persist realCost / realGrossProfitPercent using the same formula as the existing handlers.
+    const lineTotal = item.quantity * item.unitPrice;
+    const lC = newLabor.reduce((s, e: any) => {
+      const r = e.rate != null ? e.rate : (e.labor && typeof e.labor.burdenedHourlyRate === "number") ? e.labor.burdenedHourlyRate : getLaborBurdenedRate(e.rateId || "");
+      return s + r * (e.hours || 0);
+    }, 0);
+    const eC = newEquip.reduce((s, e: any) => {
+      const er = e.rate != null ? e.rate : getEquipmentCostPerHour(e.rateId || "");
+      return s + er * (e.hours || 0);
+    }, 0);
+    const mC = (item.materialEntries || []).reduce((s, e: any) => {
+      const mr = e.rate != null ? e.rate : getMaterialCostPerUnit(e.rateId || "");
+      return s + mr * (e.quantity || 0);
+    }, 0);
+    const miscC = (item.miscellaneousEntries || []).reduce((s, e: any) => {
+      const mr = e.rate != null ? e.rate : getMiscCostPerUnit(e.rateId || "");
+      return s + mr * (e.quantity || 0);
+    }, 0);
+    const cC = (item.crewUsages || []).reduce((s, u: any) => {
+      const cr = crews.find((c: any) => c.id === u.crewId);
+      if (!cr) return s;
+      const hh = u.hours || 0;
+      const cll = (cr.laborLines || []).reduce((ls: number, ln: any) => ls + getLaborCostPerHour(ln.profileId || "") * (ln.quantity || 0), 0);
+      const cee = (cr.equipmentLines || []).reduce((es: number, en: any) => es + getEquipmentCostPerHour(en.profileId || "") * (en.quantity || 0), 0);
+      return s + (cll + cee) * hh;
+    }, 0);
+    const tC = Math.round((lC + eC + mC + miscC + cC) * 100) / 100;
+    const rGp = lineTotal > 0 ? Math.round(((lineTotal - tC) / lineTotal * 100) * 10) / 10 : 100;
+    updateBidItem(item.id, "realCost", tC);
+    updateBidItem(item.id, "realGrossProfitPercent", rGp);
+  }
+
+  // Stage 1: remove every populated line belonging to a crew group from a bid item, in one click.
+  function removeCrewGroupFromLine(item: BidItem, groupId: string) {
+    const newLabor = (item.laborEntries || []).filter((e: any) => !(e.group && e.group.id === groupId));
+    const newEquip = (item.equipmentEntries || []).filter((e: any) => !(e.group && e.group.id === groupId));
+    updateBidItem(item.id, "laborEntries", newLabor);
+    updateBidItem(item.id, "equipmentEntries", newEquip);
+
+    const lineTotal = item.quantity * item.unitPrice;
+    const lC = newLabor.reduce((s, e: any) => {
+      const r = e.rate != null ? e.rate : (e.labor && typeof e.labor.burdenedHourlyRate === "number") ? e.labor.burdenedHourlyRate : getLaborBurdenedRate(e.rateId || "");
+      return s + r * (e.hours || 0);
+    }, 0);
+    const eC = newEquip.reduce((s, e: any) => {
+      const er = e.rate != null ? e.rate : getEquipmentCostPerHour(e.rateId || "");
+      return s + er * (e.hours || 0);
+    }, 0);
+    const mC = (item.materialEntries || []).reduce((s, e: any) => {
+      const mr = e.rate != null ? e.rate : getMaterialCostPerUnit(e.rateId || "");
+      return s + mr * (e.quantity || 0);
+    }, 0);
+    const miscC = (item.miscellaneousEntries || []).reduce((s, e: any) => {
+      const mr = e.rate != null ? e.rate : getMiscCostPerUnit(e.rateId || "");
+      return s + mr * (e.quantity || 0);
+    }, 0);
+    const cC = (item.crewUsages || []).reduce((s, u: any) => {
+      const cr = crews.find((c: any) => c.id === u.crewId);
+      if (!cr) return s;
+      const hh = u.hours || 0;
+      const cll = (cr.laborLines || []).reduce((ls: number, ln: any) => ls + getLaborCostPerHour(ln.profileId || "") * (ln.quantity || 0), 0);
+      const cee = (cr.equipmentLines || []).reduce((es: number, en: any) => es + getEquipmentCostPerHour(en.profileId || "") * (en.quantity || 0), 0);
+      return s + (cll + cee) * hh;
+    }, 0);
+    const tC = Math.round((lC + eC + mC + miscC + cC) * 100) / 100;
+    const rGp = lineTotal > 0 ? Math.round(((lineTotal - tC) / lineTotal * 100) * 10) / 10 : 100;
+    updateBidItem(item.id, "realCost", tC);
+    updateBidItem(item.id, "realGrossProfitPercent", rGp);
+  }
+
+  // Stage 1: update the hours on a single populated (grouped) entry by its real array index.
+  function updateGroupedEntryHours(item: BidItem, kind: "labor" | "equipment", realIdx: number, hours: number) {
+    const h = Math.max(0, hours);
+    const field = kind === "labor" ? "laborEntries" : "equipmentEntries";
+    const arr = [...((item as any)[field] || [])];
+    if (!arr[realIdx]) return;
+    arr[realIdx] = { ...arr[realIdx], hours: h };
+    updateBidItem(item.id, field, arr);
+
+    const laborArr = kind === "labor" ? arr : (item.laborEntries || []);
+    const equipArr = kind === "equipment" ? arr : (item.equipmentEntries || []);
+    const lineTotal = item.quantity * item.unitPrice;
+    const lC = laborArr.reduce((s, e: any) => {
+      const r = e.rate != null ? e.rate : (e.labor && typeof e.labor.burdenedHourlyRate === "number") ? e.labor.burdenedHourlyRate : getLaborBurdenedRate(e.rateId || "");
+      return s + r * (e.hours || 0);
+    }, 0);
+    const eC = equipArr.reduce((s, e: any) => {
+      const er = e.rate != null ? e.rate : getEquipmentCostPerHour(e.rateId || "");
+      return s + er * (e.hours || 0);
+    }, 0);
+    const mC = (item.materialEntries || []).reduce((s, e: any) => {
+      const mr = e.rate != null ? e.rate : getMaterialCostPerUnit(e.rateId || "");
+      return s + mr * (e.quantity || 0);
+    }, 0);
+    const miscC = (item.miscellaneousEntries || []).reduce((s, e: any) => {
+      const mr = e.rate != null ? e.rate : getMiscCostPerUnit(e.rateId || "");
+      return s + mr * (e.quantity || 0);
+    }, 0);
+    const cC = (item.crewUsages || []).reduce((s, u: any) => {
+      const cr = crews.find((c: any) => c.id === u.crewId);
+      if (!cr) return s;
+      const hh = u.hours || 0;
+      const cll = (cr.laborLines || []).reduce((ls: number, ln: any) => ls + getLaborCostPerHour(ln.profileId || "") * (ln.quantity || 0), 0);
+      const cee = (cr.equipmentLines || []).reduce((es: number, en: any) => es + getEquipmentCostPerHour(en.profileId || "") * (en.quantity || 0), 0);
+      return s + (cll + cee) * hh;
+    }, 0);
+    const tC = Math.round((lC + eC + mC + miscC + cC) * 100) / 100;
+    const rGp = lineTotal > 0 ? Math.round(((lineTotal - tC) / lineTotal * 100) * 10) / 10 : 100;
+    updateBidItem(item.id, "realCost", tC);
+    updateBidItem(item.id, "realGrossProfitPercent", rGp);
   }
 
   function removeBidItem(id: string) {
@@ -953,6 +1163,7 @@ export default function ProjectPricerPage() {
       customerName: "",
       customerId: "",
       billingAddress: "",
+      jobSiteAddress: "",
     });
     setSelectedCustomerName(null);
     setSelectedCustomerId(null);
@@ -996,6 +1207,7 @@ export default function ProjectPricerPage() {
       customerName: "Downtown Plaza LLC",
       customerId: "",
       billingAddress: "",
+      jobSiteAddress: "",
     });
     setSelectedCustomerName("Downtown Plaza LLC");
     setSelectedCustomerId(null);
@@ -1116,15 +1328,27 @@ export default function ProjectPricerPage() {
       const savedCustomerId = selectedCustomerId || estimate.customerId || "";
       const savedCustomerName = selectedCustomerName || estimate.customerName || "";
       const savedCustomerBilling = estimate.billingAddress || "";
+      const savedCustomerJobSite = estimate.jobSiteAddress || "";
+
+      // Stage 4: snapshot the currently selected terms body text onto the quote record
+      let termsText = null;
+      if (selectedTermsId) {
+        const termsList = getAllTerms();
+        const selected = termsList.find((t: TermsBlock) => t.id === selectedTermsId);
+        if (selected) {
+          termsText = selected.body;
+        }
+      }
 
       const newQuote: PMZSavedQuote & { customerName?: string } = {
-        id: generateClientId(quoteType.toLowerCase()),
+        id: `${quoteType.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
         quoteType,
         jobName: estimate.jobName || "Untitled",
         customer: savedCustomerName || "",
         customerId: savedCustomerId || "",
         customerName: savedCustomerName || "",
         billingAddress: savedCustomerBilling,
+        jobSiteAddress: savedCustomerJobSite,
         workTypeId,
         workType: workTypeName,
         salesperson: estimate.salesperson || "",
@@ -1133,6 +1357,8 @@ export default function ProjectPricerPage() {
           id: savedCustomerId,
           name: savedCustomerName,
           billingAddress: savedCustomerBilling,
+        jobSiteAddress: savedCustomerJobSite,
+          jobSiteAddress: savedCustomerJobSite,
         },
         status: "Draft",
         locked: false,
@@ -1147,6 +1373,7 @@ export default function ProjectPricerPage() {
         grossProfitPercent: finalGrossProfitPercent,
         grossProfitAmount: finalGrossProfitAmount,
         grandTotal: finalGrandTotal,
+        termsText,
         createdAt: now,
         updatedAt: now,
       };
@@ -1230,12 +1457,79 @@ export default function ProjectPricerPage() {
       showPerUnitPrice,
       showLineItemPrices,
       logoDataUrl,
+      showBillTo,
+      showJobSite,
+      showPrimaryContact,
+      showAccessNotes,
+      showGPS,
     };
     setShowUpdateExport(false);
-    // Open the large full-page Quote Preview (which respects the options)
-    setShowQuotePreview(true);
-    // Note: the actual PDF download can be triggered from the preview's Print/Export button
-    // For direct, we can still generate here if wanted, but per flow, preview first
+    // Open full-page quote in new tab (replaces old modal preview)
+    try {
+      const eppData = buildQuoteData(estimate);
+      setEppQuoteData(eppData);
+      // Snapshot the selected (or loaded frozen from reopened quote) terms BODY TEXT
+      let termsText = null;
+      if (loadedQuoteTermsText) {
+        termsText = loadedQuoteTermsText;
+      } else if (selectedTermsId) {
+        const termsList = getAllTerms();
+        const selected = termsList.find((t: TermsBlock) => t.id === selectedTermsId);
+        if (selected) {
+          termsText = selected.body;
+        }
+      }
+      const quoteForPrint = {
+        quoteData: eppData,
+        options: {
+          exportType,
+          showQuantities,
+          showUnits,
+          showPerUnitPrice,
+          showLineItemPrices,
+          logoDataUrl,
+          showBillTo,
+          showJobSite,
+          showPrimaryContact,
+          showAccessNotes,
+          showGPS,
+        },
+        logoDataUrl,
+        exportType,
+        termsText,
+      };
+      sessionStorage.setItem('pmz_epp_print_quote', JSON.stringify(quoteForPrint));
+    } catch (e) {
+      console.warn('Could not stash quote data for print tab', e);
+    }
+    const printUrl = `${window.location.origin}${window.location.pathname}?print=quote`;
+    window.open(printUrl, '_blank');
+  }
+
+  function handlePreviewExportPDF() {
+    const opts = {
+      exportType,
+      showQuantities,
+      showUnits,
+      showPerUnitPrice,
+      showLineItemPrices,
+      logoDataUrl,
+      showBillTo,
+      showJobSite,
+      showPrimaryContact,
+      showAccessNotes,
+      showGPS,
+    };
+    pdf(<QuotePDF estimate={estimate} {...opts} />).toBlob().then((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${exportType}-${estimate.jobName || 'quote'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
   }
 
   function toggleBidItemsCollapsed() {
@@ -1330,7 +1624,25 @@ export default function ProjectPricerPage() {
     const mC = (item.materialEntries || []).reduce((s, entry) => {
       return s + getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
     }, 0);
-    return sum + Math.round((lC + eC + mC) * 100) / 100;
+    const miscC = (item.miscellaneousEntries || []).reduce((s, entry) => {
+      const mr = entry.rate != null ? entry.rate : getMiscCostPerUnit(entry.rateId || "");
+      return s + mr * (entry.quantity || 0);
+    }, 0);
+    const crewC = (item.crewUsages || []).reduce((s, usage) => {
+      const crew = crews.find((c: any) => c.id === usage.crewId);
+      if (!crew) return s;
+      const h = usage.hours || 0;
+      const cl = (crew.laborLines || []).reduce((ls: number, ln: any) => {
+        const r = getLaborCostPerHour(ln.profileId || "");
+        return ls + r * (ln.quantity || 0);
+      }, 0);
+      const ce = (crew.equipmentLines || []).reduce((es: number, en: any) => {
+        const r = getEquipmentCostPerHour(en.profileId || "");
+        return es + r * (en.quantity || 0);
+      }, 0);
+      return s + (cl + ce) * h;
+    }, 0);
+    return sum + Math.round((lC + eC + mC + miscC + crewC) * 100) / 100;
   }, 0);
   const eppGrossProfitDollars = eppSellingPrice - eppRealCost;
   const eppGrossProfitPercent = eppSellingPrice > 0
@@ -1338,6 +1650,58 @@ export default function ProjectPricerPage() {
     : 0;
   const eppTargetPercent = targetMargin; // from selected Work Type tier for current job size, or 0
   const eppOnTarget = eppGrossProfitPercent >= eppTargetPercent;
+
+  // Shared adapter: turns EPP estimate data into the normalized quote shape for QuotePreview
+  const buildQuoteData = (source: any) => {
+    const s = source || {};
+    const bidItems = s.bidItems || estimate.bidItems || [];
+    const lineItems = bidItems.map((item: any) => {
+      const qty = Number(item.quantity || 0);
+      const unitPrice = Number(item.unitPrice || 0);
+      const lineTotal = qty * unitPrice;
+      return {
+        description: item.description || "—",
+        qty,
+        unit: item.unit || "",
+        unitPrice,
+        lineTotal,
+      };
+    });
+    const total = lineItems.reduce((sum: number, li: any) => sum + li.lineTotal, 0);
+    const cust = currentCustomer || {};
+    const billAddr = cust.billingAddress || s.billingAddress || estimate.billingAddress || "";
+    const jobAddr = cust.jobSiteAddress || s.jobSiteAddress || estimate.jobSiteAddress || "";
+    const contact = {
+      name: cust.contactName || "",
+      phone: cust.phone || "",
+      email: cust.email || "",
+      mobile: cust.mobile || "",
+      title: cust.title || "",
+    };
+    const accessNotes = cust.jobSiteAddress?.accessNotes || "";
+    const gps = (cust.jobSiteAddress?.latitude != null && cust.jobSiteAddress?.longitude != null)
+      ? `${cust.jobSiteAddress.latitude}, ${cust.jobSiteAddress.longitude}`
+      : "";
+    return {
+      jobName: s.jobName || estimate.jobName || "—",
+      customer: {
+        name: cust.name || s.customerName || estimate.customerName || "—",
+        billTo: billAddr,
+        jobSite: jobAddr,
+        contact,
+        accessNotes,
+        gps,
+      },
+      workType: s.workTypeName || s.workType || estimate.workTypeName || "",
+      salesperson: s.salesperson || estimate.salesperson || "",
+      date: new Date().toLocaleDateString(),
+      quoteNumber: Date.now().toString().slice(-7),
+      status: s.status || "EPP",
+      lineItems,
+      total,
+      grossProfit: eppGrossProfitDollars,
+    };
+  };
 
   // Validation for header/common fields (EPP/Pro sections validate their items separately)
   const validationErrors = React.useMemo(() => {
@@ -1472,13 +1836,6 @@ export default function ProjectPricerPage() {
       fontWeight: 'bold',
       textAlign: 'right',
     },
-    summary: {
-      marginTop: 16,
-      paddingTop: 8,
-      borderTopWidth: 0.5,
-      borderTopColor: '#999',
-      fontSize: 9,
-    },
     footer: {
       marginTop: 24,
       fontSize: 8,
@@ -1495,6 +1852,11 @@ export default function ProjectPricerPage() {
     showPerUnitPrice = true,
     showLineItemPrices = true,
     logoDataUrl = null,
+    showBillTo = true,
+    showJobSite = true,
+    showPrimaryContact = true,
+    showAccessNotes = false,
+    showGPS = false,
   }: any) => {
     const items = estimate.bidItems || [];
     const grandTotal = items.reduce((sum: number, item: any) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
@@ -1505,6 +1867,15 @@ export default function ProjectPricerPage() {
     const unitWidth = showUnits ? '10%' : '0%';
     const priceWidth = showPerUnitPrice ? '15%' : '0%';
     const totalWidth = showLineItemPrices ? '15%' : '0%';
+
+    // Customer location for PDF
+    const billTo = estimate.billingAddress || '';
+    const jobSite = estimate.jobSiteAddress || '';
+    const addressesSame = !jobSite || (typeof billTo === 'string' && typeof jobSite === 'string' && billTo === jobSite);
+    const cust = currentCustomer || {};
+    const contactInfo = cust.contactName || cust.phone || cust.email ? `${cust.contactName || ''} ${cust.phone || cust.mobile || ''} ${cust.email || ''}`.trim() : '';
+    const access = cust.jobSiteAddress?.accessNotes || '';
+    const gps = (cust.jobSiteAddress?.latitude != null && cust.jobSiteAddress?.longitude != null) ? `${cust.jobSiteAddress.latitude}, ${cust.jobSiteAddress.longitude}` : '';
 
     return (
       <Document>
@@ -1533,8 +1904,21 @@ export default function ProjectPricerPage() {
             <View style={styles.infoCol}>
               <Text style={styles.infoLabel}>TO:</Text>
               <Text style={styles.infoText}>{estimate.customerName || 'Valued Customer'}</Text>
-              <Text style={styles.infoText}>{estimate.billingAddress || 'Address on file'}</Text>
-              <Text style={styles.infoText}>Contact: {estimate.salesperson || '—'}</Text>
+              {showBillTo && billTo && (
+                <Text style={styles.infoText}>{addressesSame ? '' : 'Bill To: '}{typeof billTo === 'string' ? billTo : (billTo.street || '') + (billTo.city ? ', ' + billTo.city : '')}</Text>
+              )}
+              {showJobSite && jobSite && !addressesSame && (
+                <Text style={styles.infoText}>Job Site: {typeof jobSite === 'string' ? jobSite : (jobSite.street || '') + (jobSite.city ? ', ' + jobSite.city : '')}</Text>
+              )}
+              {showPrimaryContact && contactInfo && (
+                <Text style={styles.infoText}>Contact: {contactInfo}</Text>
+              )}
+              {showAccessNotes && access && (
+                <Text style={[styles.infoText, { fontSize: 8 }]}>Access: {access}</Text>
+              )}
+              {showGPS && gps && (
+                <Text style={[styles.infoText, { fontSize: 8 }]}>GPS: {gps}</Text>
+              )}
             </View>
             <View style={styles.infoCol}>
               <Text style={styles.infoLabel}>PROJECT:</Text>
@@ -1579,13 +1963,6 @@ export default function ProjectPricerPage() {
             <Text style={[styles.totalValue, { width: '30%' }]}>${formatMoney(grandTotal)}</Text>
           </View>
 
-          {/* Optional Summary (clean) */}
-          <View style={styles.summary}>
-            <Text>Estimate Total: ${formatMoney(eppSellingPrice)}</Text>
-            <Text>Actual Cost: ${formatMoney(eppRealCost)}</Text>
-            <Text>Gross Profit: ${formatMoney(eppGrossProfitDollars)} ({eppGrossProfitPercent.toFixed(1)}%)</Text>
-          </View>
-
           <Text style={styles.footer}>
             This document is a {exportType}. Thank you for your business.
           </Text>
@@ -1593,6 +1970,31 @@ export default function ProjectPricerPage() {
       </Document>
     );
   };
+
+  // Full-page printable preview in new tab (no modal)
+  if (isPrintPreview) {
+    if (!printQuoteData) {
+      return (
+        <div style={{ padding: '40px', fontFamily: 'system-ui, sans-serif', color: '#111', background: '#fff' }}>
+          Loading quote data...
+        </div>
+      );
+    }
+    const { quoteData, options = {}, logoDataUrl: ldu = null, exportType: et = 'quote', termsText = null } = printQuoteData;
+    return (
+      <QuotePreview
+        quote={{
+          ...(quoteData || {}),
+          options,
+          logoDataUrl: ldu,
+          exportType: et,
+          termsText,
+        }}
+        onClose={() => window.close()}
+        onExportPDF={() => window.print()}
+      />
+    );
+  }
 
   return (
     <div className="max-w-6xl space-y-6 pb-12">
@@ -1620,17 +2022,6 @@ export default function ProjectPricerPage() {
           </Button>
           <Button variant="ghost" size="sm" onClick={clearAll}>
             <RotateCcw className="mr-2 h-4 w-4" /> Clear
-          </Button>
-          {/* Theme toggle - small, clean, top-right of header. Sun/Moon icons */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleTheme}
-            aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
-            className="h-8 w-8"
-            title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
         </div>
       </div>
@@ -1678,159 +2069,33 @@ export default function ProjectPricerPage() {
       <Card className="card">
         <CardContent className="pt-6">
           <div className="grid gap-4 md:grid-cols-4">
-            {/* Customer first (searchable combobox / dropdown, allows select or type new) */}
-            <div ref={customerSelectRef} className="relative">
+            <div>
               <Label className="text-xs font-medium tracking-wider text-muted-foreground">CUSTOMER</Label>
-              <Input
-                value={customerDropdownOpen ? (customerSearch ?? "") : (selectedCustomerName ?? "")}
-                onChange={(e) => {
-                  setCustomerSearch(e.target.value);
-                  setCustomerDropdownOpen(true);
-                  setHighlightedCustomerIndex(0);
-                  // clear id while typing to allow free text / search; keep name for display compat
-                  setSelectedCustomerName(e.target.value || null);
-                  setSelectedCustomerId(null);
-                  updateEstimate({ customerName: e.target.value, customerId: "", billingAddress: "" });
-                }}
-                onFocus={() => {
-                  setCustomerDropdownOpen(true);
-                  setHighlightedCustomerIndex(0);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    if (!customerDropdownOpen) {
-                      setCustomerDropdownOpen(true);
-                      setHighlightedCustomerIndex(0);
-                      return;
-                    }
-                    if (filteredCustomers.length === 0) return;
-                    setHighlightedCustomerIndex((prev) =>
-                      prev < filteredCustomers.length - 1 ? prev + 1 : prev
-                    );
-                  } else if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    if (!customerDropdownOpen) {
-                      setCustomerDropdownOpen(true);
-                      setHighlightedCustomerIndex(0);
-                      return;
-                    }
-                    if (filteredCustomers.length === 0) return;
-                    setHighlightedCustomerIndex((prev) => (prev > 0 ? prev - 1 : prev));
-                  } else if (e.key === "Enter") {
-                    if (!customerDropdownOpen || highlightedCustomerIndex < 0 || highlightedCustomerIndex >= filteredCustomers.length) return;
-                    e.preventDefault();
-                    const c = filteredCustomers[highlightedCustomerIndex];
-                    setSelectedCustomerName(c.name);
-                    setSelectedCustomerId(c.id);
-                    setCustomerSearch("");
-                    setCustomerDropdownOpen(false);
-                    setHighlightedCustomerIndex(-1);
-                    try {
-                      const raw = localStorage.getItem(ESTIMATE_STORAGE);
-                      const curr = raw ? JSON.parse(raw) : {};
-                      localStorage.setItem(ESTIMATE_STORAGE, JSON.stringify({
-                        ...curr,
-                        customerId: c.id,
-                        customerName: c.name,
-                        billingAddress: c.billingAddress || "",
-                      }));
-                    } catch {}
-                    updateEstimate({ customerName: c.name, customerId: c.id, billingAddress: c.billingAddress || "" });
-                  } else if (e.key === "Escape") {
-                    e.preventDefault();
-                    setCustomerDropdownOpen(false);
-                    setHighlightedCustomerIndex(-1);
-                  }
-                }}
-                className={cn(
+              <Select
+                value={estimate.customerName || ""}
+                onValueChange={(val) => updateEstimate({ customerName: val })}
+              >
+                <SelectTrigger className={cn(
                   "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]",
                   saveAttempted && validationErrors.customer && "border-red-300 focus-visible:border-red-400"
-                )}
-                placeholder="Search or select customer..."
-              />
+                )}>
+                  <SelectValue placeholder="Select customer..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {customers.length > 0 ? (
+                    customers.map((c: any) => (
+                      <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                    ))
+                  ) : (
+                    <>
+                      <SelectItem value="Downtown Plaza LLC">Downtown Plaza LLC</SelectItem>
+                      <SelectItem value="Acme Construction">Acme Construction</SelectItem>
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
               {saveAttempted && validationErrors.customer && (
                 <p className="mt-1 text-xs text-red-600">{validationErrors.customer}</p>
-              )}
-              {customerDropdownOpen && createPortal(
-                <div
-                  ref={customerDropdownRef}
-                  className="fixed z-[100] min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md max-h-[300px] overflow-y-auto"
-                  style={{
-                    top: customerDropdownPosition.top,
-                    left: customerDropdownPosition.left,
-                    width: customerDropdownPosition.width,
-                  }}
-                  onWheel={(e) => {
-                    e.stopPropagation();
-                    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-                    const delta = e.deltaY;
-                    const isAtTop = scrollTop === 0 && delta < 0;
-                    const isAtBottom = scrollTop + clientHeight >= scrollHeight && delta > 0;
-                    if (isAtTop || isAtBottom) {
-                      e.preventDefault();
-                    }
-                    if (filteredCustomers.length > 0) {
-                      if (delta > 0) {
-                        setHighlightedCustomerIndex((prev) =>
-                          prev < filteredCustomers.length - 1 ? prev + 1 : prev
-                        );
-                      } else if (delta < 0) {
-                        setHighlightedCustomerIndex((prev) => (prev > 0 ? prev - 1 : prev));
-                      }
-                    }
-                  }}
-                >
-                  {customers.length > 0 ? (
-                    filteredCustomers.length > 0 ? (
-                      filteredCustomers.map((c, index) => (
-                        <div
-                          key={c.id}
-                          className={cn(
-                            "customer-option relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none",
-                            index === highlightedCustomerIndex && "bg-accent text-accent-foreground"
-                          )}
-                          onMouseEnter={() => setHighlightedCustomerIndex(index)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedCustomerName(c.name);
-                            setSelectedCustomerId(c.id);
-                            setCustomerSearch("");
-                            setCustomerDropdownOpen(false);
-                            setHighlightedCustomerIndex(-1);
-                            // Direct synchronous persist of the controlled (customerId + customerName)
-                            // selection ensures it is saved to storage even around tab unmount/remount.
-                            try {
-                              const raw = localStorage.getItem(ESTIMATE_STORAGE);
-                              const curr = raw ? JSON.parse(raw) : {};
-                              localStorage.setItem(ESTIMATE_STORAGE, JSON.stringify({
-                                ...curr,
-                                customerId: c.id,
-                                customerName: c.name,
-                                billingAddress: c.billingAddress || "",
-                              }));
-                            } catch {}
-                            updateEstimate({ customerName: c.name, customerId: c.id, billingAddress: c.billingAddress || "" });
-                          }}
-                        >
-                          {c.name}
-                          {c.contactName && (
-                            <span className="ml-1 text-[10px] text-muted-foreground">({c.contactName})</span>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="px-3 py-2 text-sm text-muted-foreground">
-                        No matches. <a href="/customers" className="underline">Go to Customers tab</a> to add more.
-                      </div>
-                    )
-                  ) : (
-                    <div className="px-3 py-2 text-sm text-muted-foreground">
-                      No customers found. Add customers in the Customers tab.
-                    </div>
-                  )}
-                </div>,
-                document.body
               )}
             </div>
 
@@ -1974,13 +2239,32 @@ export default function ProjectPricerPage() {
                     const matCost = (item.materialEntries || []).reduce((sum, entry) => {
                       return sum + getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
                     }, 0);
-                    const computedItemCost = Math.round((laborCost + equipCost + matCost) * 100) / 100;
+                    const miscCost = (item.miscellaneousEntries || []).reduce((sum, entry) => {
+                      const rate = entry.rate != null ? entry.rate : getMiscCostPerUnit(entry.rateId || "");
+                      return sum + rate * (entry.quantity || 0);
+                    }, 0);
+                    const crewCost = (item.crewUsages || []).reduce((sum, usage) => {
+                      const crew = crews.find((c: any) => c.id === usage.crewId);
+                      if (!crew) return sum;
+                      const h = usage.hours || 0;
+                      const cl = (crew.laborLines || []).reduce((ls: number, ln: any) => {
+                        const r = getLaborCostPerHour(ln.profileId || "");
+                        return ls + r * (ln.quantity || 0);
+                      }, 0);
+                      const ce = (crew.equipmentLines || []).reduce((es: number, en: any) => {
+                        const r = getEquipmentCostPerHour(en.profileId || "");
+                        return es + r * (en.quantity || 0);
+                      }, 0);
+                      return sum + (cl + ce) * h;
+                    }, 0);
+                    const computedItemCost = Math.round((laborCost + equipCost + matCost + miscCost + crewCost) * 100) / 100;
                     const effectiveLineTotal = lineTotal;
                     const computedItemGpPct = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - computedItemCost) / effectiveLineTotal * 100) * 10) / 10 : 100;
                     const hasCosts = (item.laborEntries && item.laborEntries.length > 0) ||
                       (item.equipmentEntries && item.equipmentEntries.length > 0) ||
-                      (item.materialEntries && item.materialEntries.length > 0);
-                    const lineTargetMargin = getTargetMarginForSize(lineTotal);
+                      (item.materialEntries && item.materialEntries.length > 0) ||
+                      (item.miscellaneousEntries && item.miscellaneousEntries.length > 0) ||
+                      (item.crewUsages && item.crewUsages.length > 0);
                     // auto clear result if no costs anymore
                     if (!hasCosts && costingTargetResult[item.id]) {
                       // note: this is in render, will cause extra render but ok for reset
@@ -1989,11 +2273,17 @@ export default function ProjectPricerPage() {
                         return rest;
                       }), 0);
                     }
-                    const targetPctForGuidance = lineTargetMargin;
+                    // Option B: job-level target margin (overall quote required GP / selling price, then per-line contribution)
+                    const targetForJob = targetMargin;
+                    const totalRealCostForJob = eppRealCost;
+                    const totalRequiredSellingForJob = totalRealCostForJob > 0 && targetForJob > 0
+                      ? Math.round((totalRealCostForJob / (1 - targetForJob / 100)) * 100) / 100
+                      : 0;
+                    const targetPctForGuidance = targetForJob;
                     const hasEnteredCosts = hasCosts && computedItemCost > 0;
                     const canShowTargetGuidance = hasEnteredCosts && targetPctForGuidance > 0;
-                    const requiredLineTotalLive = canShowTargetGuidance
-                      ? Math.round((computedItemCost / (1 - targetPctForGuidance / 100)) * 100) / 100
+                    const requiredLineTotalLive = (canShowTargetGuidance && totalRealCostForJob > 0)
+                      ? Math.round((computedItemCost / totalRealCostForJob * totalRequiredSellingForJob) * 100) / 100
                       : 0;
                     const requiredGPLive = requiredLineTotalLive - computedItemCost;
                     let guidanceStatus = "";
@@ -2133,17 +2423,25 @@ export default function ProjectPricerPage() {
                       {isDetailsOpen && (
                         <TableRow>
                           <TableCell colSpan={6} className="p-0 bg-muted/5 dark:bg-muted/10">
-                            <div className="p-4 mx-2 my-0.5 border-t bg-background rounded-b w-full text-sm" data-panel="costing">
+                            <div className="p-4 mx-2 my-0.5 border-t bg-background rounded-b w-full max-w-full overflow-x-hidden text-sm" data-panel="costing">
                               <div className="flex items-center justify-between mb-3">
                                 <div className="text-base font-semibold tracking-wider text-muted-foreground">PER-LINE REAL COSTING (EPP only — does not affect Full LEM)</div>
+                                <div className="flex items-center gap-2">
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   className="h-6 px-2 text-xs"
                                   onClick={() => {
-                                    if (!estimate.workTypeName || lineTargetMargin <= 0 || !hasCosts || computedItemCost <= 0) return;
-                                    const target = lineTargetMargin;
-                                    const requiredLineTotal = computedItemCost / (1 - target / 100);
+                                    if (!estimate.workTypeName || targetMargin <= 0 || !hasCosts || computedItemCost <= 0) return;
+                                    // Option B: compute total required for whole job, then this line's contribution share
+                                    const jobTarget = targetMargin;
+                                    const totalRealCostForJob = eppRealCost;
+                                    const totalRequiredSellingForJob = totalRealCostForJob > 0 && jobTarget > 0
+                                      ? Math.round((totalRealCostForJob / (1 - jobTarget / 100)) * 100) / 100
+                                      : 0;
+                                    const requiredLineTotal = totalRealCostForJob > 0
+                                      ? Math.round((computedItemCost / totalRealCostForJob * totalRequiredSellingForJob) * 100) / 100
+                                      : 0;
                                     const requiredGP = requiredLineTotal - computedItemCost;
                                     const newUnitPrice = item.quantity > 0 ? requiredLineTotal / item.quantity : 0;
                                     updateBidItem(item.id, "unitPrice", newUnitPrice);
@@ -2153,13 +2451,23 @@ export default function ProjectPricerPage() {
                                     });
                                     setCostingTargetResult(prev => ({
                                       ...prev,
-                                      [item.id]: {requiredLineTotal, requiredGP, target}
+                                      [item.id]: {requiredLineTotal, requiredGP, target: jobTarget}
                                     }));
                                   }}
-                                  disabled={isReadOnly || !estimate.workTypeName || lineTargetMargin <= 0 || !hasCosts || computedItemCost <= 0}
+                                  disabled={isReadOnly || !estimate.workTypeName || targetMargin <= 0 || !hasCosts || computedItemCost <= 0}
                                 >
                                   Apply Target Margin
                                 </Button>
+                                <Select value="none" onValueChange={(val) => addCrewToLine(item, val)} disabled={isReadOnly || crews.length === 0}>
+                                  <SelectTrigger className="h-6 px-2 text-xs w-auto gap-1">+ Add Crew</SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">— Select crew —</SelectItem>
+                                    {crews.map((c: any) => (
+                                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                </div>
                               </div>
                               {/* Labor */}
                               <div className="mb-3">
@@ -2180,13 +2488,22 @@ export default function ProjectPricerPage() {
                                     + Add
                                   </Button>
                                 </div>
+                                <div className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1 text-xs font-semibold text-muted-foreground">
+                                  <div></div>
+                                  <div className="text-center">Hours</div>
+                                  <div className="text-center">Rate</div>
+                                  <div className="text-right">Cost</div>
+                                </div>
                                 {(item.laborEntries || []).map((entry, idx) => {
-                                  const rate = (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
-                                    ? entry.labor.burdenedHourlyRate
-                                    : getLaborBurdenedRate(entry.rateId || "");
+                                  if (entry.group) return null; // grouped (crew) rows render in the crew block below
+                                  const rate = entry.rate != null
+                                    ? entry.rate
+                                    : (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
+                                      ? entry.labor.burdenedHourlyRate
+                                      : getLaborBurdenedRate(entry.rateId || "");
                                   const entryCost = rate * (entry.hours || 0);
                                   return (
-                                    <div key={idx} className="grid grid-cols-[1fr_9rem_1fr] gap-6 items-center mb-1">
+                                    <div key={idx} className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1">
                                       <Select
                                         value={entry.rateId || "none"}
                                         onValueChange={(val) => {
@@ -2196,23 +2513,31 @@ export default function ProjectPricerPage() {
                                           if (newId) {
                                             const profile = laborRates.find((r: any) => r.id === newId);
                                             if (profile) {
+                                              const profileRate = getLaborBurdenedRate(newId);
                                               current[idx].labor = {
                                                 id: profile.id,
                                                 role: profile.role,
-                                                burdenedHourlyRate: getLaborBurdenedRate(newId),
+                                                burdenedHourlyRate: profileRate,
                                               };
+                                              current[idx].rate = profileRate;
                                             }
                                           } else {
                                             current[idx].labor = undefined;
                                           }
                                           updateBidItem(item.id, "laborEntries", current);
-                                          // recompute aggregate for item
+                                          // recompute aggregate for item using editable rate override if present
                                           const lC = current.reduce((s, e) => {
-                                            const r = (e.labor && typeof e.labor.burdenedHourlyRate === "number") ? e.labor.burdenedHourlyRate : getLaborBurdenedRate(e.rateId || "");
+                                            const r = e.rate != null ? e.rate : (e.labor && typeof e.labor.burdenedHourlyRate === "number") ? e.labor.burdenedHourlyRate : getLaborBurdenedRate(e.rateId || "");
                                             return s + r * (e.hours || 0);
                                           }, 0);
-                                          const eC = (item.equipmentEntries || []).reduce((s, e) => s + getEquipmentCostPerHour(e.rateId || "") * (e.hours || 0), 0);
-                                          const mC = (item.materialEntries || []).reduce((s, m) => s + getMaterialCostPerUnit(m.rateId || "") * (m.quantity || 0), 0);
+                                          const eC = (item.equipmentEntries || []).reduce((s, e) => {
+                                            const er = e.rate != null ? e.rate : getEquipmentCostPerHour(e.rateId || "");
+                                            return s + er * (e.hours || 0);
+                                          }, 0);
+                                          const mC = (item.materialEntries || []).reduce((s, m) => {
+                                            const mr = m.rate != null ? m.rate : getMaterialCostPerUnit(m.rateId || "");
+                                            return s + mr * (m.quantity || 0);
+                                          }, 0);
                                           const tC = Math.round((lC + eC + mC) * 100) / 100;
                                           const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
                                           updateBidItem(item.id, "realCost", tC);
@@ -2220,7 +2545,7 @@ export default function ProjectPricerPage() {
                                         }}
                                         disabled={isReadOnly}
                                       >
-                                        <SelectTrigger className="h-8 min-w-[220px] text-lg">
+                                        <SelectTrigger className="h-8 text-lg">
                                           <SelectValue placeholder="Select labor rate" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2238,7 +2563,7 @@ export default function ProjectPricerPage() {
                                           )}
                                         </SelectContent>
                                       </Select>
-                                      <div className="flex items-center gap-1">
+                                        <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
                                           value={entry.hours || ""}
@@ -2248,11 +2573,17 @@ export default function ProjectPricerPage() {
                                             current[idx] = { ...current[idx], hours: h };
                                             updateBidItem(item.id, "laborEntries", current);
                                             const lC = current.reduce((s, ent) => {
-                                              const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              const r = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
                                               return s + r * (ent.hours || 0);
                                             }, 0);
-                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
-                                            const mC = (item.materialEntries || []).reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
+                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                              return s + er * (ent.hours || 0);
+                                            }, 0);
+                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
                                             const tC = Math.round((lC + eC + mC) * 100) / 100;
                                             const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
                                             updateBidItem(item.id, "realCost", tC);
@@ -2283,15 +2614,66 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-20 text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.25"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
-                                        <span className="text-lg text-muted-foreground">hrs</span>
-                                      </div>
+                                        <span className="text-sm text-muted-foreground">hrs</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                        <Input
+                                          type="number"
+                                          value={rate || ""}
+                                          onChange={(e) => {
+                                            const r = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const current = [...(item.laborEntries || [])];
+                                            current[idx] = { ...current[idx], rate: r };
+                                            updateBidItem(item.id, "laborEntries", current);
+                                            const lC = current.reduce((s, ent) => {
+                                              const rr = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              return s + rr * (ent.hours || 0);
+                                            }, 0);
+                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
+                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                              return s + er * (ent.hours || 0);
+                                            }, 0);
+                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
+                                            const tC = Math.round((lC + eC + mC) * 100) / 100;
+                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                            updateBidItem(item.id, "realCost", tC);
+                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              const current = e.currentTarget as HTMLInputElement;
+                                              const panel = current.closest('div[data-panel="costing"]');
+                                              if (panel) {
+                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+                                                const i = numerics.indexOf(current);
+                                                if (i !== -1 && i < numerics.length - 1) {
+                                                  const next = numerics[i + 1];
+                                                  next.focus();
+                                                  next.select();
+                                                } else {
+                                                  current.blur();
+                                                }
+                                              }
+                                            }
+                                          }}
+                                          className="h-8 w-20 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          step="0.01"
+                                          placeholder=""
+                                          disabled={isReadOnly}
+                                        />
+                                        <span className="text-sm text-muted-foreground">$/hr</span>
+                                        </div>
                                       <div className="text-right">
-                                        <span className="text-lg">Cost: ${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">Cost: ${formatMoney(entryCost)}</span>
                                       </div>
                                     </div>
                                   );
@@ -2316,23 +2698,42 @@ export default function ProjectPricerPage() {
                                     + Add
                                   </Button>
                                 </div>
+                                <div className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1 text-xs font-semibold text-muted-foreground">
+                                  <div></div>
+                                  <div className="text-center">Hours</div>
+                                  <div className="text-center">Rate</div>
+                                  <div className="text-right">Cost</div>
+                                </div>
                                 {(item.equipmentEntries || []).map((entry, idx) => {
-                                  const entryCost = getEquipmentCostPerHour(entry.rateId || "") * (entry.hours || 0);
+                                  if (entry.group) return null; // grouped (crew) rows render in the crew block below
+                                  const rate = entry.rate != null
+                                    ? entry.rate
+                                    : getEquipmentCostPerHour(entry.rateId || "");
+                                  const entryCost = rate * (entry.hours || 0);
                                   return (
-                                    <div key={idx} className="grid grid-cols-[1fr_9rem_1fr] gap-6 items-center mb-1">
+                                    <div key={idx} className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1">
                                       <Select
                                         value={entry.rateId || "none"}
                                         onValueChange={(val) => {
                                           const newId = val === "none" ? undefined : val;
                                           const current = [...(item.equipmentEntries || [])];
                                           current[idx] = { ...current[idx], rateId: newId };
+                                          if (newId) {
+                                            current[idx].rate = getEquipmentCostPerHour(newId);
+                                          }
                                           updateBidItem(item.id, "equipmentEntries", current);
                                           const lC = (item.laborEntries || []).reduce((s, ent) => {
-                                            const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                            const r = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
                                             return s + r * (ent.hours || 0);
                                           }, 0);
-                                          const eC = current.reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
-                                          const mC = (item.materialEntries || []).reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                          const eC = current.reduce((s, ent) => {
+                                            const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                            return s + er * (ent.hours || 0);
+                                          }, 0);
+                                          const mC = (item.materialEntries || []).reduce((s, ent) => {
+                                            const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                            return s + mr * (ent.quantity || 0);
+                                          }, 0);
                                           const tC = Math.round((lC + eC + mC) * 100) / 100;
                                           const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
                                           updateBidItem(item.id, "realCost", tC);
@@ -2340,7 +2741,7 @@ export default function ProjectPricerPage() {
                                         }}
                                         disabled={isReadOnly}
                                       >
-                                        <SelectTrigger className="h-8 min-w-[220px] text-lg">
+                                        <SelectTrigger className="h-8 text-lg">
                                           <SelectValue placeholder="Select equipment" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2356,7 +2757,7 @@ export default function ProjectPricerPage() {
                                           )}
                                         </SelectContent>
                                       </Select>
-                                      <div className="flex items-center gap-1">
+                                        <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
                                           value={entry.hours || ""}
@@ -2366,11 +2767,17 @@ export default function ProjectPricerPage() {
                                             current[idx] = { ...current[idx], hours: h };
                                             updateBidItem(item.id, "equipmentEntries", current);
                                             const lC = (item.laborEntries || []).reduce((s, ent) => {
-                                              const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              const r = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
                                               return s + r * (ent.hours || 0);
                                             }, 0);
-                                            const eC = current.reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
-                                            const mC = (item.materialEntries || []).reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                            const eC = current.reduce((s, ent) => {
+                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                              return s + er * (ent.hours || 0);
+                                            }, 0);
+                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
                                             const tC = Math.round((lC + eC + mC) * 100) / 100;
                                             const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
                                             updateBidItem(item.id, "realCost", tC);
@@ -2401,15 +2808,66 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-20 text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.25"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
-                                        <span className="text-lg text-muted-foreground">hrs</span>
-                                      </div>
+                                        <span className="text-sm text-muted-foreground">hrs</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                        <Input
+                                          type="number"
+                                          value={rate || ""}
+                                          onChange={(e) => {
+                                            const r = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const current = [...(item.equipmentEntries || [])];
+                                            current[idx] = { ...current[idx], rate: r };
+                                            updateBidItem(item.id, "equipmentEntries", current);
+                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
+                                              const rr = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              return s + rr * (ent.hours || 0);
+                                            }, 0);
+                                            const eC = current.reduce((s, ent) => {
+                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                              return s + er * (ent.hours || 0);
+                                            }, 0);
+                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
+                                            const tC = Math.round((lC + eC + mC) * 100) / 100;
+                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                            updateBidItem(item.id, "realCost", tC);
+                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              const current = e.currentTarget as HTMLInputElement;
+                                              const panel = current.closest('div[data-panel="costing"]');
+                                              if (panel) {
+                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+                                                const i = numerics.indexOf(current);
+                                                if (i !== -1 && i < numerics.length - 1) {
+                                                  const next = numerics[i + 1];
+                                                  next.focus();
+                                                  next.select();
+                                                } else {
+                                                  current.blur();
+                                                }
+                                              }
+                                            }
+                                          }}
+                                          className="h-8 w-20 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          step="0.01"
+                                          placeholder=""
+                                          disabled={isReadOnly}
+                                        />
+                                        <span className="text-sm text-muted-foreground">$/hr</span>
+                                        </div>
                                       <div className="text-right">
-                                        <span className="text-lg">Cost: ${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">Cost: ${formatMoney(entryCost)}</span>
                                       </div>
                                     </div>
                                   );
@@ -2434,25 +2892,43 @@ export default function ProjectPricerPage() {
                                     + Add
                                   </Button>
                                 </div>
+                                <div className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1 text-xs font-semibold text-muted-foreground">
+                                  <div></div>
+                                  <div className="text-center">Qty</div>
+                                  <div className="text-center">Rate</div>
+                                  <div className="text-right">Cost</div>
+                                </div>
                                 {(item.materialEntries || []).map((entry, idx) => {
                                   const matProfile = materialRates.find((m: any) => m.id === entry.rateId);
                                   const unitLabel = matProfile?.unitOfMeasure || 'qty';
-                                  const entryCost = getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
+                                  const rate = entry.rate != null
+                                    ? entry.rate
+                                    : getMaterialCostPerUnit(entry.rateId || "");
+                                  const entryCost = rate * (entry.quantity || 0);
                                   return (
-                                    <div key={idx} className="grid grid-cols-[1fr_9rem_1fr] gap-6 items-center mb-1">
+                                    <div key={idx} className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1">
                                       <Select
                                         value={entry.rateId || "none"}
                                         onValueChange={(val) => {
                                           const newId = val === "none" ? undefined : val;
                                           const current = [...(item.materialEntries || [])];
                                           current[idx] = { ...current[idx], rateId: newId };
+                                          if (newId) {
+                                            current[idx].rate = getMaterialCostPerUnit(newId);
+                                          }
                                           updateBidItem(item.id, "materialEntries", current);
                                           const lC = (item.laborEntries || []).reduce((s, ent) => {
-                                            const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                            const r = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
                                             return s + r * (ent.hours || 0);
                                           }, 0);
-                                          const eC = (item.equipmentEntries || []).reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
-                                          const mC = current.reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                          const eC = (item.equipmentEntries || []).reduce((s, ent) => {
+                                            const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                            return s + er * (ent.hours || 0);
+                                          }, 0);
+                                          const mC = current.reduce((s, ent) => {
+                                            const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                            return s + mr * (ent.quantity || 0);
+                                          }, 0);
                                           const tC = Math.round((lC + eC + mC) * 100) / 100;
                                           const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
                                           updateBidItem(item.id, "realCost", tC);
@@ -2460,7 +2936,7 @@ export default function ProjectPricerPage() {
                                         }}
                                         disabled={isReadOnly}
                                       >
-                                        <SelectTrigger className="h-8 min-w-[220px] text-lg">
+                                        <SelectTrigger className="h-8 text-lg">
                                           <SelectValue placeholder="Select material" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2476,7 +2952,7 @@ export default function ProjectPricerPage() {
                                           )}
                                         </SelectContent>
                                       </Select>
-                                      <div className="flex items-center gap-1">
+                                        <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
                                           value={entry.quantity || ""}
@@ -2486,11 +2962,17 @@ export default function ProjectPricerPage() {
                                             current[idx] = { ...current[idx], quantity: q };
                                             updateBidItem(item.id, "materialEntries", current);
                                             const lC = (item.laborEntries || []).reduce((s, ent) => {
-                                              const r = (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              const r = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
                                               return s + r * (ent.hours || 0);
                                             }, 0);
-                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => s + getEquipmentCostPerHour(ent.rateId || "") * (ent.hours || 0), 0);
-                                            const mC = current.reduce((s, ent) => s + getMaterialCostPerUnit(ent.rateId || "") * (ent.quantity || 0), 0);
+                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
+                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                              return s + er * (ent.hours || 0);
+                                            }, 0);
+                                            const mC = current.reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
                                             const tC = Math.round((lC + eC + mC) * 100) / 100;
                                             const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
                                             updateBidItem(item.id, "realCost", tC);
@@ -2521,20 +3003,392 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-20 text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.1"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
-                                        <span className="text-lg text-muted-foreground">{unitLabel}</span>
-                                      </div>
+                                        <span className="text-sm text-muted-foreground">{unitLabel}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                        <Input
+                                          type="number"
+                                          value={rate || ""}
+                                          onChange={(e) => {
+                                            const r = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const current = [...(item.materialEntries || [])];
+                                            current[idx] = { ...current[idx], rate: r };
+                                            updateBidItem(item.id, "materialEntries", current);
+                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
+                                              const rr = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              return s + rr * (ent.hours || 0);
+                                            }, 0);
+                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
+                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                              return s + er * (ent.hours || 0);
+                                            }, 0);
+                                            const mC = current.reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
+                                            const tC = Math.round((lC + eC + mC) * 100) / 100;
+                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                            updateBidItem(item.id, "realCost", tC);
+                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              const current = e.currentTarget as HTMLInputElement;
+                                              const panel = current.closest('div[data-panel="costing"]');
+                                              if (panel) {
+                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+                                                const i = numerics.indexOf(current);
+                                                if (i !== -1 && i < numerics.length - 1) {
+                                                  const next = numerics[i + 1];
+                                                  next.focus();
+                                                  next.select();
+                                                } else {
+                                                  current.blur();
+                                                }
+                                              }
+                                            }
+                                          }}
+                                          className="h-8 w-20 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          step="0.01"
+                                          placeholder=""
+                                          disabled={isReadOnly}
+                                        />
+                                        <span className="text-sm text-muted-foreground">unit</span>
+                                        </div>
                                       <div className="text-right">
-                                        <span className="text-lg">Cost: ${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">Cost: ${formatMoney(entryCost)}</span>
                                       </div>
                                     </div>
                                   );
                                 })}
                               </div>
+                              {/* Miscellaneous */}
+                              <div className="mb-3">
+                                <div className="flex items-center mb-1">
+                                  <div className="text-lg font-medium">Miscellaneous</div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs ml-2"
+                                    onClick={() => {
+                                      const current = item.miscellaneousEntries || [];
+                                      const newEntries = [...current, { rateId: undefined, quantity: 0 }];
+                                      updateBidItem(item.id, "miscellaneousEntries", newEntries);
+                                      setPendingCostingFocus({ itemId: item.id, category: 'misc', idx: newEntries.length - 1 });
+                                    }}
+                                    disabled={isReadOnly}
+                                  >
+                                    + Add
+                                  </Button>
+                                </div>
+                                <div className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1 text-xs font-semibold text-muted-foreground">
+                                  <div></div>
+                                  <div className="text-center">Qty</div>
+                                  <div className="text-center">Rate</div>
+                                  <div className="text-right">Cost</div>
+                                </div>
+                                {(item.miscellaneousEntries || []).map((entry, idx) => {
+                                  const miscProfile = miscRates.find((m: any) => m.id === entry.rateId);
+                                  const unitLabel = miscProfile?.unitOfMeasure || 'amt';
+                                  const rate = entry.rate != null ? entry.rate : getMiscCostPerUnit(entry.rateId || "");
+                                  const entryCost = rate * (entry.quantity || 0);
+                                  return (
+                                    <div key={idx} className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1">
+                                      <div className="flex flex-col">
+                                        <Select
+                                          value={entry.rateId || "none"}
+                                          onValueChange={(val) => {
+                                            const newId = val === "none" ? undefined : val;
+                                            const current = [...(item.miscellaneousEntries || [])];
+                                            current[idx] = { ...current[idx], rateId: newId };
+                                            if (newId) {
+                                              current[idx].rate = getMiscCostPerUnit(newId);
+                                              delete current[idx].description;
+                                            }
+                                            updateBidItem(item.id, "miscellaneousEntries", current);
+                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
+                                              const r = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              return s + r * (ent.hours || 0);
+                                            }, 0);
+                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
+                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                              return s + er * (ent.hours || 0);
+                                            }, 0);
+                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
+                                            const miscC = current.reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMiscCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
+                                            const tC = Math.round((lC + eC + mC + miscC) * 100) / 100;
+                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                            updateBidItem(item.id, "realCost", tC);
+                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          }}
+                                          disabled={isReadOnly}
+                                        >
+                                          <SelectTrigger className="h-8 text-lg">
+                                            <SelectValue placeholder="Select misc / custom" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {miscRates.length > 0 ? (
+                                              [
+                                                <SelectItem key="none" value="none">— None —</SelectItem>,
+                                                ...miscRates.map((m: any) => (
+                                                  <SelectItem key={m.id} value={m.id}>{m.description}</SelectItem>
+                                                ))
+                                              ]
+                                            ) : (
+                                              <SelectItem key="no-misc" value="no-misc" disabled>No saved misc profiles</SelectItem>
+                                            )}
+                                          </SelectContent>
+                                        </Select>
+                                        {(!entry.rateId || entry.rateId === "none") && (
+                                          <Input
+                                            value={entry.description || ""}
+                                            onChange={(e) => {
+                                              const d = e.target.value;
+                                              const current = [...(item.miscellaneousEntries || [])];
+                                              current[idx] = { ...current[idx], description: d };
+                                              updateBidItem(item.id, "miscellaneousEntries", current);
+                                            }}
+                                            className="h-7 text-sm mt-0.5"
+                                            placeholder="Free-text description"
+                                            disabled={isReadOnly}
+                                          />
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <Input
+                                          type="number"
+                                          value={entry.quantity || ""}
+                                          onChange={(e) => {
+                                            const q = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const current = [...(item.miscellaneousEntries || [])];
+                                            current[idx] = { ...current[idx], quantity: q };
+                                            updateBidItem(item.id, "miscellaneousEntries", current);
+                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
+                                              const r = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              return s + r * (ent.hours || 0);
+                                            }, 0);
+                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
+                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                              return s + er * (ent.hours || 0);
+                                            }, 0);
+                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
+                                            const miscC = current.reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMiscCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
+                                            const tC = Math.round((lC + eC + mC + miscC) * 100) / 100;
+                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                            updateBidItem(item.id, "realCost", tC);
+                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              const current = e.currentTarget as HTMLInputElement;
+                                              const panel = current.closest('div[data-panel="costing"]');
+                                              if (panel) {
+                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+                                                const i = numerics.indexOf(current);
+                                                if (i !== -1 && i < numerics.length - 1) {
+                                                  const next = numerics[i + 1];
+                                                  next.focus();
+                                                  next.select();
+                                                } else {
+                                                  current.blur();
+                                                }
+                                              }
+                                            }
+                                          }}
+                                          ref={(el) => {
+                                            if (el && pendingCostingFocus && pendingCostingFocus.itemId === item.id && pendingCostingFocus.category === 'misc' && pendingCostingFocus.idx === idx) {
+                                              el.focus();
+                                              el.select();
+                                              setPendingCostingFocus(null);
+                                            }
+                                          }}
+                                          className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          step="0.1"
+                                          placeholder=""
+                                          disabled={isReadOnly}
+                                        />
+                                        <span className="text-sm text-muted-foreground">{unitLabel}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <Input
+                                          type="number"
+                                          value={rate || ""}
+                                          onChange={(e) => {
+                                            const r = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const current = [...(item.miscellaneousEntries || [])];
+                                            current[idx] = { ...current[idx], rate: r };
+                                            updateBidItem(item.id, "miscellaneousEntries", current);
+                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
+                                              const rr = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
+                                              return s + rr * (ent.hours || 0);
+                                            }, 0);
+                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
+                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
+                                              return s + er * (ent.hours || 0);
+                                            }, 0);
+                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
+                                            const miscC = current.reduce((s, ent) => {
+                                              const mr = ent.rate != null ? ent.rate : getMiscCostPerUnit(ent.rateId || "");
+                                              return s + mr * (ent.quantity || 0);
+                                            }, 0);
+                                            const tC = Math.round((lC + eC + mC + miscC) * 100) / 100;
+                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
+                                            updateBidItem(item.id, "realCost", tC);
+                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              const current = e.currentTarget as HTMLInputElement;
+                                              const panel = current.closest('div[data-panel="costing"]');
+                                              if (panel) {
+                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+                                                const i = numerics.indexOf(current);
+                                                if (i !== -1 && i < numerics.length - 1) {
+                                                  const next = numerics[i + 1];
+                                                  next.focus();
+                                                  next.select();
+                                                } else {
+                                                  current.blur();
+                                                }
+                                              }
+                                            }
+                                          }}
+                                          ref={(el) => {
+                                            if (el && pendingCostingFocus && pendingCostingFocus.itemId === item.id && pendingCostingFocus.category === 'misc' && pendingCostingFocus.idx === idx) {
+                                              el.focus();
+                                              el.select();
+                                              setPendingCostingFocus(null);
+                                            }
+                                          }}
+                                          className="h-8 w-20 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          step="0.01"
+                                          placeholder=""
+                                          disabled={isReadOnly}
+                                        />
+                                        <span className="text-sm text-muted-foreground">unit</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-sm">Cost: ${formatMoney(entryCost)}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {/* Crews — populated as individual grouped Labor/Equipment lines (Stage 1) */}
+                              {(() => {
+                                const allEntries = [
+                                  ...(item.laborEntries || []).map((e: any, i: number) => ({ e, i, kind: "labor" as const })),
+                                  ...(item.equipmentEntries || []).map((e: any, i: number) => ({ e, i, kind: "equipment" as const })),
+                                ].filter((x) => x.e.group);
+                                const groupIds: string[] = [];
+                                allEntries.forEach((x) => { if (!groupIds.includes(x.e.group.id)) groupIds.push(x.e.group.id); });
+                                if (groupIds.length === 0) return null;
+                                return (
+                                  <div className="mb-3 space-y-2">
+                                    {groupIds.map((gid) => {
+                                      const groupEntries = allEntries.filter((x) => x.e.group.id === gid);
+                                      const crewName = groupEntries[0]?.e.group.name || "Crew";
+                                      const laborRows = groupEntries.filter((x) => x.kind === "labor");
+                                      const equipRows = groupEntries.filter((x) => x.kind === "equipment");
+                                      const groupCost = groupEntries.reduce((s, x) => {
+                                        const r = x.kind === "labor"
+                                          ? (x.e.rate != null ? x.e.rate : (x.e.labor && typeof x.e.labor.burdenedHourlyRate === "number") ? x.e.labor.burdenedHourlyRate : getLaborBurdenedRate(x.e.rateId || ""))
+                                          : (x.e.rate != null ? x.e.rate : getEquipmentCostPerHour(x.e.rateId || ""));
+                                        return s + r * (x.e.hours || 0);
+                                      }, 0);
+                                      return (
+                                        <div key={gid} className="p-2 border rounded bg-muted/5">
+                                          <div className="flex items-center gap-2 mb-1.5">
+                                            <div className="font-medium text-sm">Crew: {crewName}</div>
+                                            <div className="ml-auto text-sm tabular-nums">Group cost: ${formatMoney(groupCost)}</div>
+                                            {!isReadOnly && (
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="h-6 px-2 text-xs text-destructive/70 hover:text-destructive"
+                                                onClick={() => removeCrewGroupFromLine(item, gid)}
+                                              >
+                                                <Trash2 className="h-3 w-3 mr-1" /> Remove crew
+                                              </Button>
+                                            )}
+                                          </div>
+                                          <div className="space-y-1">
+                                            {laborRows.map((x) => {
+                                              const rate = x.e.rate != null ? x.e.rate : (x.e.labor && typeof x.e.labor.burdenedHourlyRate === "number") ? x.e.labor.burdenedHourlyRate : getLaborBurdenedRate(x.e.rateId || "");
+                                              const name = x.e.labor?.role || laborRates.find((r: any) => r.id === x.e.rateId)?.role || "Labor";
+                                              const rowCost = rate * (x.e.hours || 0);
+                                              return (
+                                                <div key={`l-${x.i}`} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-sm">
+                                                  <div className="truncate"><span className="text-xs text-muted-foreground mr-1">Labor</span>{name}</div>
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      value={x.e.hours || ""}
+                                                      onChange={(ev) => updateGroupedEntryHours(item, "labor", x.i, parseFloat(ev.target.value) || 0)}
+                                                      className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                      step="0.25"
+                                                      disabled={isReadOnly}
+                                                    />
+                                                    <span className="text-sm text-muted-foreground">hrs</span>
+                                                  </div>
+                                                  <div className="text-right tabular-nums text-muted-foreground w-24">${rate.toFixed(2)}/hr</div>
+                                                  <div className="text-right tabular-nums w-24">Cost: ${formatMoney(rowCost)}</div>
+                                                </div>
+                                              );
+                                            })}
+                                            {equipRows.map((x) => {
+                                              const rate = x.e.rate != null ? x.e.rate : getEquipmentCostPerHour(x.e.rateId || "");
+                                              const name = equipmentRates.find((p: any) => p.id === x.e.rateId)?.description || "Equipment";
+                                              const rowCost = rate * (x.e.hours || 0);
+                                              return (
+                                                <div key={`e-${x.i}`} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-sm">
+                                                  <div className="truncate"><span className="text-xs text-muted-foreground mr-1">Equip</span>{name}</div>
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      value={x.e.hours || ""}
+                                                      onChange={(ev) => updateGroupedEntryHours(item, "equipment", x.i, parseFloat(ev.target.value) || 0)}
+                                                      className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                      step="0.25"
+                                                      disabled={isReadOnly}
+                                                    />
+                                                    <span className="text-sm text-muted-foreground">hrs</span>
+                                                  </div>
+                                                  <div className="text-right tabular-nums text-muted-foreground w-24">${rate.toFixed(2)}/hr</div>
+                                                  <div className="text-right tabular-nums w-24">Cost: ${formatMoney(rowCost)}</div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })()}
                               <div className="border-t pt-3 mt-2 flex flex-wrap gap-x-8 text-lg">
                                 <div>Total Cost: <span className="font-semibold tabular-nums">${formatMoney(computedItemCost)}</span></div>
                                 <div>Real GP: <span className="font-semibold tabular-nums">${formatMoney(effectiveLineTotal - computedItemCost)}</span> <span className="tabular-nums">({computedItemGpPct.toFixed(1)}%)</span></div>
@@ -2639,6 +3493,10 @@ export default function ProjectPricerPage() {
                 setShowUnits(true);
                 setShowPerUnitPrice(true);
                 setShowLineItemPrices(true);
+                // Stage 2: preselect default terms block (or first, or null)
+                const termsList = getAllTerms();
+                const defaultTerm = termsList.find((t: TermsBlock) => t.isDefault) || termsList[0] || null;
+                setSelectedTermsId(defaultTerm ? defaultTerm.id : null);
                 setShowUpdateExport(true);
               }}
               disabled={!eppHasItems}
@@ -2662,141 +3520,6 @@ export default function ProjectPricerPage() {
         </Card>
         )}
       </div>
-
-      {/* Quote Preview Dialog */}
-      <Dialog open={showQuotePreview} onOpenChange={setShowQuotePreview}>
-        <DialogContent className="max-w-[min(1600px,96vw)] w-[96vw] p-0" showCloseButton={false}>
-          <div className="p-20 bg-white text-black h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-gray-100" style={{ scrollbarWidth: 'thin', scrollbarColor: '#ddd #fff' }}>
-            <div className="flex items-center justify-between mb-6 print:hidden text-black flex-wrap gap-2">
-              <div className="text-lg font-medium text-gray-700">Quote Preview — Print or Save as PDF from the dialog</div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setShowQuotePreview(false)}>Close</Button>
-                <Button size="sm" onClick={() => {
-                  const opts = {
-                    exportType,
-                    showQuantities,
-                    showUnits,
-                    showPerUnitPrice,
-                    showLineItemPrices,
-                    logoDataUrl,
-                  };
-                  pdf(<QuotePDF estimate={estimate} {...opts} />).toBlob().then((blob) => {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${exportType}-${estimate.jobName || 'quote'}.pdf`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                  });
-                }}>Print / Export PDF</Button>
-              </div>
-            </div>
-
-            {/* Self-contained professional quote content (white paper look for fidelity) */}
-            <div
-              id="quote-preview"
-              className="bg-white text-black p-20 border border-gray-300 shadow-sm mx-auto w-full"
-              style={{ fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', fontSize: '18px', lineHeight: '1.5', maxWidth: 'none' }}
-            >
-              {/* Branding Header */}
-              <div className="flex justify-between items-start border-b-2 border-black pb-8 mb-6">
-                <div>
-                  <div className="font-bold text-[32px] tracking-[0.6px] leading-none">Performance Margin Zone</div>
-                  <div className="text-[14px] tracking-[0.5px] text-gray-600 -mt-px">Total Profit Management</div>
-                </div>
-                <div className="text-right text-[16px] leading-tight text-gray-600">
-                  Quote #{Date.now().toString().slice(-7)}<br />{new Date().toLocaleDateString()}
-                </div>
-              </div>
-
-              {/* Large Title */}
-              <div className="text-center text-[56px] font-bold tracking-[4px] my-8 pb-6 border-b border-black">QUOTE</div>
-
-              {/* Two Column Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-16 mb-12 text-[18px]">
-                <div className="min-w-0">
-                  <div className="font-semibold text-[14px] tracking-widest mb-2">TO:</div>
-                  <div className="font-medium break-words">{currentCustomer?.name || estimate.customerName || 'Valued Customer'}</div>
-                  <div className="break-words">{typeof (currentCustomer?.billingAddress) === 'string' ? currentCustomer.billingAddress : (typeof estimate.billingAddress === 'string' ? estimate.billingAddress : '123 Main St, Suite 100')}</div>
-                  <div>Anytown, ST 12345</div>
-                  <div className="mt-2 text-[16px]">Contact: {(currentCustomer?.contactName) || estimate.salesperson || 'Main Contact'}</div>
-                </div>
-                <div className="min-w-0">
-                  <div className="font-semibold text-[14px] tracking-widest mb-2">PROJECT / JOB:</div>
-                  <div className="font-medium break-words">{estimate.jobName || 'Project Name'}</div>
-                  <div>Work Type: {estimate.workTypeName || '—'}</div>
-                  <div>Salesperson: {estimate.salesperson || '—'}</div>
-                  <div className="mt-2 text-[16px]">Date: {new Date().toLocaleDateString()}</div>
-                </div>
-              </div>
-
-              {/* Items Table */}
-              <table className="w-full border-collapse mt-6" style={{ border: '1px solid #333' }}>
-                <thead>
-                  <tr style={{ background: '#f0f0f0' }}>
-                    <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'left', fontWeight: 600, fontSize: '17px' }}>Description</th>
-                    {showQuantities && <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontWeight: 600, width: '110px', fontSize: '17px' }}>Qty</th>}
-                    {showUnits && <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'center', fontWeight: 600, width: '100px', fontSize: '17px' }}>Unit</th>}
-                    {showPerUnitPrice && <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontWeight: 600, width: '130px', fontSize: '17px' }}>Unit Price</th>}
-                    {showLineItemPrices && <th style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontWeight: 600, width: '140px', fontSize: '17px' }}>Line Total</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {estimate.bidItems.length === 0 ? (
-                    <tr><td colSpan={5} style={{ border: '1px solid #333', padding: '16px', textAlign: 'center', color: '#666', fontStyle: 'italic', fontSize: '17px' }}>No line items added yet</td></tr>
-                  ) : (
-                    estimate.bidItems.map((item, idx) => {
-                      const lt = (item.quantity || 0) * (item.unitPrice || 0);
-                      return (
-                        <tr key={item.id || idx}>
-                          <td style={{ border: '1px solid #333', padding: '14px 16px', fontSize: '17px' }}>{item.description || '—'}</td>
-                          {showQuantities && <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontSize: '17px' }}>{item.quantity || 0}</td>}
-                          {showUnits && <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'center', fontSize: '17px' }}>{item.unit || ''}</td>}
-                          {showPerUnitPrice && <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontSize: '17px' }}>${formatMoney(item.unitPrice || 0)}</td>}
-                          {showLineItemPrices && <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontWeight: 500, fontSize: '17px' }}>${formatMoney(lt)}</td>}
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: '#f5f5f5', fontWeight: 700 }}>
-                    <td colSpan={4} style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontSize: '18px' }}>TOTAL</td>
-                    <td style={{ border: '1px solid #333', padding: '14px 16px', textAlign: 'right', fontSize: '18px' }}>${formatMoney(estimate.bidItems.reduce((s, it) => s + ((it.quantity || 0) * (it.unitPrice || 0)), 0))}</td>
-                  </tr>
-                </tfoot>
-              </table>
-
-              {/* Summary Section */}
-              <div className="mt-10 pt-6 border-t border-gray-400 text-[17px] grid grid-cols-2 gap-x-12 gap-y-3">
-                <div>Estimate Total: <span className="font-semibold">${formatMoney(eppSellingPrice)}</span></div>
-                <div>Actual Cost (Real): <span className="font-semibold">${formatMoney(eppRealCost)}</span></div>
-                <div>Gross Profit: <span className="font-semibold">${formatMoney(eppGrossProfitDollars)} ({eppGrossProfitPercent.toFixed(1)}%)</span></div>
-                <div>Target Margin: <span className="font-semibold">{eppTargetPercent.toFixed(0)}%</span> <span style={{ fontSize: '14px', padding: '3px 7px', borderRadius: '2px', background: eppOnTarget ? '#d1fae5' : '#fee2e2', color: eppOnTarget ? '#166534' : '#991b1b' }}>{eppOnTarget ? 'On Target' : 'Below Target'}</span></div>
-              </div>
-
-              {/* Signature Section */}
-              <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 gap-14 text-[16px]">
-                <div>
-                  <div style={{ borderBottom: '1px solid #000', height: '40px', marginBottom: '5px' }} />
-                  <div>Client Signature&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Date: ______________</div>
-                </div>
-                <div>
-                  <div style={{ borderBottom: '1px solid #000', height: '40px', marginBottom: '5px' }} />
-                  <div>Authorized Signature&nbsp;&nbsp;&nbsp;Date: ______________</div>
-                  <div style={{ fontSize: '14px', color: '#666', marginTop: '5px' }}>Tom Peterson / Performance Margin Zone</div>
-                </div>
-              </div>
-
-              <div className="text-center mt-14 pt-6 border-t text-[14px] text-gray-500">
-                This quote is valid for 30 days. Thank you for considering Performance Margin Zone.
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Update Export Modal */}
       <Dialog open={showUpdateExport} onOpenChange={setShowUpdateExport}>
@@ -2876,6 +3599,79 @@ export default function ProjectPricerPage() {
               </div>
             </div>
 
+            {/* Terms & Conditions selector (Stage 2) */}
+            <div>
+              <Label className="text-xs font-medium tracking-wider text-muted-foreground mb-1.5 block">Terms &amp; Conditions</Label>
+              <Select
+                value={selectedTermsId || "none"}
+                onValueChange={(val) => setSelectedTermsId(val === "none" ? null : val)}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder="Select terms" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {getAllTerms().map((t: TermsBlock) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}{t.isDefault ? " (default)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Customer & Location Information (Phase 1) */}
+            <div>
+              <Label className="text-xs font-medium tracking-wider text-muted-foreground mb-1.5 block">Customer &amp; Location Information</Label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showBillTo}
+                    onChange={(e) => setShowBillTo(e.target.checked)}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Show Bill To address</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showJobSite}
+                    onChange={(e) => setShowJobSite(e.target.checked)}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Show Job Site address</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showPrimaryContact}
+                    onChange={(e) => setShowPrimaryContact(e.target.checked)}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Show Primary Contact name + phone/email</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showAccessNotes}
+                    onChange={(e) => setShowAccessNotes(e.target.checked)}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Show Access Notes / Delivery Instructions</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showGPS}
+                    onChange={(e) => setShowGPS(e.target.checked)}
+                    className="accent-red-600"
+                  />
+                  <span className="text-sm">Show GPS Coordinates</span>
+                </label>
+              </div>
+            </div>
+
             {/* Checkboxes */}
             <div>
               <Label className="text-xs font-medium tracking-wider text-muted-foreground mb-1.5 block">Options</Label>
@@ -2940,7 +3736,7 @@ export default function ProjectPricerPage() {
       </Dialog>
 
       {/* Full Real LEM Breakdown (Pro View) — basic structural placeholder */}
-      <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/40 dark:border-emerald-700 p-5 text-sm space-y-3">
+      <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/40 dark:border-emerald-700 p-5 text-sm space-y-3" style={{ display: 'none' }}>
         <div
           className="font-semibold text-emerald-900 flex items-center gap-2 cursor-pointer"
           onClick={toggleProViewCollapsed}
