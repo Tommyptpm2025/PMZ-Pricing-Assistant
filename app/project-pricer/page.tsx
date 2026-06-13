@@ -752,16 +752,39 @@ export default function ProjectPricerPage() {
     }
   }, []);
 
-  // Load crews from Crew Builder (pmz_crews) after mount only (hydration safety: no LS read in initial render)
-  React.useEffect(() => {
+  // Load crews from Crew Builder (pmz_crews) after mount, and keep in sync with cross-tab
+  // updates (storage event) and same-tab updates (custom event). Reusable so all paths share it.
+  const loadCrews = React.useCallback(() => {
     try {
       const raw = localStorage.getItem("pmz_crews");
       if (raw) {
         const parsed = JSON.parse(raw);
-        setCrews(Array.isArray(parsed) ? parsed : []);
+        const list = Array.isArray(parsed) ? parsed : [];
+        setCrews(list);
+        console.log("[pricer] loadCrews: loaded", list.length, "crews");
+      } else {
+        setCrews([]);
+        console.log("[pricer] loadCrews: no pmz_crews in storage");
       }
-    } catch {}
+    } catch (e) {
+      console.error("[pricer] loadCrews error", e);
+      setCrews([]);
+    }
   }, []);
+
+  React.useEffect(() => {
+    loadCrews();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "pmz_crews") loadCrews();
+    };
+    const onCustom = () => loadCrews();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("pmz-crews-updated", onCustom as EventListener);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("pmz-crews-updated", onCustom as EventListener);
+    };
+  }, [loadCrews]);
 
   // Close customer dropdown on outside click
   React.useEffect(() => {
@@ -2458,13 +2481,18 @@ export default function ProjectPricerPage() {
                                 >
                                   Apply Target Margin
                                 </Button>
-                                <Select value="none" onValueChange={(val) => addCrewToLine(item, val)} disabled={isReadOnly || crews.length === 0}>
-                                  <SelectTrigger className="h-6 px-2 text-xs w-auto gap-1">+ Add Crew</SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="none">— Select crew —</SelectItem>
-                                    {crews.map((c: any) => (
-                                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                                    ))}
+                                <Select value="" onValueChange={(val) => { if (val) addCrewToLine(item, val); }} disabled={isReadOnly}>
+                                  <SelectTrigger className="h-6 px-2 text-xs w-auto gap-1">
+                                    <SelectValue placeholder="+ Add Crew" />
+                                  </SelectTrigger>
+                                  <SelectContent position="popper" align="start" sideOffset={4}>
+                                    {crews.length > 0 ? (
+                                      crews.map((c: any) => (
+                                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                      ))
+                                    ) : (
+                                      <SelectItem key="no-crew" value="__none__" disabled>No crews — create in Crew Builder</SelectItem>
+                                    )}
                                   </SelectContent>
                                 </Select>
                                 </div>
