@@ -44,6 +44,8 @@ import {
   Trash2,
   RotateCcw,
   Calculator,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -406,6 +408,8 @@ export default function ProjectPricerPage() {
   const [lineTotalEdits, setLineTotalEdits] = React.useState<Record<string, string>>({});
   // Which EPP bid items have their costing details panel open
   const [eppCostingOpen, setEppCostingOpen] = React.useState<Record<string, boolean>>({});
+  // Collapsed state for crew group cards in the Per-Line Real Costing panel, keyed by group id (default expanded)
+  const [collapsedCrewGroups, setCollapsedCrewGroups] = React.useState<Record<string, boolean>>({});
   // For auto-focusing newly added costing entry inputs
   const [pendingCostingFocus, setPendingCostingFocus] = React.useState(null); // {itemId: string, category: 'labor'|'equipment'|'material', idx: number }
   // For showing the target margin result bar after clicking Apply, per item
@@ -2497,6 +2501,109 @@ export default function ProjectPricerPage() {
                                 </Select>
                                 </div>
                               </div>
+                              {/* Crews — grouped Labor/Equipment lines, shown at top of panel (collapsible) */}
+                              {(() => {
+                                const allEntries = [
+                                  ...(item.laborEntries || []).map((e: any, i: number) => ({ e, i, kind: "labor" as const })),
+                                  ...(item.equipmentEntries || []).map((e: any, i: number) => ({ e, i, kind: "equipment" as const })),
+                                ].filter((x) => x.e.group);
+                                const groupIds: string[] = [];
+                                allEntries.forEach((x) => { if (!groupIds.includes(x.e.group.id)) groupIds.push(x.e.group.id); });
+                                if (groupIds.length === 0) return null;
+                                return (
+                                  <div className="mb-3 space-y-2">
+                                    {groupIds.map((gid) => {
+                                      const groupEntries = allEntries.filter((x) => x.e.group.id === gid);
+                                      const crewName = groupEntries[0]?.e.group.name || "Crew";
+                                      const laborRows = groupEntries.filter((x) => x.kind === "labor");
+                                      const equipRows = groupEntries.filter((x) => x.kind === "equipment");
+                                      const isCollapsed = !!collapsedCrewGroups[gid];
+                                      const groupCost = groupEntries.reduce((s, x) => {
+                                        const r = x.kind === "labor"
+                                          ? (x.e.rate != null ? x.e.rate : (x.e.labor && typeof x.e.labor.burdenedHourlyRate === "number") ? x.e.labor.burdenedHourlyRate : getLaborBurdenedRate(x.e.rateId || ""))
+                                          : (x.e.rate != null ? x.e.rate : getEquipmentCostPerHour(x.e.rateId || ""));
+                                        return s + r * (x.e.hours || 0);
+                                      }, 0);
+                                      return (
+                                        <div key={gid} className="p-2 border rounded bg-muted/5">
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => setCollapsedCrewGroups((prev) => ({ ...prev, [gid]: !prev[gid] }))}
+                                              className="flex items-center gap-1 font-medium text-sm hover:opacity-80"
+                                              aria-expanded={!isCollapsed}
+                                            >
+                                              {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                              Crew: {crewName}
+                                            </button>
+                                            <div className="ml-auto text-sm tabular-nums">Group cost: ${formatMoney(groupCost)}</div>
+                                            {!isReadOnly && (
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="h-6 px-2 text-xs text-destructive/70 hover:text-destructive"
+                                                onClick={() => removeCrewGroupFromLine(item, gid)}
+                                              >
+                                                <Trash2 className="h-3 w-3 mr-1" /> Remove crew
+                                              </Button>
+                                            )}
+                                          </div>
+                                          {!isCollapsed && (
+                                          <div className="space-y-1 mt-1.5">
+                                            {laborRows.map((x) => {
+                                              const rate = x.e.rate != null ? x.e.rate : (x.e.labor && typeof x.e.labor.burdenedHourlyRate === "number") ? x.e.labor.burdenedHourlyRate : getLaborBurdenedRate(x.e.rateId || "");
+                                              const name = x.e.labor?.role || laborRates.find((r: any) => r.id === x.e.rateId)?.role || "Labor";
+                                              const rowCost = rate * (x.e.hours || 0);
+                                              return (
+                                                <div key={`l-${x.i}`} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-sm">
+                                                  <div className="truncate"><span className="text-xs text-muted-foreground mr-1">Labor</span>{name}</div>
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      value={x.e.hours || ""}
+                                                      onChange={(ev) => updateGroupedEntryHours(item, "labor", x.i, parseFloat(ev.target.value) || 0)}
+                                                      className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                      step="0.25"
+                                                      disabled={isReadOnly}
+                                                    />
+                                                    <span className="text-sm text-muted-foreground">hrs</span>
+                                                  </div>
+                                                  <div className="text-right tabular-nums text-muted-foreground w-24">${rate.toFixed(2)}/hr</div>
+                                                  <div className="text-right tabular-nums w-24">Cost: ${formatMoney(rowCost)}</div>
+                                                </div>
+                                              );
+                                            })}
+                                            {equipRows.map((x) => {
+                                              const rate = x.e.rate != null ? x.e.rate : getEquipmentCostPerHour(x.e.rateId || "");
+                                              const name = equipmentRates.find((p: any) => p.id === x.e.rateId)?.description || "Equipment";
+                                              const rowCost = rate * (x.e.hours || 0);
+                                              return (
+                                                <div key={`e-${x.i}`} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-sm">
+                                                  <div className="truncate"><span className="text-xs text-muted-foreground mr-1">Equip</span>{name}</div>
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      value={x.e.hours || ""}
+                                                      onChange={(ev) => updateGroupedEntryHours(item, "equipment", x.i, parseFloat(ev.target.value) || 0)}
+                                                      className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                      step="0.25"
+                                                      disabled={isReadOnly}
+                                                    />
+                                                    <span className="text-sm text-muted-foreground">hrs</span>
+                                                  </div>
+                                                  <div className="text-right tabular-nums text-muted-foreground w-24">${rate.toFixed(2)}/hr</div>
+                                                  <div className="text-right tabular-nums w-24">Cost: ${formatMoney(rowCost)}</div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })()}
                               {/* Labor */}
                               <div className="mb-3">
                                 <div className="flex items-center mb-1">
@@ -3325,98 +3432,6 @@ export default function ProjectPricerPage() {
                                   );
                                 })}
                               </div>
-                              {/* Crews — populated as individual grouped Labor/Equipment lines (Stage 1) */}
-                              {(() => {
-                                const allEntries = [
-                                  ...(item.laborEntries || []).map((e: any, i: number) => ({ e, i, kind: "labor" as const })),
-                                  ...(item.equipmentEntries || []).map((e: any, i: number) => ({ e, i, kind: "equipment" as const })),
-                                ].filter((x) => x.e.group);
-                                const groupIds: string[] = [];
-                                allEntries.forEach((x) => { if (!groupIds.includes(x.e.group.id)) groupIds.push(x.e.group.id); });
-                                if (groupIds.length === 0) return null;
-                                return (
-                                  <div className="mb-3 space-y-2">
-                                    {groupIds.map((gid) => {
-                                      const groupEntries = allEntries.filter((x) => x.e.group.id === gid);
-                                      const crewName = groupEntries[0]?.e.group.name || "Crew";
-                                      const laborRows = groupEntries.filter((x) => x.kind === "labor");
-                                      const equipRows = groupEntries.filter((x) => x.kind === "equipment");
-                                      const groupCost = groupEntries.reduce((s, x) => {
-                                        const r = x.kind === "labor"
-                                          ? (x.e.rate != null ? x.e.rate : (x.e.labor && typeof x.e.labor.burdenedHourlyRate === "number") ? x.e.labor.burdenedHourlyRate : getLaborBurdenedRate(x.e.rateId || ""))
-                                          : (x.e.rate != null ? x.e.rate : getEquipmentCostPerHour(x.e.rateId || ""));
-                                        return s + r * (x.e.hours || 0);
-                                      }, 0);
-                                      return (
-                                        <div key={gid} className="p-2 border rounded bg-muted/5">
-                                          <div className="flex items-center gap-2 mb-1.5">
-                                            <div className="font-medium text-sm">Crew: {crewName}</div>
-                                            <div className="ml-auto text-sm tabular-nums">Group cost: ${formatMoney(groupCost)}</div>
-                                            {!isReadOnly && (
-                                              <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                className="h-6 px-2 text-xs text-destructive/70 hover:text-destructive"
-                                                onClick={() => removeCrewGroupFromLine(item, gid)}
-                                              >
-                                                <Trash2 className="h-3 w-3 mr-1" /> Remove crew
-                                              </Button>
-                                            )}
-                                          </div>
-                                          <div className="space-y-1">
-                                            {laborRows.map((x) => {
-                                              const rate = x.e.rate != null ? x.e.rate : (x.e.labor && typeof x.e.labor.burdenedHourlyRate === "number") ? x.e.labor.burdenedHourlyRate : getLaborBurdenedRate(x.e.rateId || "");
-                                              const name = x.e.labor?.role || laborRates.find((r: any) => r.id === x.e.rateId)?.role || "Labor";
-                                              const rowCost = rate * (x.e.hours || 0);
-                                              return (
-                                                <div key={`l-${x.i}`} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-sm">
-                                                  <div className="truncate"><span className="text-xs text-muted-foreground mr-1">Labor</span>{name}</div>
-                                                  <div className="flex items-center gap-1">
-                                                    <Input
-                                                      type="number"
-                                                      value={x.e.hours || ""}
-                                                      onChange={(ev) => updateGroupedEntryHours(item, "labor", x.i, parseFloat(ev.target.value) || 0)}
-                                                      className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                                      step="0.25"
-                                                      disabled={isReadOnly}
-                                                    />
-                                                    <span className="text-sm text-muted-foreground">hrs</span>
-                                                  </div>
-                                                  <div className="text-right tabular-nums text-muted-foreground w-24">${rate.toFixed(2)}/hr</div>
-                                                  <div className="text-right tabular-nums w-24">Cost: ${formatMoney(rowCost)}</div>
-                                                </div>
-                                              );
-                                            })}
-                                            {equipRows.map((x) => {
-                                              const rate = x.e.rate != null ? x.e.rate : getEquipmentCostPerHour(x.e.rateId || "");
-                                              const name = equipmentRates.find((p: any) => p.id === x.e.rateId)?.description || "Equipment";
-                                              const rowCost = rate * (x.e.hours || 0);
-                                              return (
-                                                <div key={`e-${x.i}`} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-sm">
-                                                  <div className="truncate"><span className="text-xs text-muted-foreground mr-1">Equip</span>{name}</div>
-                                                  <div className="flex items-center gap-1">
-                                                    <Input
-                                                      type="number"
-                                                      value={x.e.hours || ""}
-                                                      onChange={(ev) => updateGroupedEntryHours(item, "equipment", x.i, parseFloat(ev.target.value) || 0)}
-                                                      className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                                      step="0.25"
-                                                      disabled={isReadOnly}
-                                                    />
-                                                    <span className="text-sm text-muted-foreground">hrs</span>
-                                                  </div>
-                                                  <div className="text-right tabular-nums text-muted-foreground w-24">${rate.toFixed(2)}/hr</div>
-                                                  <div className="text-right tabular-nums w-24">Cost: ${formatMoney(rowCost)}</div>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                );
-                              })()}
                               <div className="border-t pt-3 mt-2 flex flex-wrap gap-x-8 text-lg">
                                 <div>Total Cost: <span className="font-semibold tabular-nums">${formatMoney(computedItemCost)}</span></div>
                                 <div>Real GP: <span className="font-semibold tabular-nums">${formatMoney(effectiveLineTotal - computedItemCost)}</span> <span className="tabular-nums">({computedItemGpPct.toFixed(1)}%)</span></div>
