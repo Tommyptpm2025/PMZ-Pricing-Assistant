@@ -82,7 +82,8 @@ interface BidItem {
   description: string;
   quantity: number;
   unit: string;
-  unitPrice: number; // selling price to customer
+  unitPrice: number; // break-even unit cost (top of line); defaults to cost ÷ qty, editable
+  priceOverridden?: boolean; // true once the user manually edits the top price (stops auto-seed from cost)
   // EPP-only real per-line-item costing details (isolated from LEM) — now supports multiple entries per category
   laborEntries?: Array<{
     rateId?: string;
@@ -790,6 +791,29 @@ export default function ProjectPricerPage() {
     };
   }, [loadCrews]);
 
+  // Default the editable top price to per-line break-even cost (cost ÷ qty) until the user manually
+  // overrides it (priceOverridden). Re-seeds when costs change. Guarded so it converges (no loop).
+  React.useEffect(() => {
+    setEstimate((prev) => {
+      let changed = false;
+      const bidItems = prev.bidItems.map((it: any) => {
+        if (it.priceOverridden) return it;
+        const qty = it.quantity || 0;
+        if (qty <= 0) return it;
+        const cost = lineBreakEvenCost(it);
+        if (cost <= 0) return it;
+        const unit = cost / qty;
+        if (Math.abs((it.unitPrice || 0) - unit) > 0.005) {
+          changed = true;
+          return { ...it, unitPrice: unit };
+        }
+        return it;
+      });
+      return changed ? { ...prev, bidItems } : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estimate.bidItems, laborRates, equipmentRates, materialRates, miscRates, crews]);
+
   // Close customer dropdown on outside click
   React.useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -819,30 +843,33 @@ export default function ProjectPricerPage() {
     }
   }, [customerDropdownOpen]);
 
-  // Running Total Revenue (the detailed bid the user is building)
+  // Running Total Revenue — now the sum of the top line totals, which represent break-even cost
+  // basis (qty × unitPrice, where unitPrice defaults to per-line cost ÷ qty).
   const totalRevenue = React.useMemo(() => {
     return estimate.bidItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   }, [estimate.bidItems]);
 
-  // Target Margin % — now driven by the BID ITEMS table total revenue (current bid total determines the Work Type pricing tier)
-  // Only returns a real value AFTER a work type is selected (no default 20 until chosen)
+  // Total break-even cost across all bid lines (Σ per-line real costing). Drives the target-margin
+  // tier and the marked-up recommended bid. (Defined here so targetMargin can key off it.)
+  const eppRealCost = (estimate.bidItems || []).reduce((sum, item) => sum + lineBreakEvenCost(item), 0);
+
+  // Target Margin % — the pricing tier is keyed off the MARKED-UP recommended bid (cost ÷ (1 − margin)),
+  // which itself depends on the margin, so we resolve the fixed point (tiers are monotonic bands).
+  // Only returns a real value AFTER a work type is selected (no default until chosen).
   const targetMargin = React.useMemo(() => {
     if (!estimate.workTypeName || workTypes.length === 0) return 0;
-    const wt = workTypes.find((w) => w.name === estimate.workTypeName);
-    if (!wt || !wt.tiers || wt.tiers.length === 0) return 0;
-    let size = totalRevenue || 0;
-    if (size === 0) {
-      // when no bid items yet, use the first (smallest) tier as reasonable default for pro view
-      return wt.tiers[0].targetGpPercent;
+    const cost = eppRealCost || 0;
+    // Before any costs are entered, fall back to tiering by the running bid total (legacy behavior).
+    if (cost <= 0) return getTargetMarginForSize(totalRevenue || 0);
+    let m = getTargetMarginForSize(cost);
+    for (let i = 0; i < 12; i++) {
+      const bid = m < 100 ? cost / (1 - m / 100) : cost;
+      const m2 = getTargetMarginForSize(bid);
+      if (m2 === m) break;
+      m = m2;
     }
-    for (let i = 0; i < wt.tiers.length; i++) {
-      const t = wt.tiers[i];
-      const low = t.low ?? 0;
-      const high = t.high ?? Infinity;
-      if (size >= low && size <= high) return t.targetGpPercent;
-    }
-    return wt.tiers[wt.tiers.length - 1].targetGpPercent;
-  }, [estimate.workTypeName, totalRevenue, workTypes]);
+    return m;
+  }, [estimate.workTypeName, workTypes, eppRealCost, totalRevenue]);
 
   function getTargetMarginForSize(size: number): number {
     if (!estimate.workTypeName || workTypes.length === 0) return 0;
@@ -858,6 +885,36 @@ export default function ProjectPricerPage() {
       if (size >= low && size <= high) return t.targetGpPercent;
     }
     return wt.tiers[wt.tiers.length - 1].targetGpPercent;
+  }
+
+  // Per-line break-even cost — mirrors the eppRealCost summation exactly (labor + equipment +
+  // material + misc + legacy crew). Used to seed the editable top price and to total job cost.
+  function lineBreakEvenCost(item: any): number {
+    const lC = (item.laborEntries || []).reduce((s: number, entry: any) => {
+      const rate = (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
+        ? entry.labor.burdenedHourlyRate
+        : getLaborBurdenedRate(entry.rateId || "");
+      return s + rate * (entry.hours || 0);
+    }, 0);
+    const eC = (item.equipmentEntries || []).reduce((s: number, entry: any) => {
+      return s + getEquipmentCostPerHour(entry.rateId || "") * (entry.hours || 0);
+    }, 0);
+    const mC = (item.materialEntries || []).reduce((s: number, entry: any) => {
+      return s + getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
+    }, 0);
+    const miscC = (item.miscellaneousEntries || []).reduce((s: number, entry: any) => {
+      const mr = entry.rate != null ? entry.rate : getMiscCostPerUnit(entry.rateId || "");
+      return s + mr * (entry.quantity || 0);
+    }, 0);
+    const crewC = (item.crewUsages || []).reduce((s: number, usage: any) => {
+      const crew = crews.find((c: any) => c.id === usage.crewId);
+      if (!crew) return s;
+      const h = usage.hours || 0;
+      const cl = (crew.laborLines || []).reduce((ls: number, ln: any) => ls + getLaborCostPerHour(ln.profileId || "") * (ln.quantity || 0), 0);
+      const ce = (crew.equipmentLines || []).reduce((es: number, en: any) => es + getEquipmentCostPerHour(en.profileId || "") * (en.quantity || 0), 0);
+      return s + (cl + ce) * h;
+    }, 0);
+    return Math.round((lC + eC + mC + miscC + crewC) * 100) / 100;
   }
 
   // Default GP% for Pro view: the target from work type tier (based on current bid total), or 20% if none selected
@@ -999,7 +1056,7 @@ export default function ProjectPricerPage() {
         item.id === id
           ? {
               ...item,
-              [field]: (field === "labor" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string))
+              [field]: (field === "labor" || field === "priceOverridden" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string))
                 ? (value === "" ? undefined : value)
                 : Math.max(0, Number(value) || 0),
             }
@@ -1635,42 +1692,13 @@ export default function ProjectPricerPage() {
   const realTrueGP = totalRevenue - realTotalLEM;
   const realGPPercent = totalRevenue > 0 ? (realTrueGP / totalRevenue) * 100 : 0;
 
-  // EPP bottom summary banner calculations (Estimate Total = sum of EPP line totals;
-  // Actual Cost = sum of real burdened L+E+M costs from per-line-item costing panels)
-  const eppSellingPrice = totalRevenue;
-  const eppRealCost = (estimate.bidItems || []).reduce((sum, item) => {
-    const lC = (item.laborEntries || []).reduce((s, entry) => {
-      const rate = (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
-        ? entry.labor.burdenedHourlyRate
-        : getLaborBurdenedRate(entry.rateId || "");
-      return s + rate * (entry.hours || 0);
-    }, 0);
-    const eC = (item.equipmentEntries || []).reduce((s, entry) => {
-      return s + getEquipmentCostPerHour(entry.rateId || "") * (entry.hours || 0);
-    }, 0);
-    const mC = (item.materialEntries || []).reduce((s, entry) => {
-      return s + getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
-    }, 0);
-    const miscC = (item.miscellaneousEntries || []).reduce((s, entry) => {
-      const mr = entry.rate != null ? entry.rate : getMiscCostPerUnit(entry.rateId || "");
-      return s + mr * (entry.quantity || 0);
-    }, 0);
-    const crewC = (item.crewUsages || []).reduce((s, usage) => {
-      const crew = crews.find((c: any) => c.id === usage.crewId);
-      if (!crew) return s;
-      const h = usage.hours || 0;
-      const cl = (crew.laborLines || []).reduce((ls: number, ln: any) => {
-        const r = getLaborCostPerHour(ln.profileId || "");
-        return ls + r * (ln.quantity || 0);
-      }, 0);
-      const ce = (crew.equipmentLines || []).reduce((es: number, en: any) => {
-        const r = getEquipmentCostPerHour(en.profileId || "");
-        return es + r * (en.quantity || 0);
-      }, 0);
-      return s + (cl + ce) * h;
-    }, 0);
-    return sum + Math.round((lC + eC + mC + miscC + crewC) * 100) / 100;
-  }, 0);
+  // EPP bottom summary: Total Revenue / Estimate Total = the marked-up RECOMMENDED bid
+  // (break-even cost ÷ (1 − target margin), the Golden Formula). Actual Cost = eppRealCost (above).
+  // Note: GP here is the recommended markup, so it sits at/above target by construction.
+  const eppRecommendedBid = (targetMargin > 0 && targetMargin < 100)
+    ? Math.round((eppRealCost / (1 - targetMargin / 100)) * 100) / 100
+    : eppRealCost;
+  const eppSellingPrice = eppRecommendedBid;
   const eppGrossProfitDollars = eppSellingPrice - eppRealCost;
   const eppGrossProfitPercent = eppSellingPrice > 0
     ? Math.round(((eppSellingPrice - eppRealCost) / eppSellingPrice * 100) * 10) / 10
@@ -2377,6 +2405,7 @@ export default function ProjectPricerPage() {
                             value={item.unitPrice}
                             onChange={(v) => {
                               updateBidItem(item.id, "unitPrice", v);
+                              updateBidItem(item.id, "priceOverridden", true);
                               setLineTotalEdits(prev => {
                                 const { [item.id]: _, ...rest } = prev;
                                 return rest;
@@ -2398,6 +2427,7 @@ export default function ProjectPricerPage() {
                                 // live bidirectional: update edit buffer and immediately recalc Unit Rate = Line Total / Qty
                                 const raw = e.target.value;
                                 setLineTotalEdits(prev => ({ ...prev, [item.id]: raw }));
+                                updateBidItem(item.id, "priceOverridden", true);
                                 const trimmed = raw.trim();
                                 const qty = item.quantity || 0;
                                 if (trimmed === '' || trimmed === '.' || trimmed === '-') {
@@ -2459,31 +2489,19 @@ export default function ProjectPricerPage() {
                                   variant="outline"
                                   className="h-6 px-2 text-xs"
                                   onClick={() => {
-                                    if (!estimate.workTypeName || targetMargin <= 0 || !hasCosts || computedItemCost <= 0) return;
-                                    // Option B: compute total required for whole job, then this line's contribution share
-                                    const jobTarget = targetMargin;
-                                    const totalRealCostForJob = eppRealCost;
-                                    const totalRequiredSellingForJob = totalRealCostForJob > 0 && jobTarget > 0
-                                      ? Math.round((totalRealCostForJob / (1 - jobTarget / 100)) * 100) / 100
-                                      : 0;
-                                    const requiredLineTotal = totalRealCostForJob > 0
-                                      ? Math.round((computedItemCost / totalRealCostForJob * totalRequiredSellingForJob) * 100) / 100
-                                      : 0;
-                                    const requiredGP = requiredLineTotal - computedItemCost;
-                                    const newUnitPrice = item.quantity > 0 ? requiredLineTotal / item.quantity : 0;
-                                    updateBidItem(item.id, "unitPrice", newUnitPrice);
+                                    // Set the top line price to break-even cost (cost ÷ qty) and re-link it to
+                                    // cost (clear any manual override). The marked-up bid is shown in the summary.
+                                    if (!hasCosts || computedItemCost <= 0 || item.quantity <= 0) return;
+                                    updateBidItem(item.id, "unitPrice", computedItemCost / item.quantity);
+                                    updateBidItem(item.id, "priceOverridden", false);
                                     setLineTotalEdits(prev => {
                                       const { [item.id]: _, ...rest } = prev;
                                       return rest;
                                     });
-                                    setCostingTargetResult(prev => ({
-                                      ...prev,
-                                      [item.id]: {requiredLineTotal, requiredGP, target: jobTarget}
-                                    }));
                                   }}
-                                  disabled={isReadOnly || !estimate.workTypeName || targetMargin <= 0 || !hasCosts || computedItemCost <= 0}
+                                  disabled={isReadOnly || !hasCosts || computedItemCost <= 0 || item.quantity <= 0}
                                 >
-                                  Apply Target Margin
+                                  Use break-even cost
                                 </Button>
                                 <Select value="" onValueChange={(val) => { if (val) addCrewToLine(item, val); }} disabled={isReadOnly}>
                                   <SelectTrigger className="h-6 px-2 text-xs w-auto gap-1">
@@ -3476,9 +3494,9 @@ export default function ProjectPricerPage() {
 
           {/* Running Total Revenue at the bottom of the table — classic paper feel */}
           <div className="border-t bg-muted/40 px-4 py-3 flex items-center justify-between">
-            <div className="text-sm font-medium tracking-wide text-muted-foreground">TOTAL REVENUE (YOUR BID)</div>
+            <div className="text-sm font-medium tracking-wide text-muted-foreground">TOTAL REVENUE (RECOMMENDED BID)</div>
             <div className="text-3xl font-semibold tabular-nums tracking-tighter">
-              ${formatMoney(totalRevenue)}
+              ${formatMoney(eppSellingPrice)}
             </div>
           </div>
 
