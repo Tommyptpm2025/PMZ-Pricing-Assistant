@@ -917,6 +917,17 @@ export default function ProjectPricerPage() {
     return Math.round((lC + eC + mC + miscC + crewC) * 100) / 100;
   }
 
+  // Customer-facing marked-up unit price for a bid line (break-even cost ÷ (1 − target margin),
+  // per unit). Cost-derived (matches the on-screen RECOMMENDED BID), so a manual top-price override
+  // does not change the customer price. Falls back to cost when no target margin is set.
+  function customerUnitPrice(item: any): number {
+    const qty = item.quantity || 0;
+    if (qty <= 0) return 0;
+    const cost = lineBreakEvenCost(item);
+    const marked = (targetMargin > 0 && targetMargin < 100) ? cost / (1 - targetMargin / 100) : cost;
+    return marked / qty;
+  }
+
   // Default GP% for Pro view: the target from work type tier (based on current bid total), or 20% if none selected
   const defaultTargetGP = targetMargin > 0 ? targetMargin : 20;
 
@@ -1357,18 +1368,22 @@ export default function ProjectPricerPage() {
       let directCogsDollars = 0;
       let indirectCogsDollars = 0;
 
+      // EPP marked-up recommended bid (cost ÷ (1 − target margin)) — the customer-facing total.
+      const eppMarkedUpBid = (targetMargin > 0 && targetMargin < 100)
+        ? Math.round((eppRealCost / (1 - targetMargin / 100)) * 100) / 100
+        : eppRealCost;
+
       if (quoteType === "EPP") {
         eppLines = estimate.bidItems.map((item): LineItem => ({
           id: item.id,
           description: item.description,
           quantity: item.quantity,
           unit: item.unit,
-          unitPrice: item.unitPrice,
+          unitPrice: customerUnitPrice(item), // customer price (marked-up), not break-even cost
         }));
         proLems = [];
-        // For EPP (revenue-only), record basic cogs using target margin as proxy (no real LEM)
-        const eppCogs = totalRevenue * (1 - (targetMargin || 0) / 100);
-        directCogsDollars = eppCogs;
+        // EPP cost = the real break-even cost; revenue = the marked-up bid (applied below).
+        directCogsDollars = eppRealCost;
         indirectCogsDollars = 0;
       } else {
         eppLines = [];
@@ -1405,6 +1420,11 @@ export default function ProjectPricerPage() {
         finalGrossProfitPercent = editableGrossProfitPercent > 0 ? editableGrossProfitPercent : currentGPPercent;
         finalGrossProfitAmount = computedGrossProfit;
         finalGrandTotal = realTotalLEM + finalGrossProfitAmount;
+      } else {
+        // EPP: customer total = marked-up recommended bid; GP = bid − break-even cost.
+        finalGrandTotal = eppMarkedUpBid;
+        finalGrossProfitAmount = eppMarkedUpBid - eppRealCost;
+        finalGrossProfitPercent = eppMarkedUpBid > 0 ? ((eppMarkedUpBid - eppRealCost) / eppMarkedUpBid) * 100 : 0;
       }
 
       // Capture customer from the controlled Customer selector state (selectedCustomerId + selectedCustomerName)
@@ -1450,7 +1470,7 @@ export default function ProjectPricerPage() {
         proLemItems: proLems,
         targetGpPercent: targetMargin,
         targetGpSource,
-        totalRevenue,
+        totalRevenue: quoteType === "EPP" ? eppMarkedUpBid : totalRevenue,
         directCogsDollars,
         indirectCogsDollars,
         grossProfitDollars: finalGrossProfitAmount,
@@ -1604,7 +1624,10 @@ export default function ProjectPricerPage() {
       showAccessNotes,
       showGPS,
     };
-    pdf(<QuotePDF estimate={estimate} {...opts} />).toBlob().then((blob) => {
+    // Customer PDF shows the marked-up recommended bid: feed QuotePDF bid items whose unitPrice is
+    // the customer price (its internal qty × unitPrice then yields the bid, not the break-even cost).
+    const pdfEstimate = { ...estimate, bidItems: (estimate.bidItems || []).map((it: any) => ({ ...it, unitPrice: customerUnitPrice(it) })) };
+    pdf(<QuotePDF estimate={pdfEstimate} {...opts} />).toBlob().then((blob) => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1712,7 +1735,8 @@ export default function ProjectPricerPage() {
     const bidItems = s.bidItems || estimate.bidItems || [];
     const lineItems = bidItems.map((item: any) => {
       const qty = Number(item.quantity || 0);
-      const unitPrice = Number(item.unitPrice || 0);
+      // Customer document shows the marked-up recommended bid, not the break-even cost (item.unitPrice).
+      const unitPrice = customerUnitPrice(item);
       const lineTotal = qty * unitPrice;
       return {
         description: item.description || "—",
