@@ -152,8 +152,16 @@ export default function CustomersPage() {
     // Build job site address: copy from billing if same, else use provided
     let jobSiteAddress: any = undefined;
     if (form.sameAsBilling) {
-      // copy billing
-      jobSiteAddress = { ...billingAddress };
+      // Address copies billing, but preserve any job-only extras (GPS / access notes) so a
+      // same-as-billing save never silently drops them.
+      const lat = form.jobLatitude.trim() ? parseFloat(form.jobLatitude.trim()) : undefined;
+      const lng = form.jobLongitude.trim() ? parseFloat(form.jobLongitude.trim()) : undefined;
+      jobSiteAddress = {
+        ...billingAddress,
+        latitude: !isNaN(lat as number) ? lat : undefined,
+        longitude: !isNaN(lng as number) ? lng : undefined,
+        accessNotes: form.jobAccessNotes.trim() || undefined,
+      };
     } else {
       const lat = form.jobLatitude.trim() ? parseFloat(form.jobLatitude.trim()) : undefined;
       const lng = form.jobLongitude.trim() ? parseFloat(form.jobLongitude.trim()) : undefined;
@@ -231,7 +239,11 @@ export default function CustomersPage() {
         (billing.city || "") === (job.city || "") &&
         (billing.state || "") === (job.state || "") &&
         (billing.zip || "") === (job.zip || "") );
-    const sameAsBilling = addressesMatch;
+    // Job-only extras (GPS / access notes) have no billing equivalent, so the record is NOT purely
+    // "same as billing" — force the job-site section open so those fields stay visible (and aren't
+    // hidden and then dropped on the next save).
+    const hasJobExtras = job.latitude != null || job.longitude != null || !!job.accessNotes;
+    const sameAsBilling = addressesMatch && !hasJobExtras;
 
     setForm({
       name: customer.name,
