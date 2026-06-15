@@ -35,6 +35,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
 import QuotePreview from "./QuotePreview";
@@ -182,6 +183,31 @@ function formatMoney(amount: number | undefined | null): string {
   });
 }
 
+// Customer-facing rounding (presentation/export only — never touches saved/internal economics).
+// Round line totals to the nearest QUOTE_ROUND_TO dollars; the grand total sums the ROUNDED lines.
+const QUOTE_ROUND_TO = 1; // 1 = whole dollars; can become 5 / 25 later
+function roundToQuote(amount: number): number {
+  const step = QUOTE_ROUND_TO > 0 ? QUOTE_ROUND_TO : 1;
+  return Math.round((amount || 0) / step) * step;
+}
+// Whole-dollar formatter (no cents) for customer-facing line/grand totals.
+function formatWhole(amount: number | undefined | null): string {
+  if (amount === undefined || amount === null || isNaN(amount)) return "0";
+  return Number(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+// Format a customer address object into non-empty display lines (street, street2, "City, ST ZIP").
+function formatAddressLines(addr: any): string[] {
+  if (!addr) return [];
+  if (typeof addr === "string") return addr.trim() ? [addr.trim()] : [];
+  const cityStateZip = [
+    [addr.city, addr.state].filter(Boolean).join(", "),
+    addr.zip,
+  ].filter(Boolean).join(" ");
+  return [addr.street, addr.street2, cityStateZip]
+    .map((l) => (l || "").toString().trim())
+    .filter(Boolean);
+}
+
 // --- Independent save helpers for EPP and Pro (using separate localStorage keys) ---
 
 function saveEPPQuote(data: {
@@ -321,9 +347,17 @@ export default function ProjectPricerPage() {
   });
 
   const currentCustomer = React.useMemo(() => {
+    // The customer Select is keyed by NAME (it stores estimate.customerName, not an id), so resolve
+    // by id first, then fall back to matching the record by name — otherwise the full record (address
+    // + contact) never reaches the quote and only the bare name shows.
     const id = selectedCustomerId || estimate.customerId;
-    return customers.find((c: any) => c.id === id) || null;
-  }, [customers, selectedCustomerId, estimate.customerId]);
+    const name = (selectedCustomerName || estimate.customerName || "").trim().toLowerCase();
+    return (
+      (id ? customers.find((c: any) => c.id === id) : null) ||
+      (name ? customers.find((c: any) => (c.name || "").trim().toLowerCase() === name) : null) ||
+      null
+    );
+  }, [customers, selectedCustomerId, estimate.customerId, selectedCustomerName, estimate.customerName]);
 
   // For the educational "See True Job Costs" dialog (kept for links)
   const [showCostDialog, setShowCostDialog] = React.useState(false);
@@ -1729,6 +1763,40 @@ export default function ProjectPricerPage() {
   const eppTargetPercent = targetMargin; // from selected Work Type tier for current job size, or 0
   const eppOnTarget = eppGrossProfitPercent >= eppTargetPercent;
 
+  // Single normalized customer block used by BOTH the on-screen preview and the PDF, built from the
+  // selected customer record. "Same as billing" is derived (no persisted flag): the saved jobSite is a
+  // copy of billing when same. Empty fields stay empty (callers suppress empty blocks). Internal-only
+  // `notes` is deliberately never included.
+  function buildCustomerBlock() {
+    const c: any = currentCustomer || {};
+    const billing = c.billingAddress || {};
+    const job = c.jobSiteAddress || {};
+    const hasJob = !!(job.street || job.street2 || job.city || job.state || job.zip || job.accessNotes || job.latitude != null || job.longitude != null);
+    const jobSiteSameAsBilling = !hasJob || (
+      (billing.street || "") === (job.street || "") &&
+      (billing.street2 || "") === (job.street2 || "") &&
+      (billing.city || "") === (job.city || "") &&
+      (billing.state || "") === (job.state || "") &&
+      (billing.zip || "") === (job.zip || "")
+    );
+    const block = {
+      name: c.name || estimate.customerName || "",
+      billToLines: formatAddressLines(billing),
+      jobSiteSameAsBilling,
+      jobSiteLines: jobSiteSameAsBilling ? formatAddressLines(billing) : formatAddressLines(job),
+      contact: {
+        name: c.contactName || "",
+        title: c.title || "",
+        phone: c.phone || "",
+        mobile: c.mobile || "",
+        email: c.email || "",
+      },
+      accessNotes: job.accessNotes || "",
+      gps: (job.latitude != null && job.longitude != null) ? `${job.latitude}, ${job.longitude}` : "",
+    };
+    return block;
+  }
+
   // Shared adapter: turns EPP estimate data into the normalized quote shape for QuotePreview
   const buildQuoteData = (source: any) => {
     const s = source || {};
@@ -1736,8 +1804,9 @@ export default function ProjectPricerPage() {
     const lineItems = bidItems.map((item: any) => {
       const qty = Number(item.quantity || 0);
       // Customer document shows the marked-up recommended bid, not the break-even cost (item.unitPrice).
-      const unitPrice = customerUnitPrice(item);
-      const lineTotal = qty * unitPrice;
+      // Round the line total for the customer document (presentation only). Per-unit = rounded total / qty.
+      const lineTotal = roundToQuote(qty * customerUnitPrice(item));
+      const unitPrice = qty > 0 ? lineTotal / qty : customerUnitPrice(item);
       return {
         description: item.description || "—",
         qty,
@@ -1746,31 +1815,11 @@ export default function ProjectPricerPage() {
         lineTotal,
       };
     });
+    // Grand total = sum of the ROUNDED line totals, so the printed document always foots.
     const total = lineItems.reduce((sum: number, li: any) => sum + li.lineTotal, 0);
-    const cust = currentCustomer || {};
-    const billAddr = cust.billingAddress || s.billingAddress || estimate.billingAddress || "";
-    const jobAddr = cust.jobSiteAddress || s.jobSiteAddress || estimate.jobSiteAddress || "";
-    const contact = {
-      name: cust.contactName || "",
-      phone: cust.phone || "",
-      email: cust.email || "",
-      mobile: cust.mobile || "",
-      title: cust.title || "",
-    };
-    const accessNotes = cust.jobSiteAddress?.accessNotes || "";
-    const gps = (cust.jobSiteAddress?.latitude != null && cust.jobSiteAddress?.longitude != null)
-      ? `${cust.jobSiteAddress.latitude}, ${cust.jobSiteAddress.longitude}`
-      : "";
     return {
       jobName: s.jobName || estimate.jobName || "—",
-      customer: {
-        name: cust.name || s.customerName || estimate.customerName || "—",
-        billTo: billAddr,
-        jobSite: jobAddr,
-        contact,
-        accessNotes,
-        gps,
-      },
+      customer: buildCustomerBlock(),
       workType: s.workTypeName || s.workType || estimate.workTypeName || "",
       salesperson: s.salesperson || estimate.salesperson || "",
       date: new Date().toLocaleDateString(),
@@ -1938,7 +1987,15 @@ export default function ProjectPricerPage() {
     showGPS = false,
   }: any) => {
     const items = estimate.bidItems || [];
-    const grandTotal = items.reduce((sum: number, item: any) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
+    // Rounded customer line totals (presentation only); grand total foots to their sum. item.unitPrice
+    // here is already the customer (marked-up) price — the call site feeds QuotePDF marked-up bid items.
+    const pdfLines = items.map((item: any) => {
+      const qty = item.quantity || 0;
+      const lineTotal = roundToQuote(qty * (item.unitPrice || 0));
+      const perUnit = qty > 0 ? lineTotal / qty : (item.unitPrice || 0);
+      return { description: item.description || '—', qty, unit: item.unit || '', perUnit, lineTotal };
+    });
+    const grandTotal = pdfLines.reduce((sum: number, l: any) => sum + l.lineTotal, 0);
 
     // Compute column widths dynamically
     const descWidth = '40%';
@@ -1947,14 +2004,8 @@ export default function ProjectPricerPage() {
     const priceWidth = showPerUnitPrice ? '15%' : '0%';
     const totalWidth = showLineItemPrices ? '15%' : '0%';
 
-    // Customer location for PDF
-    const billTo = estimate.billingAddress || '';
-    const jobSite = estimate.jobSiteAddress || '';
-    const addressesSame = !jobSite || (typeof billTo === 'string' && typeof jobSite === 'string' && billTo === jobSite);
-    const cust = currentCustomer || {};
-    const contactInfo = cust.contactName || cust.phone || cust.email ? `${cust.contactName || ''} ${cust.phone || cust.mobile || ''} ${cust.email || ''}`.trim() : '';
-    const access = cust.jobSiteAddress?.accessNotes || '';
-    const gps = (cust.jobSiteAddress?.latitude != null && cust.jobSiteAddress?.longitude != null) ? `${cust.jobSiteAddress.latitude}, ${cust.jobSiteAddress.longitude}` : '';
+    // Single normalized customer block (same source as the on-screen preview); never includes notes.
+    const cb = buildCustomerBlock();
 
     return (
       <Document>
@@ -1982,27 +2033,33 @@ export default function ProjectPricerPage() {
           <View style={styles.infoSection}>
             <View style={styles.infoCol}>
               <Text style={styles.infoLabel}>TO:</Text>
-              <Text style={styles.infoText}>{estimate.customerName || 'Valued Customer'}</Text>
-              {showBillTo && billTo && (
-                <Text style={styles.infoText}>{addressesSame ? '' : 'Bill To: '}{typeof billTo === 'string' ? billTo : (billTo.street || '') + (billTo.city ? ', ' + billTo.city : '')}</Text>
+              {!!cb.name && <Text style={styles.infoText}>{cb.name}</Text>}
+              {showBillTo && cb.billToLines.map((ln: string, i: number) => (
+                <Text key={`bt${i}`} style={styles.infoText}>{ln}</Text>
+              ))}
+              {showPrimaryContact && !!(cb.contact.name || cb.contact.title) && (
+                <Text style={styles.infoText}>Contact: {[cb.contact.name, cb.contact.title].filter(Boolean).join(', ')}</Text>
               )}
-              {showJobSite && jobSite && !addressesSame && (
-                <Text style={styles.infoText}>Job Site: {typeof jobSite === 'string' ? jobSite : (jobSite.street || '') + (jobSite.city ? ', ' + jobSite.city : '')}</Text>
+              {showPrimaryContact && !!cb.contact.phone && <Text style={styles.infoText}>Phone: {cb.contact.phone}</Text>}
+              {showPrimaryContact && !!cb.contact.mobile && <Text style={styles.infoText}>Mobile: {cb.contact.mobile}</Text>}
+              {showPrimaryContact && !!cb.contact.email && <Text style={styles.infoText}>Email: {cb.contact.email}</Text>}
+              {showAccessNotes && !!cb.accessNotes && (
+                <Text style={[styles.infoText, { fontSize: 8 }]}>Access: {cb.accessNotes}</Text>
               )}
-              {showPrimaryContact && contactInfo && (
-                <Text style={styles.infoText}>Contact: {contactInfo}</Text>
-              )}
-              {showAccessNotes && access && (
-                <Text style={[styles.infoText, { fontSize: 8 }]}>Access: {access}</Text>
-              )}
-              {showGPS && gps && (
-                <Text style={[styles.infoText, { fontSize: 8 }]}>GPS: {gps}</Text>
+              {showGPS && !!cb.gps && (
+                <Text style={[styles.infoText, { fontSize: 8 }]}>GPS: {cb.gps}</Text>
               )}
             </View>
             <View style={styles.infoCol}>
               <Text style={styles.infoLabel}>PROJECT:</Text>
               <Text style={styles.infoText}>{estimate.jobName || 'Project Name'}</Text>
               <Text style={styles.infoText}>Sales Rep: {estimate.salesperson || '—'}</Text>
+              {showJobSite && cb.jobSiteLines.length > 0 && (
+                <Text style={[styles.infoText, { marginTop: 4 }]}>Job Site{cb.jobSiteSameAsBilling ? ' (same as billing)' : ''}:</Text>
+              )}
+              {showJobSite && cb.jobSiteLines.map((ln: string, i: number) => (
+                <Text key={`js${i}`} style={styles.infoText}>{ln}</Text>
+              ))}
             </View>
           </View>
 
@@ -2018,18 +2075,15 @@ export default function ProjectPricerPage() {
             </View>
 
             {/* Data rows */}
-            {items.length > 0 ? items.map((item: any, idx: number) => {
-              const lt = (item.quantity || 0) * (item.unitPrice || 0);
-              return (
+            {pdfLines.length > 0 ? pdfLines.map((line: any, idx: number) => (
                 <View key={idx} style={styles.tableRow}>
-                  <Text style={[styles.tableCell, { width: descWidth }]}>{item.description || '—'}</Text>
-                  {showQuantities && <Text style={[styles.tableCell, { width: qtyWidth }]}>{item.quantity || 0}</Text>}
-                  {showUnits && <Text style={[styles.tableCell, { width: unitWidth }]}>{item.unit || ''}</Text>}
-                  {showPerUnitPrice && <Text style={[styles.tableCell, { width: priceWidth }]}>${formatMoney(item.unitPrice || 0)}</Text>}
-                  {showLineItemPrices && <Text style={[styles.tableCell, { width: totalWidth }]}>${formatMoney(lt)}</Text>}
+                  <Text style={[styles.tableCell, { width: descWidth }]}>{line.description}</Text>
+                  {showQuantities && <Text style={[styles.tableCell, { width: qtyWidth }]}>{line.qty}</Text>}
+                  {showUnits && <Text style={[styles.tableCell, { width: unitWidth }]}>{line.unit}</Text>}
+                  {showPerUnitPrice && <Text style={[styles.tableCell, { width: priceWidth }]}>${formatMoney(line.perUnit)}</Text>}
+                  {showLineItemPrices && <Text style={[styles.tableCell, { width: totalWidth }]}>${formatWhole(line.lineTotal)}</Text>}
                 </View>
-              );
-            }) : (
+            )) : (
               <View style={styles.tableRow}>
                 <Text style={[styles.tableCell, { width: '100%' }]}>No line items</Text>
               </View>
@@ -2039,7 +2093,7 @@ export default function ProjectPricerPage() {
           {/* Grand Total */}
           <View style={styles.totalRow}>
             <Text style={[styles.totalLabel, { width: '70%' }]}>TOTAL</Text>
-            <Text style={[styles.totalValue, { width: '30%' }]}>${formatMoney(grandTotal)}</Text>
+            <Text style={[styles.totalValue, { width: '30%' }]}>${formatWhole(grandTotal)}</Text>
           </View>
 
           <Text style={styles.footer}>
@@ -2152,7 +2206,14 @@ export default function ProjectPricerPage() {
               <Label className="text-xs font-medium tracking-wider text-muted-foreground">CUSTOMER</Label>
               <Select
                 value={estimate.customerName || ""}
-                onValueChange={(val) => updateEstimate({ customerName: val })}
+                onValueChange={(val) => {
+                  // Capture the selected record's id (the dropdown is keyed by name) so currentCustomer
+                  // resolves the FULL record by id — otherwise only the bare name reaches the quote.
+                  const match = customers.find((c: any) => (c.name || "") === val);
+                  setSelectedCustomerId(match?.id || null);
+                  setSelectedCustomerName(val);
+                  updateEstimate({ customerName: val, customerId: match?.id || "" });
+                }}
               >
                 <SelectTrigger className={cn(
                   "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]",
@@ -3611,6 +3672,7 @@ export default function ProjectPricerPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-lg">Update Export</DialogTitle>
+            <DialogDescription>Choose what appears on the customer quote and PDF.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {/* Logo upload (simple, for PDF) */}
