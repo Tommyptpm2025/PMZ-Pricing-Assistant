@@ -2873,7 +2873,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={rate || ""}
                                           onChange={(e) => {
-                                            const r = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const r = Math.round(Math.max(0, parseFloat(e.target.value) || 0) * 100) / 100;
                                             const current = [...(item.laborEntries || [])];
                                             current[idx] = { ...current[idx], rate: r };
                                             updateBidItem(item.id, "laborEntries", current);
@@ -3071,7 +3071,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={rate || ""}
                                           onChange={(e) => {
-                                            const r = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const r = Math.round(Math.max(0, parseFloat(e.target.value) || 0) * 100) / 100;
                                             const current = [...(item.equipmentEntries || [])];
                                             current[idx] = { ...current[idx], rate: r };
                                             updateBidItem(item.id, "equipmentEntries", current);
@@ -3271,7 +3271,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={rate || ""}
                                           onChange={(e) => {
-                                            const r = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const r = Math.round(Math.max(0, parseFloat(e.target.value) || 0) * 100) / 100;
                                             const current = [...(item.materialEntries || [])];
                                             current[idx] = { ...current[idx], rate: r };
                                             updateBidItem(item.id, "materialEntries", current);
@@ -3494,7 +3494,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={rate || ""}
                                           onChange={(e) => {
-                                            const r = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const r = Math.round(Math.max(0, parseFloat(e.target.value) || 0) * 100) / 100;
                                             const current = [...(item.miscellaneousEntries || [])];
                                             current[idx] = { ...current[idx], rate: r };
                                             updateBidItem(item.id, "miscellaneousEntries", current);

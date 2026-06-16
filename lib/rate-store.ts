@@ -257,14 +257,14 @@ export function useRateStore() {
       const hours = profile.estimatedHours || profile.actualHours || 1000;
       const dep = Math.max(0, (profile.startingValue || 0) - (profile.endingValue || 0));
       const totalAnnual = dep + ownershipAnnual + operatingAnnual;
-      return totalAnnual / Math.max(1, hours);
+      return Math.round((totalAnnual / Math.max(1, hours)) * 100) / 100;
     } catch { return 0; }
   };
 
   const getMaterialCostPerUnit = (id: string): number => {
     const profile = materialRates.find((m) => m.id === id);
     if (!profile) return 0;
-    return (profile.baseCost || 0) + (profile.deliveryCost || 0);
+    return Math.round(((profile.baseCost || 0) + (profile.deliveryCost || 0)) * 100) / 100;
   };
 
   return {
