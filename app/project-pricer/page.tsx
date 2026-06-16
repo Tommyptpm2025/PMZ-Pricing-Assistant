@@ -172,6 +172,12 @@ const COMMON_UNITS = [
 
 const SALESPERSON_OPTIONS = ["Owner", "Scott Sinnott", "Mike Johnson", "Alex Rivera"];
 
+// Per-line costing grid — column widths MIRROR the EPP line-item table above (see the <TableHead>
+// widths) so qty lands under QUANTITY and rate under UNIT PRICE, including the empty UNIT cell
+// between them. Keep these in sync with the table:
+//   name(flex)=Description | 7rem=Quantity(w-28) | 5rem=Unit(w-20) | 9rem=Unit Price(w-36) | 9rem=Line Total(w-36) | 6rem=Actions(w-24)
+const LEM_GRID = "grid grid-cols-[minmax(0,1fr)_7rem_5rem_9rem_9rem_6rem] gap-0 items-center mb-1";
+
 // Consistent currency formatter: always exactly 2 decimal places + thousands separators
 function formatMoney(amount: number | undefined | null): string {
   if (amount === undefined || amount === null || isNaN(amount)) {
@@ -2345,10 +2351,10 @@ export default function ProjectPricerPage() {
               <TableHeader>
                 <TableRow className="bg-muted/30">
                   <TableHead className="min-w-[300px]">Description</TableHead>
-                  <TableHead className="w-24 text-right">Quantity</TableHead>
+                  <TableHead className="w-28 text-right">Quantity</TableHead>
                   <TableHead className="w-20">Unit</TableHead>
-                  <TableHead className="w-28 text-right">Unit Price</TableHead>
-                  <TableHead className="w-32 text-right">Line Total</TableHead>
+                  <TableHead className="w-36 text-right">Unit Price</TableHead>
+                  <TableHead className="w-36 text-right">Line Total</TableHead>
                   <TableHead className="w-24"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -2496,7 +2502,7 @@ export default function ProjectPricerPage() {
                                 return rest;
                               });
                             }}
-                            wrapperClassName="h-11 w-28"
+                            wrapperClassName="h-11 w-36"
                             className="text-base font-mono"
                             disabled={isReadOnly}
                           />
@@ -2533,7 +2539,7 @@ export default function ProjectPricerPage() {
                                   return rest;
                                 });
                               }}
-                              className="h-11 w-24 text-right text-base tabular-nums font-mono border-0 bg-transparent focus-visible:bg-white focus-visible:border focus-visible:border-border px-1"
+                              className="h-11 w-32 text-right text-base tabular-nums font-mono border-0 bg-transparent focus-visible:bg-white focus-visible:border focus-visible:border-border px-1"
                               placeholder="0.00"
                               disabled={isReadOnly}
                             />
@@ -2565,7 +2571,7 @@ export default function ProjectPricerPage() {
                       {isDetailsOpen && (
                         <TableRow>
                           <TableCell colSpan={6} className="p-0 bg-muted/5 dark:bg-muted/10">
-                            <div className="p-4 mx-2 my-0.5 border-t bg-background rounded-b w-full max-w-full overflow-x-hidden text-sm" data-panel="costing">
+                            <div className="px-2 py-4 my-0.5 border-t bg-background rounded-b w-full max-w-full overflow-x-hidden text-sm" data-panel="costing">
                               <div className="flex items-center justify-between mb-3">
                                 <div className="text-base font-semibold tracking-wider text-muted-foreground">PER-LINE REAL COSTING (EPP only — does not affect Full LEM)</div>
                                 <div className="flex items-center gap-2">
@@ -2726,11 +2732,13 @@ export default function ProjectPricerPage() {
                                     + Add
                                   </Button>
                                 </div>
-                                <div className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1 text-xs font-semibold text-muted-foreground">
+                                <div className={`${LEM_GRID} text-xs font-semibold text-muted-foreground`}>
                                   <div></div>
                                   <div className="text-center">Hours</div>
+                                  <div></div>
                                   <div className="text-center">Rate</div>
                                   <div className="text-right">Cost</div>
+                                  <div></div>
                                 </div>
                                 {(item.laborEntries || []).map((entry, idx) => {
                                   if (entry.group) return null; // grouped (crew) rows render in the crew block below
@@ -2741,7 +2749,7 @@ export default function ProjectPricerPage() {
                                       : getLaborBurdenedRate(entry.rateId || "");
                                   const entryCost = rate * (entry.hours || 0);
                                   return (
-                                    <div key={idx} className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1">
+                                    <div key={idx} className={LEM_GRID}>
                                       <Select
                                         value={entry.rateId || "none"}
                                         onValueChange={(val) => {
@@ -2783,7 +2791,7 @@ export default function ProjectPricerPage() {
                                         }}
                                         disabled={isReadOnly}
                                       >
-                                        <SelectTrigger className="h-8 text-lg">
+                                        <SelectTrigger className="h-8 text-lg w-full">
                                           <SelectValue placeholder="Select labor rate" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2801,7 +2809,7 @@ export default function ProjectPricerPage() {
                                           )}
                                         </SelectContent>
                                       </Select>
-                                        <div className="flex items-center gap-1">
+                                        <div className="contents">
                                         <Input
                                           type="number"
                                           value={entry.hours || ""}
@@ -2852,14 +2860,15 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-full text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.25"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
-                                        <span className="text-sm text-muted-foreground">hrs</span>
                                         </div>
-                                        <div className="flex items-center gap-1">
+                                        <div></div>
+                                        <div className="flex items-center gap-0.5">
+                                        <span className="text-sm text-muted-foreground select-none">$</span>
                                         <Input
                                           type="number"
                                           value={rate || ""}
@@ -2903,16 +2912,17 @@ export default function ProjectPricerPage() {
                                               }
                                             }
                                           }}
-                                          className="h-8 w-20 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-24 text-left text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.01"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
-                                        <span className="text-sm text-muted-foreground">$/hr</span>
+                                        <span className="text-sm text-muted-foreground">/hr</span>
                                         </div>
                                       <div className="text-right">
-                                        <span className="text-sm">Cost: ${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
+                                      <div></div>
                                     </div>
                                   );
                                 })}
@@ -2936,11 +2946,13 @@ export default function ProjectPricerPage() {
                                     + Add
                                   </Button>
                                 </div>
-                                <div className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1 text-xs font-semibold text-muted-foreground">
+                                <div className={`${LEM_GRID} text-xs font-semibold text-muted-foreground`}>
                                   <div></div>
                                   <div className="text-center">Hours</div>
+                                  <div></div>
                                   <div className="text-center">Rate</div>
                                   <div className="text-right">Cost</div>
+                                  <div></div>
                                 </div>
                                 {(item.equipmentEntries || []).map((entry, idx) => {
                                   if (entry.group) return null; // grouped (crew) rows render in the crew block below
@@ -2949,7 +2961,7 @@ export default function ProjectPricerPage() {
                                     : getEquipmentCostPerHour(entry.rateId || "");
                                   const entryCost = rate * (entry.hours || 0);
                                   return (
-                                    <div key={idx} className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1">
+                                    <div key={idx} className={LEM_GRID}>
                                       <Select
                                         value={entry.rateId || "none"}
                                         onValueChange={(val) => {
@@ -2979,7 +2991,7 @@ export default function ProjectPricerPage() {
                                         }}
                                         disabled={isReadOnly}
                                       >
-                                        <SelectTrigger className="h-8 text-lg">
+                                        <SelectTrigger className="h-8 text-lg w-full">
                                           <SelectValue placeholder="Select equipment" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2995,7 +3007,7 @@ export default function ProjectPricerPage() {
                                           )}
                                         </SelectContent>
                                       </Select>
-                                        <div className="flex items-center gap-1">
+                                        <div className="contents">
                                         <Input
                                           type="number"
                                           value={entry.hours || ""}
@@ -3046,14 +3058,15 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-full text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.25"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
-                                        <span className="text-sm text-muted-foreground">hrs</span>
                                         </div>
-                                        <div className="flex items-center gap-1">
+                                        <div></div>
+                                        <div className="flex items-center gap-0.5">
+                                        <span className="text-sm text-muted-foreground select-none">$</span>
                                         <Input
                                           type="number"
                                           value={rate || ""}
@@ -3097,16 +3110,17 @@ export default function ProjectPricerPage() {
                                               }
                                             }
                                           }}
-                                          className="h-8 w-20 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-24 text-left text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.01"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
-                                        <span className="text-sm text-muted-foreground">$/hr</span>
+                                        <span className="text-sm text-muted-foreground">/hr</span>
                                         </div>
                                       <div className="text-right">
-                                        <span className="text-sm">Cost: ${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
+                                      <div></div>
                                     </div>
                                   );
                                 })}
@@ -3130,11 +3144,13 @@ export default function ProjectPricerPage() {
                                     + Add
                                   </Button>
                                 </div>
-                                <div className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1 text-xs font-semibold text-muted-foreground">
+                                <div className={`${LEM_GRID} text-xs font-semibold text-muted-foreground`}>
                                   <div></div>
                                   <div className="text-center">Qty</div>
+                                  <div></div>
                                   <div className="text-center">Rate</div>
                                   <div className="text-right">Cost</div>
+                                  <div></div>
                                 </div>
                                 {(item.materialEntries || []).map((entry, idx) => {
                                   const matProfile = materialRates.find((m: any) => m.id === entry.rateId);
@@ -3144,7 +3160,7 @@ export default function ProjectPricerPage() {
                                     : getMaterialCostPerUnit(entry.rateId || "");
                                   const entryCost = rate * (entry.quantity || 0);
                                   return (
-                                    <div key={idx} className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1">
+                                    <div key={idx} className={LEM_GRID}>
                                       <Select
                                         value={entry.rateId || "none"}
                                         onValueChange={(val) => {
@@ -3174,7 +3190,7 @@ export default function ProjectPricerPage() {
                                         }}
                                         disabled={isReadOnly}
                                       >
-                                        <SelectTrigger className="h-8 text-lg">
+                                        <SelectTrigger className="h-8 text-lg w-full">
                                           <SelectValue placeholder="Select material" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -3190,7 +3206,7 @@ export default function ProjectPricerPage() {
                                           )}
                                         </SelectContent>
                                       </Select>
-                                        <div className="flex items-center gap-1">
+                                        <div className="flex items-center justify-end gap-1">
                                         <Input
                                           type="number"
                                           value={entry.quantity || ""}
@@ -3241,14 +3257,16 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 flex-1 min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.1"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
                                         <span className="text-sm text-muted-foreground">{unitLabel}</span>
                                         </div>
-                                        <div className="flex items-center gap-1">
+                                        <div></div>
+                                        <div className="flex items-center gap-0.5">
+                                        <span className="text-sm text-muted-foreground select-none">$</span>
                                         <Input
                                           type="number"
                                           value={rate || ""}
@@ -3292,16 +3310,17 @@ export default function ProjectPricerPage() {
                                               }
                                             }
                                           }}
-                                          className="h-8 w-20 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-24 text-left text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.01"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
-                                        <span className="text-sm text-muted-foreground">unit</span>
+                                        <span className="text-sm text-muted-foreground">/{unitLabel}</span>
                                         </div>
                                       <div className="text-right">
-                                        <span className="text-sm">Cost: ${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
+                                      <div></div>
                                     </div>
                                   );
                                 })}
@@ -3325,11 +3344,13 @@ export default function ProjectPricerPage() {
                                     + Add
                                   </Button>
                                 </div>
-                                <div className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1 text-xs font-semibold text-muted-foreground">
+                                <div className={`${LEM_GRID} text-xs font-semibold text-muted-foreground`}>
                                   <div></div>
                                   <div className="text-center">Qty</div>
+                                  <div></div>
                                   <div className="text-center">Rate</div>
                                   <div className="text-right">Cost</div>
+                                  <div></div>
                                 </div>
                                 {(item.miscellaneousEntries || []).map((entry, idx) => {
                                   const miscProfile = miscRates.find((m: any) => m.id === entry.rateId);
@@ -3337,7 +3358,7 @@ export default function ProjectPricerPage() {
                                   const rate = entry.rate != null ? entry.rate : getMiscCostPerUnit(entry.rateId || "");
                                   const entryCost = rate * (entry.quantity || 0);
                                   return (
-                                    <div key={idx} className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center mb-1">
+                                    <div key={idx} className={LEM_GRID}>
                                       <div className="flex flex-col">
                                         <Select
                                           value={entry.rateId || "none"}
@@ -3373,7 +3394,7 @@ export default function ProjectPricerPage() {
                                           }}
                                           disabled={isReadOnly}
                                         >
-                                          <SelectTrigger className="h-8 text-lg">
+                                          <SelectTrigger className="h-8 text-lg w-full">
                                             <SelectValue placeholder="Select misc / custom" />
                                           </SelectTrigger>
                                           <SelectContent>
@@ -3398,13 +3419,13 @@ export default function ProjectPricerPage() {
                                               current[idx] = { ...current[idx], description: d };
                                               updateBidItem(item.id, "miscellaneousEntries", current);
                                             }}
-                                            className="h-7 text-sm mt-0.5"
+                                            className="h-7 text-sm mt-2 w-48 self-start"
                                             placeholder="Free-text description"
                                             disabled={isReadOnly}
                                           />
                                         )}
                                       </div>
-                                      <div className="flex items-center gap-1">
+                                      <div className="flex items-center justify-end gap-1">
                                         <Input
                                           type="number"
                                           value={entry.quantity || ""}
@@ -3459,14 +3480,16 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 flex-1 min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.1"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
                                         <span className="text-sm text-muted-foreground">{unitLabel}</span>
                                       </div>
-                                      <div className="flex items-center gap-1">
+                                      <div></div>
+                                      <div className="flex items-center gap-0.5">
+                                        <span className="text-sm text-muted-foreground select-none">$</span>
                                         <Input
                                           type="number"
                                           value={rate || ""}
@@ -3521,16 +3544,17 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-20 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-24 text-left text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.01"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
-                                        <span className="text-sm text-muted-foreground">unit</span>
+                                        <span className="text-sm text-muted-foreground">/{unitLabel}</span>
                                       </div>
                                       <div className="text-right">
-                                        <span className="text-sm">Cost: ${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
+                                      <div></div>
                                     </div>
                                   );
                                 })}
