@@ -1755,13 +1755,14 @@ export default function ProjectPricerPage() {
   const realTrueGP = totalRevenue - realTotalLEM;
   const realGPPercent = totalRevenue > 0 ? (realTrueGP / totalRevenue) * 100 : 0;
 
-  // EPP bottom summary: Total Revenue / Estimate Total = the marked-up RECOMMENDED bid
-  // (break-even cost ÷ (1 − target margin), the Golden Formula). Actual Cost = eppRealCost (above).
-  // Note: GP here is the recommended markup, so it sits at/above target by construction.
+  // EPP bottom summary: Total Revenue / Estimate Total = the SUM OF ENTERED LINE ITEMS (totalRevenue),
+  // so the headline reflects the owner's actual bid and GP/margin are computed on real revenue vs cost.
+  // eppRecommendedBid (break-even cost ÷ (1 − target margin), the Golden Formula) is retained as
+  // secondary guidance only. Actual Cost = eppRealCost (above).
   const eppRecommendedBid = (targetMargin > 0 && targetMargin < 100)
     ? Math.round((eppRealCost / (1 - targetMargin / 100)) * 100) / 100
     : eppRealCost;
-  const eppSellingPrice = eppRecommendedBid;
+  const eppSellingPrice = totalRevenue;   // sum of entered line-item line totals
   const eppGrossProfitDollars = eppSellingPrice - eppRealCost;
   const eppGrossProfitPercent = eppSellingPrice > 0
     ? Math.round(((eppSellingPrice - eppRealCost) / eppSellingPrice * 100) * 10) / 10
@@ -3603,7 +3604,7 @@ export default function ProjectPricerPage() {
 
           {/* Running Total Revenue at the bottom of the table — classic paper feel */}
           <div className="border-t bg-muted/40 px-4 py-3 flex items-center justify-between">
-            <div className="text-sm font-medium tracking-wide text-muted-foreground">TOTAL REVENUE (RECOMMENDED BID)</div>
+            <div className="text-sm font-medium tracking-wide text-muted-foreground">TOTAL REVENUE</div>
             <div className="text-3xl font-semibold tabular-nums tracking-tighter">
               ${formatMoney(eppSellingPrice)}
             </div>
@@ -3634,6 +3635,11 @@ export default function ProjectPricerPage() {
                   <span className="tabular-nums">{eppTargetPercent.toFixed(0)}%</span>
                 </div>
               </div>
+              {eppTargetPercent > 0 && (
+                <div className="mt-1 text-center text-xs text-amber-700 dark:text-amber-300">
+                  Recommended @ {eppTargetPercent.toFixed(0)}%: <span className="tabular-nums">${formatMoney(eppRecommendedBid)}</span>
+                </div>
+              )}
             </div>
             <div
               className={cn(
