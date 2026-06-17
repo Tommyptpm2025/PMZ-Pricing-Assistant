@@ -2163,6 +2163,7 @@ export default function ProjectPricerPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-semibold tracking-[-0.02em]">Project Pricer</h1>
+              <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">PILLAR 4</Badge>
             </div>
             <p className="mt-1 text-muted-foreground">
               Build your bid the way you always have — then discover what your real costs are.
