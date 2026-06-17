@@ -716,7 +716,7 @@ export default function WorkTypesPage() {
                   />
                 </div>
 
-                {/* Pricing Tiers Editor — clean spreadsheet-style table (Pillar 3) */}
+                {/* Pricing Tiers Editor — clean spreadsheet-style table (Pillar 2) */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <Label className="text-sm font-medium">Pricing Tiers — Target GP% by Job Size</Label>
