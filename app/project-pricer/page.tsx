@@ -1534,7 +1534,7 @@ export default function ProjectPricerPage() {
     if (!eppHasItems) return;
     setIsSavingEPP(true);
     saveQuote("EPP");
-    setSaveMessage("EPP Quote saved successfully");
+    setSaveMessage("Quote saved successfully");
     // brief disable cue
     setTimeout(() => setIsSavingEPP(false), 1500);
     // auto dismiss message
@@ -2336,7 +2336,7 @@ export default function ProjectPricerPage() {
             >
               {bidItemsCollapsed ? "Expand" : "Collapse"}
             </button>
-            <div className="text-sm font-semibold tracking-[0.5px] text-muted-foreground">EPP Method (Electronic Pen and Paper method)</div>
+            <div className="text-sm font-semibold tracking-[0.5px] text-muted-foreground">Bid Worksheet</div>
           </div>
           {!isReadOnly && (
             <Button size="sm" onClick={addBidItem}>
@@ -2574,7 +2574,7 @@ export default function ProjectPricerPage() {
                           <TableCell colSpan={6} className="p-0 bg-muted/5 dark:bg-muted/10">
                             <div className="px-2 py-4 my-0.5 border-t bg-background rounded-b w-full max-w-full overflow-x-hidden text-sm" data-panel="costing">
                               <div className="flex items-center justify-between mb-3">
-                                <div className="text-base font-semibold tracking-wider text-muted-foreground">PER-LINE REAL COSTING (EPP only — does not affect Full LEM)</div>
+                                <div className="text-base font-semibold tracking-wider text-muted-foreground">PER-LINE REAL COSTING</div>
                                 <div className="flex items-center gap-2">
                                 <Select value="" onValueChange={(val) => { if (val) addCrewToLine(item, val); }} disabled={isReadOnly}>
                                   <SelectTrigger className="h-6 px-2 text-xs w-auto gap-1">
@@ -3555,7 +3555,7 @@ export default function ProjectPricerPage() {
                                   <div className="text-muted-foreground">Target: {targetMargin.toFixed(0)}%</div>
                                 )}
                               </div>
-                              <div className="text-base text-muted-foreground mt-2">Real GP% updates this EPP line item (replaces 100% assumption). Data is EPP-only.</div>
+                              <div className="text-base text-muted-foreground mt-2">Real GP% updates this line item (replaces 100% assumption).</div>
                               {/* Persistent target margin guidance — always visible (live) when costs exist, positioned after the blue note */}
                               <div className="mt-2 p-2 border border-amber-200 bg-amber-50/60 dark:bg-amber-950/60 dark:border-amber-800 rounded text-sm">
                                 {!hasEnteredCosts ? (
@@ -3702,7 +3702,7 @@ export default function ProjectPricerPage() {
                 (!eppHasItems || isReadOnly || isSavingEPP) && "opacity-60 cursor-not-allowed"
               )}
             >
-              Save EPP Quote
+              Save Quote
             </Button>
           </div>
         </Card>
