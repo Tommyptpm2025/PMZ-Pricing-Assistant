@@ -352,6 +352,11 @@ export default function ProjectPricerPage() {
     jobSiteAddress: "",
   });
 
+  // True once the persisted estimate has been loaded from localStorage on mount. Gates the persist
+  // and customer-sync effects so the initial default-empty state can never overwrite the saved
+  // worksheet (the tab-switch clearing bug). useState (not a ref) so the mount render sees `false`.
+  const [hydrated, setHydrated] = React.useState(false);
+
   const currentCustomer = React.useMemo(() => {
     // The customer Select is keyed by NAME (it stores estimate.customerName, not an id), so resolve
     // by id first, then fall back to matching the record by name — otherwise the full record (address
@@ -643,6 +648,10 @@ export default function ProjectPricerPage() {
               billingAddress: saved.billingAddress || (match ? match.billingAddress || "" : "") || "",
               jobSiteAddress: saved.jobSiteAddress || (match ? match.jobSiteAddress || "" : "") || "",
             }));
+            // Restore the controlled selector state too, so the dropdown reflects the saved customer
+            // and the customer-sync effects stay a no-op (no clobber back to empty on mount).
+            setSelectedCustomerId(qCustId);
+            setSelectedCustomerName(qCustName || null);
           } else if (qCustName) {
             // old text-based customer name only (backward compat)
             setEstimate((prev) => ({
@@ -652,6 +661,8 @@ export default function ProjectPricerPage() {
               billingAddress: saved.billingAddress || "",
               jobSiteAddress: saved.jobSiteAddress || "",
             }));
+            setSelectedCustomerId(null);
+            setSelectedCustomerName(qCustName);
           }
         }
       }
@@ -740,29 +751,34 @@ export default function ProjectPricerPage() {
         setIsReadOnly(true);
       }
     } catch {}
+    // Hydration complete — allow the persist + customer-sync effects to write from here on.
+    setHydrated(true);
   }, []);
 
   // Persist
   React.useEffect(() => {
+    if (!hydrated) return; // don't write the default-empty estimate before the saved one has loaded
     try {
       localStorage.setItem(ESTIMATE_STORAGE, JSON.stringify(estimate));
     } catch {}
-  }, [estimate]);
+  }, [estimate, hydrated]);
 
   // Sync the controlled customer selector state (selectedCustomerId + selectedCustomerName)
   // back into estimate so that dependent code (validation, saves, etc.) stays consistent.
   // Also write directly to LS for the customer fields to guarantee the selected value
   // survives even if unmount happens before a batched estimate effect.
   React.useEffect(() => {
+    if (!hydrated) return; // don't sync the null selector into estimate before the saved customer has loaded
     setEstimate((prev) => {
       if (prev.customerId !== (selectedCustomerId || "") || prev.customerName !== (selectedCustomerName || "")) {
         return { ...prev, customerId: selectedCustomerId || "", customerName: selectedCustomerName || "", billingAddress: prev.billingAddress || "", jobSiteAddress: prev.jobSiteAddress || "" };
       }
       return prev;
     });
-  }, [selectedCustomerId, selectedCustomerName]);
+  }, [selectedCustomerId, selectedCustomerName, hydrated]);
 
   React.useEffect(() => {
+    if (!hydrated) return; // don't overwrite the stored customer with the null selector before hydration
     try {
       const raw = localStorage.getItem(ESTIMATE_STORAGE);
       const curr = raw ? JSON.parse(raw) : {};
@@ -773,7 +789,7 @@ export default function ProjectPricerPage() {
         );
       }
     } catch {}
-  }, [selectedCustomerId, selectedCustomerName]);
+  }, [selectedCustomerId, selectedCustomerName, hydrated]);
 
   // Persist BID ITEMS collapsed state
   React.useEffect(() => {
