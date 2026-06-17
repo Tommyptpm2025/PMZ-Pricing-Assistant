@@ -2163,12 +2163,9 @@ export default function ProjectPricerPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-semibold tracking-[-0.02em]">Project Pricer</h1>
-              <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">
-                PILLAR 4 • LEVEL 1
-              </Badge>
             </div>
             <p className="mt-1 text-muted-foreground">
-              Digital paper &amp; pencil estimating. Build your bid the way you always have — then discover what your real costs are.
+              Build your bid the way you always have — then discover what your real costs are.
             </p>
           </div>
         </div>
@@ -4380,7 +4377,7 @@ export default function ProjectPricerPage() {
       )}
 
       <p className="text-center text-xs text-muted-foreground max-w-prose mx-auto pt-2">
-        Level 1 — Digital Paper &amp; Pencil. Build the bid first. The button above is the on-ramp to understanding your real gross profit.
+        Build the bid first. This is the path to understanding your real gross profit.
       </p>
     </div>
   );
