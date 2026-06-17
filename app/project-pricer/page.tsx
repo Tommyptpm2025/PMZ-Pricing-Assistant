@@ -3554,7 +3554,8 @@ export default function ProjectPricerPage() {
                                 {!hasEnteredCosts ? (
                                   <div className="text-muted-foreground">Enter costs above to see target price guidance.</div>
                                 ) : canShowTargetGuidance ? (
-                                  <div className="space-y-0.5">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="space-y-0.5">
                                     <div>
                                       To hit your {targetPctForGuidance.toFixed(0)}% target margin you need to sell this line for: <span className="font-semibold tabular-nums">${formatMoney(requiredLineTotalLive)}</span>
                                     </div>
@@ -3566,7 +3567,7 @@ export default function ProjectPricerPage() {
                                         <span className="text-muted-foreground">Status:</span> <span className={`font-medium ${guidanceStatusClass}`}>{guidanceStatus}</span>
                                       </div>
                                     )}
-                                    <div className="pt-1.5">
+                                    </div>
                                       <Button
                                         size="sm"
                                         variant="outline"
@@ -3589,7 +3590,6 @@ export default function ProjectPricerPage() {
                                       >
                                         Price to target margin
                                       </Button>
-                                    </div>
                                   </div>
                                 ) : (
                                   <div className="text-muted-foreground">Select a Work Type to enable target margin guidance.</div>
