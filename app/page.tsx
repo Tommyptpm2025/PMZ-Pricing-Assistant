@@ -15,7 +15,7 @@ import {
   X,
   Info,
 } from "lucide-react"
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 
 interface ToolCardProps {
   href: string
@@ -74,12 +74,17 @@ export default function OverviewPage() {
   const netProfit = grossProfit - totalOverhead
   const netProfitPercent = ((netProfit / revenue) * 100).toFixed(1)
 
+  // Gate the snapshot's localStorage reads behind a post-mount flag so SSR and the first client render
+  // both use the demo fallbacks above (no hydration mismatch); real values swap in after mount.
+  const [hydrated, setHydrated] = useState(false)
+  useEffect(() => { setHydrated(true) }, [])
+
   // Money Map snapshot data — pulls live from Project Pricer (current estimate or last saved quote) when available
   const moneyMapSnapshot = useMemo(() => {
     let currentRevenue = revenue
     let currentGpPercent = parseFloat(grossProfitPercent)
     let indirectPercent = 8 // illustrative "silent killer" % from typical bids
-    try {
+    if (hydrated) { try {
       const estRaw = localStorage.getItem("pmz_current_estimate_v1")
       if (estRaw) {
         const est = JSON.parse(estRaw)
@@ -96,7 +101,7 @@ export default function OverviewPage() {
           if (last.targetMargin) currentGpPercent = last.targetMargin
         }
       }
-    } catch {}
+    } catch {} }
     const directCogs = Math.round(currentRevenue * 0.65)
     const indirectCogs = Math.round(currentRevenue * (indirectPercent / 100))
     const gross = Math.round(currentRevenue * (currentGpPercent / 100))
@@ -116,7 +121,7 @@ export default function OverviewPage() {
       netProfit: net,
       netPercent: netPct,
     }
-  }, [revenue, grossProfitPercent])
+  }, [revenue, grossProfitPercent, hydrated])
 
   const [showMoneyMap, setShowMoneyMap] = useState(false)
   const [highlightedBucket, setHighlightedBucket] = useState<string | null>(null)
