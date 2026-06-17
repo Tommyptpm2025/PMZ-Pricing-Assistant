@@ -2576,25 +2576,6 @@ export default function ProjectPricerPage() {
                               <div className="flex items-center justify-between mb-3">
                                 <div className="text-base font-semibold tracking-wider text-muted-foreground">PER-LINE REAL COSTING (EPP only — does not affect Full LEM)</div>
                                 <div className="flex items-center gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-6 px-2 text-xs"
-                                  onClick={() => {
-                                    // Set the top line price to break-even cost (cost ÷ qty) and re-link it to
-                                    // cost (clear any manual override). The marked-up bid is shown in the summary.
-                                    if (!hasCosts || computedItemCost <= 0 || item.quantity <= 0) return;
-                                    updateBidItem(item.id, "unitPrice", computedItemCost / item.quantity);
-                                    updateBidItem(item.id, "priceOverridden", false);
-                                    setLineTotalEdits(prev => {
-                                      const { [item.id]: _, ...rest } = prev;
-                                      return rest;
-                                    });
-                                  }}
-                                  disabled={isReadOnly || !hasCosts || computedItemCost <= 0 || item.quantity <= 0}
-                                >
-                                  Use break-even cost
-                                </Button>
                                 <Select value="" onValueChange={(val) => { if (val) addCrewToLine(item, val); }} disabled={isReadOnly}>
                                   <SelectTrigger className="h-6 px-2 text-xs w-auto gap-1">
                                     <SelectValue placeholder="+ Add Crew" />
@@ -3585,6 +3566,30 @@ export default function ProjectPricerPage() {
                                         <span className="text-muted-foreground">Status:</span> <span className={`font-medium ${guidanceStatusClass}`}>{guidanceStatus}</span>
                                       </div>
                                     )}
+                                    <div className="pt-1.5">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => {
+                                          // Price this line to its target-margin total (the SAME requiredLineTotalLive shown
+                                          // above), rounding the unit price UP to the next cent so the line meets or beats
+                                          // target. priceOverridden=true so the cost-seed effect doesn't revert it to cost.
+                                          const qty = item.quantity || 0;
+                                          if (!canShowTargetGuidance || requiredLineTotalLive <= 0 || qty <= 0) return;
+                                          const newUnit = Math.ceil((requiredLineTotalLive / qty) * 100) / 100;
+                                          updateBidItem(item.id, "unitPrice", newUnit);
+                                          updateBidItem(item.id, "priceOverridden", true);
+                                          setLineTotalEdits(prev => {
+                                            const { [item.id]: _, ...rest } = prev;
+                                            return rest;
+                                          });
+                                        }}
+                                        disabled={isReadOnly || !canShowTargetGuidance || requiredLineTotalLive <= 0 || item.quantity <= 0}
+                                      >
+                                        Price to target margin
+                                      </Button>
+                                    </div>
                                   </div>
                                 ) : (
                                   <div className="text-muted-foreground">Select a Work Type to enable target margin guidance.</div>
