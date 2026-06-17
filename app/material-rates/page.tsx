@@ -176,6 +176,7 @@ export default function MaterialRateBuilder() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-semibold tracking-[-0.02em]">Material Rate Builder</h1>
+              <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">PILLAR 3</Badge>
               <Badge variant="outline" className="font-mono text-[10px] tracking-wider">LIVE</Badge>
             </div>
             <p className="mt-1 max-w-2xl text-muted-foreground">
