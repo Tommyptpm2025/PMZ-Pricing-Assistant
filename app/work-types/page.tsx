@@ -577,10 +577,10 @@ export default function WorkTypesPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-semibold tracking-[-0.02em]">Work Types</h1>
-              <Badge variant="outline" className="font-mono text-[10px] tracking-wider">PILLAR 3</Badge>
+              <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">PILLAR 2</Badge>
             </div>
             <p className="mt-1 max-w-2xl text-muted-foreground">
-              Annual margin targets by work type and job size range. Pillar 3 of the PMZ system.
+              Annual margin targets by work type and job size range. Pillar 2 of the PMZ system.
             </p>
           </div>
         </div>
