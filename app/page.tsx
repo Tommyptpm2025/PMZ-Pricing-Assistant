@@ -276,6 +276,42 @@ export default function OverviewPage() {
         </CardContent>
       </Card>
 
+      {/* Four Pillars of Profit — reference legend / key for the pillar-badged tools below */}
+      <section>
+        <h2 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-1">The Four Pillars of Profit</h2>
+        <p className="text-sm text-muted-foreground mb-4">Every tool below is built on one of these four.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="card h-full">
+            <CardContent className="p-4">
+              <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">PILLAR 1</Badge>
+              <div className="mt-2.5 font-medium tracking-[-0.01em]">North Star</div>
+              <p className="mt-1 text-[13px] leading-snug text-muted-foreground">Your overhead and your profit target: what you must clear and what you aim to keep.</p>
+            </CardContent>
+          </Card>
+          <Card className="card h-full">
+            <CardContent className="p-4">
+              <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">PILLAR 2</Badge>
+              <div className="mt-2.5 font-medium tracking-[-0.01em]">Revenue Filter</div>
+              <p className="mt-1 text-[13px] leading-snug text-muted-foreground">A margin target for every type of work you do.</p>
+            </CardContent>
+          </Card>
+          <Card className="card h-full">
+            <CardContent className="p-4">
+              <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">PILLAR 3</Badge>
+              <div className="mt-2.5 font-medium tracking-[-0.01em]">Hard Science</div>
+              <p className="mt-1 text-[13px] leading-snug text-muted-foreground">Your real cost to do the work: labor, equipment, and material.</p>
+            </CardContent>
+          </Card>
+          <Card className="card h-full">
+            <CardContent className="p-4">
+              <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">PILLAR 4</Badge>
+              <div className="mt-2.5 font-medium tracking-[-0.01em]">The Lock</div>
+              <p className="mt-1 text-[13px] leading-snug text-muted-foreground">Hold that margin when you build the bid.</p>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
       {/* Tools grid - clean navigation */}
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-4">Your Tools</h2>
