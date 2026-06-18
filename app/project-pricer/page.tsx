@@ -951,10 +951,8 @@ export default function ProjectPricerPage() {
   // material + misc + legacy crew). Used to seed the editable top price and to total job cost.
   function lineBreakEvenCost(item: any): number {
     const lC = (item.laborEntries || []).reduce((s: number, entry: any) => {
-      const rate = (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
-        ? entry.labor.burdenedHourlyRate
-        : getLaborBurdenedRate(entry.rateId || "");
-      return s + rate * (entry.hours || 0);
+      // Live from the builder via rateId (no snapshot) so the freeze + customer price match the panel.
+      return s + getLaborBurdenedRate(entry.rateId || "") * (entry.hours || 0);
     }, 0);
     const eC = (item.equipmentEntries || []).reduce((s: number, entry: any) => {
       return s + getEquipmentCostPerHour(entry.rateId || "") * (entry.hours || 0);
@@ -963,8 +961,8 @@ export default function ProjectPricerPage() {
       return s + getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
     }, 0);
     const miscC = (item.miscellaneousEntries || []).reduce((s: number, entry: any) => {
-      const mr = entry.rate != null ? entry.rate : getMiscCostPerUnit(entry.rateId || "");
-      return s + mr * (entry.quantity || 0);
+      // Live from the builder via rateId (no snapshot) so the freeze + customer price match the panel.
+      return s + getMiscCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
     }, 0);
     const crewC = (item.crewUsages || []).reduce((s: number, usage: any) => {
       const crew = crews.find((c: any) => c.id === usage.crewId);
