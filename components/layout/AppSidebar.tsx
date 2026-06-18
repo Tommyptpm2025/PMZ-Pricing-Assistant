@@ -18,28 +18,47 @@ import {
   Menu,
   X,
   ClipboardList,
+  ChevronDown,
+  ChevronRight,
+  Box,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
 interface NavItem {
-  href: string
+  href?: string
   label: string
-  icon: React.ComponentType<{ className?: string }>
+  icon?: React.ComponentType<{ className?: string }>
   emphasized?: boolean
   disabled?: boolean
+  children?: NavItem[]
 }
 
 const navItems: NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/labor-rates", label: "Labor Rates", icon: Users },
-  { href: "/equipment-rates", label: "Equipment Rates", icon: Wrench },
-  { href: "/material-rates", label: "Material Rates", icon: Package },
+  {
+    label: "Resources",
+    icon: Wrench,
+    children: [
+      { href: "/crew-builder", label: "Crew Builder", icon: ClipboardList },
+      { href: "/labor-rates", label: "Labor Rates", icon: Users },
+      { href: "/equipment-rates", label: "Equipment Rates", icon: Wrench },
+      { href: "/material-rates", label: "Material Rates", icon: Package },
+      { href: "/miscellaneous-rates", label: "Misc. Rates", icon: Box },
+    ],
+  },
   { href: "/work-types", label: "Work Types", icon: Tags },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/overhead-profit", label: "Overhead & Profit", icon: Calculator },
-  { href: "/project-pricer", label: "Project Pricer", icon: TrendingUp, emphasized: true },
-  { href: "/quotes", label: "Quotes", icon: FileText },
+  {
+    label: "Quotes",
+    icon: FileText,
+    children: [
+      { href: "/project-pricer", label: "Project Pricer", icon: TrendingUp, emphasized: true },
+      { href: "/terms", label: "Terms & Conditions", icon: FileText },
+      { href: "/quotes", label: "Saved Quotes", icon: FileText },
+    ],
+  },
   { href: "/jobs", label: "Jobs / Foreman", icon: ClipboardList },
   { href: "/sales-tracker", label: "Sales Tracker", icon: BarChart3 },
   { href: "/reports", label: "Reports", icon: FileText, disabled: true },
@@ -53,6 +72,18 @@ interface SidebarContentProps {
 function SidebarContent({ onNavigate }: SidebarContentProps) {
   const pathname = usePathname()
   const hideBrand = pathname === '/project-pricer'
+
+  const [expandedGroups, setExpandedGroups] = React.useState<Record<string, boolean>>({
+    Quotes: true, // default expanded
+    Resources: true, // default expanded
+  })
+
+  const toggleGroup = (label: string) => {
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [label]: !prev[label],
+    }))
+  }
 
   return (
     <div className="flex h-full flex-col sidebar">
@@ -74,35 +105,88 @@ function SidebarContent({ onNavigate }: SidebarContentProps) {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {navItems.map((item) => {
-          const Icon = item.icon
-          const isActive = pathname === item.href
-          const isDisabled = item.disabled
-
-          return (
-            <Link
-              key={item.href}
-              href={isDisabled ? "#" : item.href}
-              onClick={isDisabled ? (e) => e.preventDefault() : onNavigate}
-              className={cn(
-                "sidebar-link group",
-                isActive && "active",
-                isDisabled && "opacity-40 cursor-not-allowed pointer-events-none",
-                item.emphasized && !isActive && "text-primary hover:text-white"
-              )}
-              aria-disabled={isDisabled}
-            >
-              <Icon className="shrink-0" />
-              <span className="truncate">{item.label}</span>
-              {item.emphasized && (
-                <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white/10 text-white/70 group-hover:bg-white/20">
-                  KEY
-                </span>
-              )}
-              {isDisabled && (
-                <span className="ml-auto text-[10px] text-white/40">Soon</span>
-              )}
-            </Link>
-          )
+          if (item.children && item.children.length > 0) {
+            const isExpanded = expandedGroups[item.label] ?? false
+            const hasActiveChild = item.children.some((child) => pathname === child.href)
+            const GroupIcon = item.icon || FileText
+            return (
+              <div key={item.label} className="space-y-1">
+                <button
+                  onClick={() => toggleGroup(item.label)}
+                  className={cn(
+                    "sidebar-link group w-full text-left flex items-center",
+                    hasActiveChild && "active",
+                  )}
+                >
+                  <GroupIcon className="shrink-0" />
+                  <span>{item.label}</span>
+                  <span className="ml-auto">
+                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </span>
+                </button>
+                {isExpanded &&
+                  item.children.map((child) => {
+                    const ChildIcon = child.icon
+                    const isActive = pathname === child.href
+                    const isDisabled = child.disabled
+                    return (
+                      <Link
+                        key={child.href}
+                        href={isDisabled ? "#" : child.href!}
+                        onClick={isDisabled ? (e) => e.preventDefault() : onNavigate}
+                        className={cn(
+                          "sidebar-link group nav-child",
+                          isActive && "active",
+                          isDisabled && "opacity-40 cursor-not-allowed pointer-events-none",
+                          child.emphasized && !isActive && "text-primary hover:text-white"
+                        )}
+                        aria-disabled={isDisabled}
+                      >
+                        <ChildIcon className="shrink-0" />
+                        <span>{child.label}</span>
+                        {child.emphasized && !isActive && (
+                          <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white/10 text-white/70 group-hover:bg-white/20">
+                            KEY
+                          </span>
+                        )}
+                        {isDisabled && (
+                          <span className="ml-auto text-[10px] text-white/40">Soon</span>
+                        )}
+                      </Link>
+                    )
+                  })}
+              </div>
+            )
+          } else {
+            const Icon = item.icon
+            const isActive = pathname === item.href
+            const isDisabled = item.disabled
+            return (
+              <Link
+                key={item.href}
+                href={isDisabled ? "#" : item.href!}
+                onClick={isDisabled ? (e) => e.preventDefault() : onNavigate}
+                className={cn(
+                  "sidebar-link group",
+                  isActive && "active",
+                  isDisabled && "opacity-40 cursor-not-allowed pointer-events-none",
+                  item.emphasized && !isActive && "text-primary hover:text-white"
+                )}
+                aria-disabled={isDisabled}
+              >
+                <Icon className="shrink-0" />
+                <span>{item.label}</span>
+                {item.emphasized && !isActive && (
+                  <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white/10 text-white/70 group-hover:bg-white/20">
+                    KEY
+                  </span>
+                )}
+                {isDisabled && (
+                  <span className="ml-auto text-[10px] text-white/40">Soon</span>
+                )}
+              </Link>
+            )
+          }
         })}
       </nav>
 

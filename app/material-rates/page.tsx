@@ -297,7 +297,7 @@ export default function MaterialRateBuilder() {
                     id="mgrDescription"
                     value={inputs.description}
                     onChange={(e) => updateField("description", e.target.value)}
-                    className="mt-1.5 text-base font-semibold"
+                    className="mt-1.5 h-10 rounded-md border border-border bg-background text-base font-semibold"
                     placeholder="Concrete - 4000 PSI"
                   />
                 </div>
@@ -308,7 +308,7 @@ export default function MaterialRateBuilder() {
                     id="mgrNotes"
                     value={inputs.notes || ""}
                     onChange={(e) => updateField("notes", e.target.value)}
-                    className="mt-1.5"
+                    className="mt-1.5 h-10 rounded-md border border-border bg-background"
                     placeholder="Lead time, minimum order, delivery radius..."
                   />
                 </div>
@@ -385,124 +385,122 @@ export default function MaterialRateBuilder() {
           </div>
         )}
 
-        {/* MAIN CALCULATOR - Rate Builder content */}
-        <div className="grid gap-6 xl:grid-cols-12">
-          {/* LEFT COLUMN - Inputs */}
-          <div className="xl:col-span-7 space-y-6">
-            <Card className="card">
-              <CardHeader className="pb-4">
-                <CardTitle className="text-xl">Material Details</CardTitle>
-                <CardDescription>
-                  Enter the true supplier cost. Landed cost updates instantly with no markup.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-5 sm:grid-cols-2">
-                  {/* Unit of Measure */}
-                  <div>
-                    <Label htmlFor="unitOfMeasure" className="text-sm">Unit of Measure (UOM)</Label>
-                    <select
-                      id="unitOfMeasure"
-                      value={inputs.unitOfMeasure}
-                      onChange={(e) => updateField("unitOfMeasure", e.target.value)}
-                      className="mt-1.5 w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {UOM_OPTIONS.map((uom) => (
-                        <option key={uom} value={uom}>{uom}</option>
-                      ))}
-                    </select>
-                  </div>
+        {/* MAIN CALCULATOR - Rate Builder content - now full-width form */}
+        <Card className="card">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl">Material Details</CardTitle>
+            <CardDescription>
+              Enter the true supplier cost. Landed cost updates instantly with no markup.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-5 md:grid-cols-3">
+              {/* Unit of Measure */}
+              <div>
+                <Label htmlFor="unitOfMeasure" className="text-sm">Unit of Measure (UOM)</Label>
+                <select
+                  id="unitOfMeasure"
+                  value={inputs.unitOfMeasure}
+                  onChange={(e) => updateField("unitOfMeasure", e.target.value)}
+                  className="mt-1.5 w-full h-10 rounded-md border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {UOM_OPTIONS.map((uom) => (
+                    <option key={uom} value={uom}>{uom}</option>
+                  ))}
+                </select>
+              </div>
 
-                  {/* Base Cost per UOM */}
-                  <div>
-                    <Label htmlFor="baseCost" className="text-sm">Base Cost per UOM</Label>
-                    <CurrencyInput
-                      id="baseCost"
-                      value={inputs.baseCost}
-                      onChange={(v) => updateField("baseCost", v)}
-                      unit={inputs.unitOfMeasure}
-                      className="font-semibold"
-                    />
-                  </div>
+              {/* Base Cost per UOM */}
+              <div>
+                <Label htmlFor="baseCost" className="text-sm">Base Cost per UOM</Label>
+                <CurrencyInput
+                  id="baseCost"
+                  value={inputs.baseCost}
+                  onChange={(v) => updateField("baseCost", v)}
+                  unit={inputs.unitOfMeasure}
+                  className="pl-0 text-left font-semibold"
+                  wrapperClassName="h-10 border border-border bg-background"
+                />
+              </div>
 
-                  {/* Delivery / Freight per UOM (optional) */}
-                  <div>
-                    <Label htmlFor="deliveryCost" className="text-sm">Delivery / Freight per UOM (optional)</Label>
-                    <CurrencyInput
-                      id="deliveryCost"
-                      value={inputs.deliveryCost}
-                      onChange={(v) => updateField("deliveryCost", v)}
-                      unit={inputs.unitOfMeasure}
-                      className="font-medium"
-                    />
-                    <p className="mt-1 text-[11px] text-muted-foreground">Freight, fuel surcharge, or other per-unit delivery cost.</p>
-                  </div>
-                </div>
+              {/* Delivery / Freight per UOM (optional) */}
+              <div>
+                <Label htmlFor="deliveryCost" className="text-sm">Delivery / Freight per UOM (optional)</Label>
+                <CurrencyInput
+                  id="deliveryCost"
+                  value={inputs.deliveryCost}
+                  onChange={(v) => updateField("deliveryCost", v)}
+                  unit={inputs.unitOfMeasure}
+                  className="pl-0 text-left font-medium"
+                  wrapperClassName="h-10 border border-border bg-background"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">Freight, fuel surcharge, or other per-unit delivery cost.</p>
+              </div>
+            </div>
 
-                {/* Notes */}
-                <div>
-                  <Label htmlFor="notes" className="text-sm">Notes / Delivery Terms</Label>
-                  <Input
-                    id="notes"
-                    value={inputs.notes || ""}
-                    onChange={(e) => updateField("notes", e.target.value)}
-                    className="mt-1.5"
-                    placeholder="Lead time, minimum order quantity, delivery radius..."
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+            {/* Notes - full width below 3-col */}
+            <div>
+              <Label htmlFor="notes" className="text-sm">Notes / Delivery Terms</Label>
+              <Input
+                id="notes"
+                value={inputs.notes || ""}
+                onChange={(e) => updateField("notes", e.target.value)}
+                className="mt-1.5 h-10 rounded-md"
+                placeholder="Lead time, minimum order quantity, delivery radius..."
+              />
+            </div>
 
-          {/* RIGHT COLUMN - Live Landed Cost (prominent, true-cost only) */}
-          <div className="xl:col-span-5">
-            <Card className="card border-primary/30 sticky top-20 shadow-lg">
-              <CardHeader className="pb-2">
-                <div>
-                  <CardTitle className="text-sm tracking-[0.5px] text-muted-foreground">LIVE LANDED COST</CardTitle>
-                  <div className="text-xl font-semibold tracking-tight mt-0.5 truncate">{inputs.description}</div>
-                </div>
-              </CardHeader>
+            {/* Prominent Landed Cost result - inside full-width card (kept prominent) */}
+            <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-5">
+              <div className="text-xs uppercase tracking-[1px] text-primary font-semibold">LANDED / TOTAL COST PER UNIT</div>
+              <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-0.04em] text-primary mt-1">
+                {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(landedCost)}
+              </div>
+              <div className="mt-2 text-sm text-primary/90">
+                Base + Delivery per {inputs.unitOfMeasure}
+              </div>
+            </div>
 
-              <CardContent className="space-y-6 pt-2">
-                <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-5">
-                  <div className="text-xs uppercase tracking-[1px] text-primary font-semibold">LANDED / TOTAL COST PER UNIT</div>
-                  <div className="text-[56px] leading-none font-semibold tabular-nums tracking-[-0.04em] text-primary mt-1">
-                    {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(landedCost)}
-                  </div>
-                  <div className="mt-2 text-sm text-primary/90">
-                    Base + Delivery per {inputs.unitOfMeasure}
-                  </div>
-                </div>
+            <div className="text-xs text-muted-foreground">
+              This is your true cost. No markup is applied on this page.
+            </div>
 
-                <div className="text-xs text-muted-foreground">
-                  This is your true cost. No markup is applied on this page.
-                </div>
+            {/* Action buttons - Save / New-Clear kept here */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              {isEditing ? (
+                <Button onClick={updateSavedMaterial} size="lg" className="flex-1 text-base">
+                  <Save className="mr-2 h-4 w-4" /> Update Saved Material
+                </Button>
+              ) : (
+                <Button onClick={addCurrentMaterial} size="lg" className="flex-1 text-base">
+                  <Plus className="mr-2 h-4 w-4" /> Add to My Materials
+                </Button>
+              )}
+              <Button
+                onClick={isEditing ? () => setEditingId(null) : addCurrentMaterial}
+                variant="outline"
+                size="lg"
+                className="flex-1 text-base"
+              >
+                {isEditing ? "Cancel Edit" : "Save as New"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-                {/* Action buttons - exact same pattern */}
-                <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                  {isEditing ? (
-                    <Button onClick={updateSavedMaterial} size="lg" className="flex-1 text-base">
-                      <Save className="mr-2 h-4 w-4" /> Update Saved Material
-                    </Button>
-                  ) : (
-                    <Button onClick={addCurrentMaterial} size="lg" className="flex-1 text-base">
-                      <Plus className="mr-2 h-4 w-4" /> Add to My Materials
-                    </Button>
-                  )}
-                  <Button
-                    onClick={isEditing ? () => setEditingId(null) : addCurrentMaterial}
-                    variant="outline"
-                    size="lg"
-                    className="flex-1 text-base"
-                  >
-                    {isEditing ? "Cancel Edit" : "Save as New"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+        {/* How to use - full-width strip at BOTTOM (consistent with Miscellaneous Rates) */}
+        <Card className="card border-primary/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">How to use</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm space-y-2.5 text-muted-foreground">
+            <div>• Fill the fields in the form above — the landed cost updates live.</div>
+            <div>• Click <strong>Add to My Materials</strong> (or Update) to save the current profile for reuse in the Project Pricer.</div>
+            <div>• The large number is your true landed cost per unit (base + delivery). No markup or profit is added on this page.</div>
+            <div>• Use the Material Manager card (above) or the Saved Materials tab to load, edit, or duplicate saved profiles.</div>
+            <div className="pt-1 text-xs">Tip: Keep these accurate — they become the cost basis for all your project quotes.</div>
+          </CardContent>
+        </Card>
       </div> {/* End Rate Builder tab */}
 
       {/* Saved Materials tab content */}

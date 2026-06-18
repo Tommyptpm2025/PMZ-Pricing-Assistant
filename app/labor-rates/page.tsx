@@ -28,7 +28,7 @@ import {
   type LaborRateInputs,
   type LaborRateResult,
 } from "@/lib/calculations";
-import { useRateStore } from "@/lib/rate-store";
+import { useRateStore, STORAGE_EVENT } from "@/lib/rate-store";
 
 // Helper to generate a simple id for saved rates (kept for any local needs; store now manages persistence ids)
 function createId() {

@@ -33,8 +33,9 @@ export interface SavedMaterialProfile {
 const LABOR_KEY = 'pmz_labor_rates';
 const EQUIPMENT_KEY = 'pmz_equipment_rates';
 const MATERIAL_KEY = 'pmz_material_rates';
+const MISC_KEY = 'pmz_misc_rates';
 
-const STORAGE_EVENT = 'pmz-rates-updated';
+export const STORAGE_EVENT = 'pmz-rates-updated';
 
 // Stable unique ID generator (crypto.randomUUID preferred; fallback for older envs). Never use array index.
 function generateId(): string {
@@ -48,6 +49,7 @@ export function useRateStore() {
   const [laborRates, setLaborRates] = useState<SavedLaborRate[]>([]);
   const [equipmentRates, setEquipmentRates] = useState<SavedEquipmentProfile[]>([]);
   const [materialRates, setMaterialRates] = useState<SavedMaterialProfile[]>([]);
+  const [miscRates, setMiscRates] = useState<SavedMaterialProfile[]>([]);
 
   const hasLoadedRef = useRef(false);
 
@@ -59,7 +61,10 @@ export function useRateStore() {
         const parsed = JSON.parse(raw);
         const list = Array.isArray(parsed) ? parsed : [];
         const normalized = list.map((r: any) => {
-          const norm = normalizeLaborRateInputs(r) as SavedLaborRate;
+          // Preserve the stored id (and any other saved fields) — normalize only fills in
+          // missing/defaulted rate inputs. normalizeLaborRateInputs returns a fresh object
+          // without `id`, so spread the raw record first to keep the original id stable.
+          const norm = { ...r, ...normalizeLaborRateInputs(r) } as SavedLaborRate;
           if (!norm.id || typeof norm.id !== 'string' || norm.id.trim() === '') {
             norm.id = generateId();
           }
@@ -109,6 +114,23 @@ export function useRateStore() {
       console.error('[rate-store] Error loading material rates, defaulting to []', e);
       setMaterialRates([]);
     }
+
+    // Misc - defensive, validate, default []
+    try {
+      const raw = localStorage.getItem(MISC_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const list = Array.isArray(parsed) ? parsed : [];
+        setMiscRates(list);
+        console.log('[rate-store] Loaded misc rates:', list.length);
+      } else {
+        setMiscRates([]);
+        console.log('[rate-store] No misc rates found, defaulting to []');
+      }
+    } catch (e) {
+      console.error('[rate-store] Error loading misc rates, defaulting to []', e);
+      setMiscRates([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -118,7 +140,7 @@ export function useRateStore() {
     console.log('[rate-store] Initial load from storage (guarded)');
 
     const handleStorage = (e: StorageEvent) => {
-      if (e.key && [LABOR_KEY, EQUIPMENT_KEY, MATERIAL_KEY].includes(e.key)) {
+      if (e.key && [LABOR_KEY, EQUIPMENT_KEY, MATERIAL_KEY, MISC_KEY].includes(e.key)) {
         console.log('[rate-store] storage event for key, reloading:', e.key);
         loadFromStorage();
       }
@@ -263,6 +285,44 @@ export function useRateStore() {
     return Math.round(((profile.baseCost || 0) + (profile.deliveryCost || 0)) * 100) / 100;
   };
 
+  // Misc (independent from material, same shape)
+  const saveMiscRate = (rate: Omit<SavedMaterialProfile, 'id'>) => {
+    const newRate: SavedMaterialProfile = {
+      ...rate,
+      id: generateId(),
+    };
+    const newList = [...miscRates, newRate];
+    setMiscRates(newList);
+    localStorage.setItem(MISC_KEY, JSON.stringify(newList));
+    window.dispatchEvent(new CustomEvent(STORAGE_EVENT));
+    console.log('[rate-store] saveMiscRate: wrote', newList.length, 'misc rates to', MISC_KEY);
+    return newRate.id;
+  };
+
+  const updateMiscRate = (id: string, updates: Partial<SavedMaterialProfile>) => {
+    const newList = miscRates.map((r) => (r.id === id ? { ...r, ...updates } : r));
+    setMiscRates(newList);
+    localStorage.setItem(MISC_KEY, JSON.stringify(newList));
+    window.dispatchEvent(new CustomEvent(STORAGE_EVENT));
+    console.log('[rate-store] updateMiscRate:', id);
+  };
+
+  const deleteMiscRate = (id: string) => {
+    const newList = miscRates.filter((r) => r.id !== id);
+    setMiscRates(newList);
+    localStorage.setItem(MISC_KEY, JSON.stringify(newList));
+    window.dispatchEvent(new CustomEvent(STORAGE_EVENT));
+    console.log('[rate-store] deleteMiscRate:', id);
+  };
+
+  const getMiscRates = () => miscRates;
+
+  const getMiscCostPerUnit = (id: string): number => {
+    const profile = miscRates.find((m) => m.id === id);
+    if (!profile) return 0;
+    return Math.round(((profile.baseCost || 0) + (profile.deliveryCost || 0)) * 100) / 100;
+  };
+
   return {
     laborRates,
     equipmentRates,
@@ -282,6 +342,12 @@ export function useRateStore() {
     getLaborCostPerHour,
     getEquipmentCostPerHour,
     getMaterialCostPerUnit,
+    miscRates,
+    saveMiscRate,
+    updateMiscRate,
+    deleteMiscRate,
+    getMiscRates,
+    getMiscCostPerUnit,
     reloadFromStorage,
   };
 }
