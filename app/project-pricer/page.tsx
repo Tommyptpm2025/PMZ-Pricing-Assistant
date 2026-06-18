@@ -172,11 +172,15 @@ const COMMON_UNITS = [
 
 const SALESPERSON_OPTIONS = ["Owner", "Scott Sinnott", "Mike Johnson", "Alex Rivera"];
 
-// Per-line costing grid — column widths MIRROR the EPP line-item table above (see the <TableHead>
-// widths) so qty lands under QUANTITY and rate under UNIT PRICE, including the empty UNIT cell
-// between them. Keep these in sync with the table:
-//   name(flex)=Description | 7rem=Quantity(w-28) | 5rem=Unit(w-20) | 9rem=Unit Price(w-36) | 9rem=Line Total(w-36) | 6rem=Actions(w-24)
-const LEM_GRID = "grid grid-cols-[minmax(0,1fr)_7rem_5rem_9rem_9rem_6rem] gap-0 items-center mb-1";
+// Shared 6-track template for the bid line AND the per-line costing rows. Both the bid header/rows
+// and every costing row render on THIS grid, so qty lands under QUANTITY and rate under UNIT PRICE by
+// construction (no table-cell padding / auto-layout drift).
+//   name(flex)=Description | 7rem=Quantity | 5rem=Unit | 9rem=Unit Price | 9rem=Line Total | 6rem=Actions
+const BID_GRID = "grid grid-cols-[minmax(0,1fr)_7rem_5rem_9rem_9rem_6rem] gap-0 items-center";
+// Minimum row width so the row keeps its column proportions and the wrapper scrolls on narrow screens
+// (Description min 300px + 112 + 80 + 144 + 144 + 96 = 876px).
+const BID_ROW_MINW = "min-w-[876px]";
+const LEM_GRID = `${BID_GRID} mb-1`;
 
 // Consistent currency formatter: always exactly 2 decimal places + thousands separators
 function formatMoney(amount: number | undefined | null): string {
@@ -2362,27 +2366,22 @@ export default function ProjectPricerPage() {
         {!bidItemsCollapsed && (
         <Card className="card overflow-hidden border">
           <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/30">
-                  <TableHead className="min-w-[300px]">Description</TableHead>
-                  <TableHead className="w-28 text-right">Quantity</TableHead>
-                  <TableHead className="w-20">Unit</TableHead>
-                  <TableHead className="w-36 text-right">Unit Price</TableHead>
-                  <TableHead className="w-36 text-right">Line Total</TableHead>
-                  <TableHead className="w-24"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <div>
+              <div className={`${BID_GRID} ${BID_ROW_MINW} bg-muted/30 h-10 text-sm font-medium text-foreground border-b`}>
+                <div className="px-2">Description</div>
+                <div className="px-2 text-right">Quantity</div>
+                <div className="px-2">Unit</div>
+                <div className="px-2 text-right">Unit Price</div>
+                <div className="px-2 text-right">Line Total</div>
+                <div className="px-2"></div>
+              </div>
                 {estimate.bidItems.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-28 text-center text-muted-foreground">
-                      Start writing your bid the way you do on paper. Add lines, enter quantities and your prices.
-                      <div className="mt-3">
-                        <Button size="sm" variant="outline" onClick={resetToDemo}>Load demo bid</Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  <div className={`${BID_ROW_MINW} h-28 flex flex-col items-center justify-center text-center text-muted-foreground`}>
+                    <div>Start writing your bid the way you do on paper. Add lines, enter quantities and your prices.</div>
+                    <div className="mt-3">
+                      <Button size="sm" variant="outline" onClick={resetToDemo}>Load demo bid</Button>
+                    </div>
+                  </div>
                 ) : (
                   estimate.bidItems.map((item, index) => {
                     const lineTotal = item.quantity * item.unitPrice;
@@ -2465,8 +2464,8 @@ export default function ProjectPricerPage() {
                     }
                     return (
                       <React.Fragment key={item.id || `row-${index}`}>
-                      <TableRow className="border-b last:border-0 hover:bg-muted/20">
-                        <TableCell>
+                      <div className={`${BID_GRID} ${BID_ROW_MINW} border-b last:border-0 hover:bg-muted/20`}>
+                        <div className="min-w-0">
                           <Input
                             value={item.description}
                             onFocus={() => {
@@ -2478,8 +2477,8 @@ export default function ProjectPricerPage() {
                             className="h-9 border-0 bg-transparent px-1 font-medium focus-visible:bg-white focus-visible:border focus-visible:border-border"
                             disabled={isReadOnly}
                           />
-                        </TableCell>
-                        <TableCell className="text-right">
+                        </div>
+                        <div className="text-right">
                           <Input
                             type="number"
                             value={item.quantity || ""}
@@ -2495,8 +2494,8 @@ export default function ProjectPricerPage() {
                             step="0.01"
                             disabled={isReadOnly}
                           />
-                        </TableCell>
-                        <TableCell>
+                        </div>
+                        <div>
                           <Select value={item.unit} onValueChange={(val) => updateBidItem(item.id, "unit", val)} disabled={isReadOnly}>
                             <SelectTrigger className="h-9 border-0 bg-transparent px-2 text-sm focus-visible:bg-white focus-visible:border focus-visible:border-border">
                               <SelectValue />
@@ -2505,8 +2504,8 @@ export default function ProjectPricerPage() {
                               {COMMON_UNITS.map((u) => <SelectItem key={`unit-${u}`} value={u}>{u}</SelectItem>)}
                             </SelectContent>
                           </Select>
-                        </TableCell>
-                        <TableCell className="text-right">
+                        </div>
+                        <div className="text-right">
                           <CurrencyInput
                             value={item.unitPrice}
                             onChange={(v) => {
@@ -2521,8 +2520,8 @@ export default function ProjectPricerPage() {
                             className="text-base font-mono"
                             disabled={isReadOnly}
                           />
-                        </TableCell>
-                        <TableCell className="text-right font-medium tabular-nums">
+                        </div>
+                        <div className="text-right font-medium tabular-nums">
                           <div className="flex items-center justify-end gap-0.5">
                             <span className="text-muted-foreground">$</span>
                             <input
@@ -2559,8 +2558,8 @@ export default function ProjectPricerPage() {
                               disabled={isReadOnly}
                             />
                           </div>
-                        </TableCell>
-                        <TableCell className="text-right">
+                        </div>
+                        <div className="text-right">
                           {!isReadOnly && (
                             <div className="flex items-center justify-end gap-1">
                               <Button
@@ -2581,12 +2580,12 @@ export default function ProjectPricerPage() {
                               </Button>
                             </div>
                           )}
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                      </div>
                       {isDetailsOpen && (
-                        <TableRow>
-                          <TableCell colSpan={6} className="p-0 bg-muted/5 dark:bg-muted/10">
-                            <div className="px-2 py-4 my-0.5 border-t bg-background rounded-b w-full max-w-full overflow-x-hidden text-sm" data-panel="costing">
+                        <div>
+                          <div className="bg-muted/5 dark:bg-muted/10">
+                            <div className="px-2 py-4 my-0.5 border-t bg-background rounded-b w-full max-w-full min-w-[876px] overflow-x-hidden text-sm" data-panel="costing">
                               <div className="flex items-center justify-between mb-3">
                                 <div className="text-base font-semibold tracking-wider text-muted-foreground">PER-LINE REAL COSTING</div>
                                 <div className="flex items-center gap-2">
@@ -3621,15 +3620,14 @@ export default function ProjectPricerPage() {
                                 )}
                               </div>
                             </div>
-                          </TableCell>
-                        </TableRow>
+                          </div>
+                        </div>
                       )}
                       </React.Fragment>
                     );
                   })
                 )}
-              </TableBody>
-            </Table>
+            </div>
           </div>
 
           {/* Running Total Revenue at the bottom of the table — classic paper feel */}
