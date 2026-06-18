@@ -2645,12 +2645,14 @@ export default function ProjectPricerPage() {
                                               <span className="font-medium">Crew: {crewName}</span>
                                               {!isReadOnly && (
                                                 <Button
-                                                  size="sm"
                                                   variant="ghost"
-                                                  className="h-5 px-1.5 text-xs text-destructive/70 hover:text-destructive"
+                                                  size="icon"
+                                                  className="ml-auto h-7 w-7 text-destructive/70 hover:text-destructive"
                                                   onClick={() => removeCrewGroupFromLine(item, gid)}
+                                                  title="Remove crew"
+                                                  aria-label="Remove crew"
                                                 >
-                                                  <Trash2 className="h-3 w-3 mr-1" /> Remove crew
+                                                  <Trash2 className="h-3.5 w-3.5" />
                                                 </Button>
                                               )}
                                             </div>
@@ -2884,12 +2886,14 @@ export default function ProjectPricerPage() {
                                               <span className="font-medium">Crew: {crewName}</span>
                                               {!isReadOnly && (
                                                 <Button
-                                                  size="sm"
                                                   variant="ghost"
-                                                  className="h-5 px-1.5 text-xs text-destructive/70 hover:text-destructive"
+                                                  size="icon"
+                                                  className="ml-auto h-7 w-7 text-destructive/70 hover:text-destructive"
                                                   onClick={() => removeCrewGroupFromLine(item, gid)}
+                                                  title="Remove crew"
+                                                  aria-label="Remove crew"
                                                 >
-                                                  <Trash2 className="h-3 w-3 mr-1" /> Remove crew
+                                                  <Trash2 className="h-3.5 w-3.5" />
                                                 </Button>
                                               )}
                                             </div>
