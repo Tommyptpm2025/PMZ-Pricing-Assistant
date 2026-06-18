@@ -134,6 +134,7 @@ export default function LaborRateBuilder() {
     setEditingId(rate.id);
     setSelectedId(rate.id);
     setJustSaved(false);
+    setActiveTab('builder');
     // Scroll to top of form for better UX
     window.scrollTo({ top: 120, behavior: "smooth" });
   }

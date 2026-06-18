@@ -147,6 +147,7 @@ export default function MaterialRateBuilder() {
     setEditingId(profile.id);
     setSelectedId(profile.id);
     setJustSaved(false);
+    setActiveTab('builder');
     window.scrollTo({ top: 120, behavior: "smooth" });
   }
 
