@@ -2388,10 +2388,8 @@ export default function ProjectPricerPage() {
                     const isDetailsOpen = !!eppCostingOpen[item.id];
                     // live computed costs from current rates + inputs (for panel display) — sum over multiple entries per category
                     const laborCost = (item.laborEntries || []).reduce((sum, entry) => {
-                      const rate = (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
-                        ? entry.labor.burdenedHourlyRate
-                        : getLaborBurdenedRate(entry.rateId || "");
-                      return sum + rate * (entry.hours || 0);
+                      // Live from the builder via rateId (no snapshot) so the item total tracks catalog changes.
+                      return sum + getLaborBurdenedRate(entry.rateId || "") * (entry.hours || 0);
                     }, 0);
                     const equipCost = (item.equipmentEntries || []).reduce((sum, entry) => {
                       return sum + getEquipmentCostPerHour(entry.rateId || "") * (entry.hours || 0);
@@ -2400,8 +2398,8 @@ export default function ProjectPricerPage() {
                       return sum + getMaterialCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
                     }, 0);
                     const miscCost = (item.miscellaneousEntries || []).reduce((sum, entry) => {
-                      const rate = entry.rate != null ? entry.rate : getMiscCostPerUnit(entry.rateId || "");
-                      return sum + rate * (entry.quantity || 0);
+                      // Live from the builder via rateId (no snapshot) so the item total tracks catalog changes.
+                      return sum + getMiscCostPerUnit(entry.rateId || "") * (entry.quantity || 0);
                     }, 0);
                     const crewCost = (item.crewUsages || []).reduce((sum, usage) => {
                       const crew = crews.find((c: any) => c.id === usage.crewId);
@@ -2678,7 +2676,7 @@ export default function ProjectPricerPage() {
                                                   </div>
                                                   <div></div>
                                                   <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/hr</div>
-                                                  <div className="text-right tabular-nums">Cost: ${formatMoney(rowCost)}</div>
+                                                  <div className="text-right tabular-nums">${formatMoney(rowCost)}</div>
                                                   <div></div>
                                                 </div>
                                               );
@@ -2691,11 +2689,9 @@ export default function ProjectPricerPage() {
                                 })()}
                                 {(item.laborEntries || []).map((entry, idx) => {
                                   if (entry.group) return null; // grouped (crew) rows render under the Labor header above
-                                  const rate = entry.rate != null
-                                    ? entry.rate
-                                    : (entry.labor && typeof entry.labor.burdenedHourlyRate === "number")
-                                      ? entry.labor.burdenedHourlyRate
-                                      : getLaborBurdenedRate(entry.rateId || "");
+                                  // Rate is LIVE from the builder via rateId (read-only) — never a copied/editable value.
+                                  const hasRate = !!entry.rateId;
+                                  const rate = hasRate ? getLaborBurdenedRate(entry.rateId || "") : 0;
                                   const entryCost = rate * (entry.hours || 0);
                                   return (
                                     <div key={idx} className={LEM_GRID}>
@@ -2758,7 +2754,7 @@ export default function ProjectPricerPage() {
                                           )}
                                         </SelectContent>
                                       </Select>
-                                        <div className="contents">
+                                        <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
                                           value={entry.hours || ""}
@@ -2809,65 +2805,19 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-full text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-full min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.25"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
+                                        <span className="text-sm text-muted-foreground">hrs</span>
                                         </div>
                                         <div></div>
-                                        <div className="flex items-center gap-0.5">
-                                        <span className="text-sm text-muted-foreground select-none">$</span>
-                                        <Input
-                                          type="number"
-                                          value={rate || ""}
-                                          onChange={(e) => {
-                                            const r = Math.round(Math.max(0, parseFloat(e.target.value) || 0) * 100) / 100;
-                                            const current = [...(item.laborEntries || [])];
-                                            current[idx] = { ...current[idx], rate: r };
-                                            updateBidItem(item.id, "laborEntries", current);
-                                            const lC = current.reduce((s, ent) => {
-                                              const rr = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
-                                              return s + rr * (ent.hours || 0);
-                                            }, 0);
-                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
-                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
-                                              return s + er * (ent.hours || 0);
-                                            }, 0);
-                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
-                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
-                                              return s + mr * (ent.quantity || 0);
-                                            }, 0);
-                                            const tC = Math.round((lC + eC + mC) * 100) / 100;
-                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                            updateBidItem(item.id, "realCost", tC);
-                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              e.preventDefault();
-                                              const current = e.currentTarget as HTMLInputElement;
-                                              const panel = current.closest('div[data-panel="costing"]');
-                                              if (panel) {
-                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
-                                                const i = numerics.indexOf(current);
-                                                if (i !== -1 && i < numerics.length - 1) {
-                                                  const next = numerics[i + 1];
-                                                  next.focus();
-                                                  next.select();
-                                                } else {
-                                                  current.blur();
-                                                }
-                                              }
-                                            }
-                                          }}
-                                          className="h-8 w-24 text-left text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                          step="0.01"
-                                          placeholder=""
-                                          disabled={isReadOnly}
-                                        />
-                                        <span className="text-sm text-muted-foreground">/hr</span>
-                                        </div>
+                                        {hasRate ? (
+                                          <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/hr</div>
+                                        ) : (
+                                          <div className="text-right tabular-nums text-muted-foreground">—</div>
+                                        )}
                                       <div className="text-right">
                                         <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
@@ -2949,7 +2899,7 @@ export default function ProjectPricerPage() {
                                                   </div>
                                                   <div></div>
                                                   <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/hr</div>
-                                                  <div className="text-right tabular-nums">Cost: ${formatMoney(rowCost)}</div>
+                                                  <div className="text-right tabular-nums">${formatMoney(rowCost)}</div>
                                                   <div></div>
                                                 </div>
                                               );
@@ -2962,9 +2912,9 @@ export default function ProjectPricerPage() {
                                 })()}
                                 {(item.equipmentEntries || []).map((entry, idx) => {
                                   if (entry.group) return null; // grouped (crew) rows render under the Equipment header above
-                                  const rate = entry.rate != null
-                                    ? entry.rate
-                                    : getEquipmentCostPerHour(entry.rateId || "");
+                                  // Rate is LIVE from the builder via rateId (read-only) — never a copied/editable value.
+                                  const hasRate = !!entry.rateId;
+                                  const rate = hasRate ? getEquipmentCostPerHour(entry.rateId || "") : 0;
                                   const entryCost = rate * (entry.hours || 0);
                                   return (
                                     <div key={idx} className={LEM_GRID}>
@@ -3013,7 +2963,7 @@ export default function ProjectPricerPage() {
                                           )}
                                         </SelectContent>
                                       </Select>
-                                        <div className="contents">
+                                        <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
                                           value={entry.hours || ""}
@@ -3064,65 +3014,19 @@ export default function ProjectPricerPage() {
                                               setPendingCostingFocus(null);
                                             }
                                           }}
-                                          className="h-8 w-full text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="h-8 w-full min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           step="0.25"
                                           placeholder=""
                                           disabled={isReadOnly}
                                         />
+                                        <span className="text-sm text-muted-foreground">hrs</span>
                                         </div>
                                         <div></div>
-                                        <div className="flex items-center gap-0.5">
-                                        <span className="text-sm text-muted-foreground select-none">$</span>
-                                        <Input
-                                          type="number"
-                                          value={rate || ""}
-                                          onChange={(e) => {
-                                            const r = Math.round(Math.max(0, parseFloat(e.target.value) || 0) * 100) / 100;
-                                            const current = [...(item.equipmentEntries || [])];
-                                            current[idx] = { ...current[idx], rate: r };
-                                            updateBidItem(item.id, "equipmentEntries", current);
-                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
-                                              const rr = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
-                                              return s + rr * (ent.hours || 0);
-                                            }, 0);
-                                            const eC = current.reduce((s, ent) => {
-                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
-                                              return s + er * (ent.hours || 0);
-                                            }, 0);
-                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
-                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
-                                              return s + mr * (ent.quantity || 0);
-                                            }, 0);
-                                            const tC = Math.round((lC + eC + mC) * 100) / 100;
-                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                            updateBidItem(item.id, "realCost", tC);
-                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              e.preventDefault();
-                                              const current = e.currentTarget as HTMLInputElement;
-                                              const panel = current.closest('div[data-panel="costing"]');
-                                              if (panel) {
-                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
-                                                const i = numerics.indexOf(current);
-                                                if (i !== -1 && i < numerics.length - 1) {
-                                                  const next = numerics[i + 1];
-                                                  next.focus();
-                                                  next.select();
-                                                } else {
-                                                  current.blur();
-                                                }
-                                              }
-                                            }
-                                          }}
-                                          className="h-8 w-24 text-left text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                          step="0.01"
-                                          placeholder=""
-                                          disabled={isReadOnly}
-                                        />
-                                        <span className="text-sm text-muted-foreground">/hr</span>
-                                        </div>
+                                        {hasRate ? (
+                                          <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/hr</div>
+                                        ) : (
+                                          <div className="text-right tabular-nums text-muted-foreground">—</div>
+                                        )}
                                       <div className="text-right">
                                         <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
@@ -3161,9 +3065,9 @@ export default function ProjectPricerPage() {
                                 {(item.materialEntries || []).map((entry, idx) => {
                                   const matProfile = materialRates.find((m: any) => m.id === entry.rateId);
                                   const unitLabel = matProfile?.unitOfMeasure || 'qty';
-                                  const rate = entry.rate != null
-                                    ? entry.rate
-                                    : getMaterialCostPerUnit(entry.rateId || "");
+                                  // Rate is LIVE from the builder via rateId (read-only) — never a copied/editable value.
+                                  const hasRate = !!entry.rateId;
+                                  const rate = hasRate ? getMaterialCostPerUnit(entry.rateId || "") : 0;
                                   const entryCost = rate * (entry.quantity || 0);
                                   return (
                                     <div key={idx} className={LEM_GRID}>
@@ -3271,58 +3175,11 @@ export default function ProjectPricerPage() {
                                         <span className="text-sm text-muted-foreground">{unitLabel}</span>
                                         </div>
                                         <div></div>
-                                        <div className="flex items-center gap-0.5">
-                                        <span className="text-sm text-muted-foreground select-none">$</span>
-                                        <Input
-                                          type="number"
-                                          value={rate || ""}
-                                          onChange={(e) => {
-                                            const r = Math.round(Math.max(0, parseFloat(e.target.value) || 0) * 100) / 100;
-                                            const current = [...(item.materialEntries || [])];
-                                            current[idx] = { ...current[idx], rate: r };
-                                            updateBidItem(item.id, "materialEntries", current);
-                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
-                                              const rr = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
-                                              return s + rr * (ent.hours || 0);
-                                            }, 0);
-                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
-                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
-                                              return s + er * (ent.hours || 0);
-                                            }, 0);
-                                            const mC = current.reduce((s, ent) => {
-                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
-                                              return s + mr * (ent.quantity || 0);
-                                            }, 0);
-                                            const tC = Math.round((lC + eC + mC) * 100) / 100;
-                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                            updateBidItem(item.id, "realCost", tC);
-                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              e.preventDefault();
-                                              const current = e.currentTarget as HTMLInputElement;
-                                              const panel = current.closest('div[data-panel="costing"]');
-                                              if (panel) {
-                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
-                                                const i = numerics.indexOf(current);
-                                                if (i !== -1 && i < numerics.length - 1) {
-                                                  const next = numerics[i + 1];
-                                                  next.focus();
-                                                  next.select();
-                                                } else {
-                                                  current.blur();
-                                                }
-                                              }
-                                            }
-                                          }}
-                                          className="h-8 w-24 text-left text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                          step="0.01"
-                                          placeholder=""
-                                          disabled={isReadOnly}
-                                        />
-                                        <span className="text-sm text-muted-foreground">/{unitLabel}</span>
-                                        </div>
+                                        {hasRate ? (
+                                          <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/{unitLabel}</div>
+                                        ) : (
+                                          <div className="text-right tabular-nums text-muted-foreground">—</div>
+                                        )}
                                       <div className="text-right">
                                         <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
@@ -3361,7 +3218,9 @@ export default function ProjectPricerPage() {
                                 {(item.miscellaneousEntries || []).map((entry, idx) => {
                                   const miscProfile = miscRates.find((m: any) => m.id === entry.rateId);
                                   const unitLabel = miscProfile?.unitOfMeasure || 'amt';
-                                  const rate = entry.rate != null ? entry.rate : getMiscCostPerUnit(entry.rateId || "");
+                                  // Rate is LIVE from the builder via rateId (read-only) — never a copied/editable value.
+                                  const hasRate = !!entry.rateId;
+                                  const rate = hasRate ? getMiscCostPerUnit(entry.rateId || "") : 0;
                                   const entryCost = rate * (entry.quantity || 0);
                                   return (
                                     <div key={idx} className={LEM_GRID}>
@@ -3494,69 +3353,11 @@ export default function ProjectPricerPage() {
                                         <span className="text-sm text-muted-foreground">{unitLabel}</span>
                                       </div>
                                       <div></div>
-                                      <div className="flex items-center gap-0.5">
-                                        <span className="text-sm text-muted-foreground select-none">$</span>
-                                        <Input
-                                          type="number"
-                                          value={rate || ""}
-                                          onChange={(e) => {
-                                            const r = Math.round(Math.max(0, parseFloat(e.target.value) || 0) * 100) / 100;
-                                            const current = [...(item.miscellaneousEntries || [])];
-                                            current[idx] = { ...current[idx], rate: r };
-                                            updateBidItem(item.id, "miscellaneousEntries", current);
-                                            const lC = (item.laborEntries || []).reduce((s, ent) => {
-                                              const rr = ent.rate != null ? ent.rate : (ent.labor && typeof ent.labor.burdenedHourlyRate === "number") ? ent.labor.burdenedHourlyRate : getLaborBurdenedRate(ent.rateId || "");
-                                              return s + rr * (ent.hours || 0);
-                                            }, 0);
-                                            const eC = (item.equipmentEntries || []).reduce((s, ent) => {
-                                              const er = ent.rate != null ? ent.rate : getEquipmentCostPerHour(ent.rateId || "");
-                                              return s + er * (ent.hours || 0);
-                                            }, 0);
-                                            const mC = (item.materialEntries || []).reduce((s, ent) => {
-                                              const mr = ent.rate != null ? ent.rate : getMaterialCostPerUnit(ent.rateId || "");
-                                              return s + mr * (ent.quantity || 0);
-                                            }, 0);
-                                            const miscC = current.reduce((s, ent) => {
-                                              const mr = ent.rate != null ? ent.rate : getMiscCostPerUnit(ent.rateId || "");
-                                              return s + mr * (ent.quantity || 0);
-                                            }, 0);
-                                            const tC = Math.round((lC + eC + mC + miscC) * 100) / 100;
-                                            const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                            updateBidItem(item.id, "realCost", tC);
-                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              e.preventDefault();
-                                              const current = e.currentTarget as HTMLInputElement;
-                                              const panel = current.closest('div[data-panel="costing"]');
-                                              if (panel) {
-                                                const numerics = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="number"]'));
-                                                const i = numerics.indexOf(current);
-                                                if (i !== -1 && i < numerics.length - 1) {
-                                                  const next = numerics[i + 1];
-                                                  next.focus();
-                                                  next.select();
-                                                } else {
-                                                  current.blur();
-                                                }
-                                              }
-                                            }
-                                          }}
-                                          ref={(el) => {
-                                            if (el && pendingCostingFocus && pendingCostingFocus.itemId === item.id && pendingCostingFocus.category === 'misc' && pendingCostingFocus.idx === idx) {
-                                              el.focus();
-                                              el.select();
-                                              setPendingCostingFocus(null);
-                                            }
-                                          }}
-                                          className="h-8 w-24 text-left text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                          step="0.01"
-                                          placeholder=""
-                                          disabled={isReadOnly}
-                                        />
-                                        <span className="text-sm text-muted-foreground">/{unitLabel}</span>
-                                      </div>
+                                      {hasRate ? (
+                                        <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/{unitLabel}</div>
+                                      ) : (
+                                        <div className="text-right tabular-nums text-muted-foreground">—</div>
+                                      )}
                                       <div className="text-right">
                                         <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
