@@ -2820,7 +2820,22 @@ export default function ProjectPricerPage() {
                                       <div className="text-right">
                                         <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
-                                      <div></div>
+                                      <div className="flex items-center justify-end">
+                                        {!isReadOnly && (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 text-destructive/70 hover:text-destructive"
+                                            onClick={() => {
+                                              const current = [...(item.laborEntries || [])];
+                                              current.splice(idx, 1);
+                                              updateBidItem(item.id, "laborEntries", current);
+                                            }}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </Button>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -3030,7 +3045,22 @@ export default function ProjectPricerPage() {
                                       <div className="text-right">
                                         <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
-                                      <div></div>
+                                      <div className="flex items-center justify-end">
+                                        {!isReadOnly && (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 text-destructive/70 hover:text-destructive"
+                                            onClick={() => {
+                                              const current = [...(item.equipmentEntries || [])];
+                                              current.splice(idx, 1);
+                                              updateBidItem(item.id, "equipmentEntries", current);
+                                            }}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </Button>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -3183,7 +3213,22 @@ export default function ProjectPricerPage() {
                                       <div className="text-right">
                                         <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
-                                      <div></div>
+                                      <div className="flex items-center justify-end">
+                                        {!isReadOnly && (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 text-destructive/70 hover:text-destructive"
+                                            onClick={() => {
+                                              const current = [...(item.materialEntries || [])];
+                                              current.splice(idx, 1);
+                                              updateBidItem(item.id, "materialEntries", current);
+                                            }}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </Button>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -3361,7 +3406,22 @@ export default function ProjectPricerPage() {
                                       <div className="text-right">
                                         <span className="text-sm">${formatMoney(entryCost)}</span>
                                       </div>
-                                      <div></div>
+                                      <div className="flex items-center justify-end">
+                                        {!isReadOnly && (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 text-destructive/70 hover:text-destructive"
+                                            onClick={() => {
+                                              const current = [...(item.miscellaneousEntries || [])];
+                                              current.splice(idx, 1);
+                                              updateBidItem(item.id, "miscellaneousEntries", current);
+                                            }}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </Button>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })}
