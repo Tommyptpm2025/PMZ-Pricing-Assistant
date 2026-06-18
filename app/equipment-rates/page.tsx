@@ -179,82 +179,8 @@ export default function EquipmentRateBuilder() {
   }
 
   // ==================== LIVE CALCULATIONS ====================
-  const calculations = React.useMemo(() => {
-    const {
-      startingValue,
-      endingValue,
-      ownership,
-      operating,
-      estimatedHours,
-      actualHours,
-      targetMargin,
-      startDate,
-      endDate,
-    } = inputs;
-
-    // Depreciation
-    const depreciationTotal = Math.max(0, startingValue - endingValue);
-
-    // Approximate years from dates (for annualizing depreciation)
-    let years = 8;
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      const diffMs = end.getTime() - start.getTime();
-      years = Math.max(1, diffMs / (1000 * 60 * 60 * 24 * 365.25));
-    }
-    const annualDepreciation = depreciationTotal / years;
-
-    // Ownership totals (annual)
-    const ownershipAnnual = ownership.reduce((sum, line) => sum + (line.cost || 0), 0);
-
-    // Operating totals (annual)
-    const operatingAnnual = operating.reduce((sum, line) => sum + (line.cost || 0), 0);
-
-    // Use estimated hours for forward-looking "Cost Per Unit"
-    const hoursForRate = Math.max(1, estimatedHours);
-
-    // Per hour breakdowns (using estimated hours for planning)
-    const depreciationPerHour = annualDepreciation / hoursForRate;
-    const ownershipPerHour = ownershipAnnual / hoursForRate;
-    const operatingPerHour = operatingAnnual / hoursForRate;
-
-    const totalAnnualCost = annualDepreciation + ownershipAnnual + operatingAnnual;
-    const totalCostPerHour = totalAnnualCost / hoursForRate;
-
-    // Recommended rate with target margin
-    const recommendedRate = totalCostPerHour / (1 - targetMargin / 100);
-
-    // For the summary cards we also show "for actual use" where relevant
-    const actualHoursForCalc = Math.max(1, actualHours);
-
-    return {
-      depreciationTotal: Math.round(depreciationTotal * 100) / 100,
-      annualDepreciation: Math.round(annualDepreciation * 100) / 100,
-      depreciationPerHour: Math.round(depreciationPerHour * 100) / 100,
-
-      ownershipAnnual: Math.round(ownershipAnnual * 100) / 100,
-      ownershipPerHour: Math.round(ownershipPerHour * 100) / 100,
-
-      operatingAnnual: Math.round(operatingAnnual * 100) / 100,
-      operatingPerHour: Math.round(operatingPerHour * 100) / 100,
-
-      totalAnnualCost: Math.round(totalAnnualCost * 100) / 100,
-      totalCostPerHour: Math.round(totalCostPerHour * 100) / 100,
-
-      recommendedRate: Math.round(recommendedRate * 100) / 100,
-
-      // Actual use view
-      actualDepreciationPerHour: Math.round((annualDepreciation / actualHoursForCalc) * 100) / 100,
-      actualOwnershipPerHour: Math.round((ownershipAnnual / actualHoursForCalc) * 100) / 100,
-      actualOperatingPerHour: Math.round((operatingAnnual / actualHoursForCalc) * 100) / 100,
-      actualTotalPerHour: Math.round(
-        ((annualDepreciation + ownershipAnnual + operatingAnnual) / actualHoursForCalc) * 100
-      ) / 100,
-
-      years: Math.round(years * 10) / 10,
-    };
-  }, [inputs]);
+  // Single shared source of equipment-rate math (same fn the rate store uses) — no re-implementation.
+  const calculations = React.useMemo(() => calculateEquipmentRate(inputs), [inputs]);
 
   // ==================== UPDATE HELPERS ====================
   function updateField<K extends keyof EquipmentBuilderInputs>(field: K, value: EquipmentBuilderInputs[K]) {

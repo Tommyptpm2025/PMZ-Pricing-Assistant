@@ -268,92 +268,120 @@ export const DEFAULT_LABOR_INPUTS: LaborRateInputs = {
    Clean, transparent model for contractors
 ===================================================== */
 
+export interface EquipmentCostLine {
+  cost: number; // annual cost for this ownership/operating line
+}
+
+// Real Equipment Rate Builder model: depreciation from start/end book values over the asset's life
+// (derived from start/end dates), plus annual ownership + operating cost lines, divided by annual hours.
 export interface EquipmentRateInputs {
-  description: string;
-
-  // Ownership inputs
-  purchasePrice: number;
-  salvageValue: number;           // residual value at end of life
-  usefulLifeYears: number;
-  annualUtilizationHours: number; // expected billable hours per year
-  annualInsurance: number;
-  annualStorageTransport: number;
-  financingInterestRate: number;  // cost of capital / loan interest %
-
-  // Operating inputs
-  fuelCostPerHour: number;
-  annualMaintenanceRepairs: number;
-
-  // Pricing
-  targetRecoveryMargin: number;   // desired margin on the final hourly rate
+  startDate?: string;
+  endDate?: string;
+  startingValue: number;          // purchase / book value
+  endingValue: number;            // salvage / residual value
+  ownership: EquipmentCostLine[]; // annual ownership cost lines
+  operating: EquipmentCostLine[]; // annual operating cost lines
+  estimatedHours: number;         // forward-looking billable hours/year (drives the planning rate)
+  actualHours: number;            // actual hours/year (drives the "actual use" view)
+  targetMargin: number;           // desired margin % on the final hourly rate
 }
 
 export interface EquipmentRateResult {
-  hourlyOwnershipCost: number;
-  hourlyOperatingCost: number;
-  totalHourlyCost: number;
-  recommendedHourlyRate: number;  // with target margin applied
-  utilizationPercent: number;     // for display
+  years: number;
+  depreciationTotal: number;
+  annualDepreciation: number;
+  depreciationPerHour: number;
+  ownershipAnnual: number;
+  ownershipPerHour: number;
+  operatingAnnual: number;
+  operatingPerHour: number;
+  totalAnnualCost: number;
+  totalCostPerHour: number;       // the true total cost per billable hour
+  recommendedRate: number;        // with target margin applied
+  // "Actual use" view (uses actualHours instead of estimatedHours)
+  actualDepreciationPerHour: number;
+  actualOwnershipPerHour: number;
+  actualOperatingPerHour: number;
+  actualTotalPerHour: number;
 }
 
+// True equipment cost per billable hour. Depreciation is ANNUALIZED — whole-life depreciation
+// (starting − ending value) ÷ years (derived from start/end dates, default 8) — before dividing by
+// annual hours, then summed with annual ownership + operating ÷ annual hours. Single source of truth
+// for both the Equipment builder and the rate store's getEquipmentCostPerHour.
 export function calculateEquipmentRate(inputs: EquipmentRateInputs): EquipmentRateResult {
   const {
-    purchasePrice,
-    salvageValue,
-    usefulLifeYears,
-    annualUtilizationHours,
-    annualInsurance,
-    annualStorageTransport,
-    financingInterestRate,
-    fuelCostPerHour,
-    annualMaintenanceRepairs,
-    targetRecoveryMargin,
+    startingValue,
+    endingValue,
+    ownership,
+    operating,
+    estimatedHours,
+    actualHours,
+    targetMargin,
+    startDate,
+    endDate,
   } = inputs;
 
-  // === Ownership Costs (per year) ===
-  const depreciation = (purchasePrice - salvageValue) / usefulLifeYears;
-  const averageInvestment = (purchasePrice + salvageValue) / 2;
-  const interestCost = averageInvestment * (financingInterestRate / 100);
+  // Depreciation
+  const depreciationTotal = Math.max(0, (startingValue || 0) - (endingValue || 0));
 
-  const annualOwnershipCosts =
-    depreciation +
-    interestCost +
-    annualInsurance +
-    annualStorageTransport;
+  // Approximate years from dates (for annualizing depreciation); default 8 when dates are absent.
+  let years = 8;
+  if (startDate && endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffMs = end.getTime() - start.getTime();
+    years = Math.max(1, diffMs / (1000 * 60 * 60 * 24 * 365.25));
+  }
+  const annualDepreciation = depreciationTotal / years;
 
-  // === Hourly Ownership Cost ===
-  const hourlyOwnershipCost = annualOwnershipCosts / annualUtilizationHours;
+  // Ownership + operating totals (annual)
+  const ownershipAnnual = (ownership || []).reduce((sum, line) => sum + (line.cost || 0), 0);
+  const operatingAnnual = (operating || []).reduce((sum, line) => sum + (line.cost || 0), 0);
 
-  // === Hourly Operating Cost ===
-  const hourlyMaintenance = annualMaintenanceRepairs / annualUtilizationHours;
-  const hourlyOperatingCost = fuelCostPerHour + hourlyMaintenance;
+  // Use estimated hours for the forward-looking "Cost Per Unit"
+  const hoursForRate = Math.max(1, estimatedHours);
 
-  // === Total True Cost per Hour ===
-  const totalHourlyCost = hourlyOwnershipCost + hourlyOperatingCost;
+  const depreciationPerHour = annualDepreciation / hoursForRate;
+  const ownershipPerHour = ownershipAnnual / hoursForRate;
+  const operatingPerHour = operatingAnnual / hoursForRate;
 
-  // === Recommended Rate with Target Margin ===
-  const recommendedHourlyRate =
-    totalHourlyCost / (1 - targetRecoveryMargin / 100);
+  const totalAnnualCost = annualDepreciation + ownershipAnnual + operatingAnnual;
+  const totalCostPerHour = totalAnnualCost / hoursForRate;
+
+  // Recommended rate with target margin
+  const recommendedRate = totalCostPerHour / (1 - targetMargin / 100);
+
+  // For the "actual use" view
+  const actualHoursForCalc = Math.max(1, actualHours);
 
   return {
-    hourlyOwnershipCost: round2(hourlyOwnershipCost),
-    hourlyOperatingCost: round2(hourlyOperatingCost),
-    totalHourlyCost: round2(totalHourlyCost),
-    recommendedHourlyRate: round2(recommendedHourlyRate),
-    utilizationPercent: round2((annualUtilizationHours / 8760) * 100), // rough full year reference
+    years: Math.round(years * 10) / 10,
+    depreciationTotal: round2(depreciationTotal),
+    annualDepreciation: round2(annualDepreciation),
+    depreciationPerHour: round2(depreciationPerHour),
+    ownershipAnnual: round2(ownershipAnnual),
+    ownershipPerHour: round2(ownershipPerHour),
+    operatingAnnual: round2(operatingAnnual),
+    operatingPerHour: round2(operatingPerHour),
+    totalAnnualCost: round2(totalAnnualCost),
+    totalCostPerHour: round2(totalCostPerHour),
+    recommendedRate: round2(recommendedRate),
+    actualDepreciationPerHour: round2(annualDepreciation / actualHoursForCalc),
+    actualOwnershipPerHour: round2(ownershipAnnual / actualHoursForCalc),
+    actualOperatingPerHour: round2(operatingAnnual / actualHoursForCalc),
+    actualTotalPerHour: round2((annualDepreciation + ownershipAnnual + operatingAnnual) / actualHoursForCalc),
   };
 }
 
 export const DEFAULT_EQUIPMENT_INPUTS: EquipmentRateInputs = {
-  description: "2022 Ford F-250 Service Truck",
-  purchasePrice: 52000,
-  salvageValue: 12000,
-  usefulLifeYears: 8,
-  annualUtilizationHours: 1200,     // realistic for support truck
-  annualInsurance: 1850,
-  annualStorageTransport: 650,
-  financingInterestRate: 7.5,
-  fuelCostPerHour: 4.25,
-  annualMaintenanceRepairs: 4200,
-  targetRecoveryMargin: 15,
+  startDate: "",
+  endDate: "",
+  startingValue: 52000,
+  endingValue: 12000,
+  ownership: [],
+  operating: [],
+  estimatedHours: 1200,
+  actualHours: 980,
+  targetMargin: 15,
 };

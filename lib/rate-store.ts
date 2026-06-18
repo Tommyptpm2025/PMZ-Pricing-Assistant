@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { normalizeLaborRateInputs, calculateLaborRate, type LaborRateInputs } from './calculations';
+import { normalizeLaborRateInputs, calculateLaborRate, calculateEquipmentRate, type LaborRateInputs } from './calculations';
 
 // Types matching the rate builders (Saved* include id + the builder fields)
 export interface SavedLaborRate extends LaborRateInputs {
@@ -252,12 +252,8 @@ export function useRateStore() {
     const profile = equipmentRates.find((p) => p.id === id);
     if (!profile) return 0;
     try {
-      const ownershipAnnual = (profile.ownership || []).reduce((s: number, l: any) => s + (l.cost || 0), 0);
-      const operatingAnnual = (profile.operating || []).reduce((s: number, l: any) => s + (l.cost || 0), 0);
-      const hours = profile.estimatedHours || profile.actualHours || 1000;
-      const dep = Math.max(0, (profile.startingValue || 0) - (profile.endingValue || 0));
-      const totalAnnual = dep + ownershipAnnual + operatingAnnual;
-      return Math.round((totalAnnual / Math.max(1, hours)) * 100) / 100;
+      // Single shared source of truth (same fn the Equipment builder uses) — annualizes depreciation.
+      return calculateEquipmentRate(profile).totalCostPerHour;
     } catch { return 0; }
   };
 
