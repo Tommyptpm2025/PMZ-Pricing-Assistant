@@ -175,11 +175,11 @@ const SALESPERSON_OPTIONS = ["Owner", "Scott Sinnott", "Mike Johnson", "Alex Riv
 // Shared 6-track template for the bid line AND the per-line costing rows. Both the bid header/rows
 // and every costing row render on THIS grid, so qty lands under QUANTITY and rate under UNIT PRICE by
 // construction (no table-cell padding / auto-layout drift).
-//   name(flex)=Description | 7rem=Quantity | 5rem=Unit | 9rem=Unit Price | 12rem=Line Total | 8rem=Actions
-const BID_GRID = "grid grid-cols-[minmax(0,1fr)_7rem_5rem_9rem_12rem_8rem] gap-0 items-center";
+//   name(flex)=Description | 7rem=Quantity | 5rem=Unit | 9rem=Unit Price | 10rem=Line Total | 8rem=Actions
+const BID_GRID = "grid grid-cols-[minmax(0,1fr)_7rem_5rem_9rem_10rem_8rem] gap-0 items-center";
 // Minimum row width so the row keeps its column proportions and the wrapper scrolls on narrow screens
-// (Description min 300px + 112 + 80 + 144 + 192 + 128 = 956px).
-const BID_ROW_MINW = "min-w-[956px]";
+// (Description min 300px + 112 + 80 + 144 + 160 + 128 = 924px).
+const BID_ROW_MINW = "min-w-[924px]";
 const LEM_GRID = `${BID_GRID} mb-1`;
 
 // Consistent currency formatter: always exactly 2 decimal places + thousands separators
@@ -2581,7 +2581,7 @@ export default function ProjectPricerPage() {
                       {isDetailsOpen && (
                         <div>
                           <div className="bg-muted/5 dark:bg-muted/10">
-                            <div className="px-2 py-4 my-0.5 border-t bg-background rounded-b w-full max-w-full min-w-[956px] overflow-x-hidden text-sm" data-panel="costing">
+                            <div className="px-2 py-4 my-0.5 border-t bg-background rounded-b w-full max-w-full min-w-[924px] overflow-x-hidden text-sm" data-panel="costing">
                               <div className="flex items-center justify-between mb-3">
                                 <div className="text-base font-semibold tracking-wider text-muted-foreground">PER-LINE REAL COSTING</div>
                                 <div className="flex items-center gap-2">
