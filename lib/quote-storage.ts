@@ -15,8 +15,28 @@ function loadQuotes(): SavedQuote[] {
   try {
     const raw = localStorage.getItem(QUOTES_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    let parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    // De-dupe quotes sharing the same id by assigning fresh unique ids to duplicates.
+    // This fixes React key collisions without changing keys in the UI map.
+    const seen = new Set<string>();
+    let changed = false;
+    parsed = parsed.map((q: any) => {
+      if (q && q.id && seen.has(q.id)) {
+        const newId = `dedup_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        changed = true;
+        return { ...q, id: newId };
+      }
+      if (q && q.id) seen.add(q.id);
+      return q;
+    });
+    if (changed) {
+      try {
+        localStorage.setItem(QUOTES_KEY, JSON.stringify(parsed));
+      } catch {}
+    }
+    return parsed;
   } catch {
     return [];
   }
