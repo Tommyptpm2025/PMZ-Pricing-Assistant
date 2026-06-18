@@ -38,7 +38,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
-import QuotePreview from "./QuotePreview";
+import QuotePreview from "@/components/QuotePreview";
 import {
   TrendingUp,
   Plus,
