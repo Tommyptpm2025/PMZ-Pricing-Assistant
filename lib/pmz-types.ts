@@ -4,8 +4,11 @@ export interface Customer {
   id: string;
   name: string;                    // Company or contact name
   contactName?: string;            // Primary contact person
-  email?: string;
+  title?: string;                  // Title / Role
   phone?: string;
+  mobile?: string;
+  email?: string;
+  preferredContact?: "Phone" | "Email" | "Text";
   website?: string;
   billingAddress?: {
     street?: string;
@@ -14,6 +17,16 @@ export interface Customer {
     state?: string;
     zip?: string;
     country?: string;
+  };
+  jobSiteAddress?: {
+    street?: string;
+    street2?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+    latitude?: number;
+    longitude?: number;
+    accessNotes?: string;
   };
   externalIds?: {
     odoo?: string;
