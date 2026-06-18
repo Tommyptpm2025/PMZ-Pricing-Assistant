@@ -2659,7 +2659,8 @@ export default function ProjectPricerPage() {
                                             {rows.map((x) => {
                                               // LIVE from the builder via rateId (no snapshot) so crew rows catalog-forward like standalone rows.
                                               const rate = getLaborBurdenedRate(x.e.rateId || "");
-                                              const name = x.e.labor?.role || laborRates.find((r: any) => r.id === x.e.rateId)?.role || "Labor";
+                                              // Name LIVE from the builder by rateId (matches the live rate); fall back to the snapshot if the profile was deleted.
+                                              const name = laborRates.find((r: any) => r.id === x.e.rateId)?.role || x.e.labor?.role || "Labor";
                                               const rowCost = rate * (x.e.hours || 0);
                                               return (
                                                 <div key={`l-${x.i}`} className={`${LEM_GRID} text-sm`}>
