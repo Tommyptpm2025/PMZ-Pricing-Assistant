@@ -273,6 +273,8 @@ export default function QuotesPage() {
     const copy: SavedQuote = {
       ...quote,
       id: `copy_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
+      jobName: `${quote.jobName || "Untitled"} (Copy)`,
+      quoteNumber: Date.now().toString().slice(-7),
       status: "Draft",
       locked: false,
       createdAt: now,
@@ -289,6 +291,7 @@ export default function QuotesPage() {
       localStorage.setItem(key, JSON.stringify(arr));
     }
     refresh();
+    openQuote(copy);
   }
 
   function changeStatus(quote: SavedQuote, newStatus: SavedQuote["status"]) {

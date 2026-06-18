@@ -40,6 +40,8 @@ export interface SavedQuote {
   };
   createdAt: string;
   updatedAt: string;
+  quoteNumber?: string;
+  termsText?: string;
 }
 
 export interface Job {
