@@ -2657,7 +2657,8 @@ export default function ProjectPricerPage() {
                                               )}
                                             </div>
                                             {rows.map((x) => {
-                                              const rate = x.e.rate != null ? x.e.rate : (x.e.labor && typeof x.e.labor.burdenedHourlyRate === "number") ? x.e.labor.burdenedHourlyRate : getLaborBurdenedRate(x.e.rateId || "");
+                                              // LIVE from the builder via rateId (no snapshot) so crew rows catalog-forward like standalone rows.
+                                              const rate = getLaborBurdenedRate(x.e.rateId || "");
                                               const name = x.e.labor?.role || laborRates.find((r: any) => r.id === x.e.rateId)?.role || "Labor";
                                               const rowCost = rate * (x.e.hours || 0);
                                               return (
@@ -2880,7 +2881,8 @@ export default function ProjectPricerPage() {
                                               )}
                                             </div>
                                             {rows.map((x) => {
-                                              const rate = x.e.rate != null ? x.e.rate : getEquipmentCostPerHour(x.e.rateId || "");
+                                              // LIVE from the builder via rateId (no snapshot) so crew rows catalog-forward like standalone rows.
+                                              const rate = getEquipmentCostPerHour(x.e.rateId || "");
                                               const name = equipmentRates.find((p: any) => p.id === x.e.rateId)?.description || "Equipment";
                                               const rowCost = rate * (x.e.hours || 0);
                                               return (
