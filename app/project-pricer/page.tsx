@@ -2664,21 +2664,23 @@ export default function ProjectPricerPage() {
                                               const name = x.e.labor?.role || laborRates.find((r: any) => r.id === x.e.rateId)?.role || "Labor";
                                               const rowCost = rate * (x.e.hours || 0);
                                               return (
-                                                <div key={`l-${x.i}`} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-sm">
+                                                <div key={`l-${x.i}`} className={`${LEM_GRID} text-sm`}>
                                                   <div className="truncate"><span className="text-xs text-muted-foreground mr-1">Labor</span>{name}</div>
                                                   <div className="flex items-center gap-1">
                                                     <Input
                                                       type="number"
                                                       value={x.e.hours || ""}
                                                       onChange={(ev) => updateGroupedEntryHours(item, "labor", x.i, parseFloat(ev.target.value) || 0)}
-                                                      className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                      className="h-8 w-full min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                       step="0.25"
                                                       disabled={isReadOnly}
                                                     />
                                                     <span className="text-sm text-muted-foreground">hrs</span>
                                                   </div>
-                                                  <div className="text-right tabular-nums text-muted-foreground w-24">${rate.toFixed(2)}/hr</div>
-                                                  <div className="text-right tabular-nums w-24">Cost: ${formatMoney(rowCost)}</div>
+                                                  <div></div>
+                                                  <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/hr</div>
+                                                  <div className="text-right tabular-nums">Cost: ${formatMoney(rowCost)}</div>
+                                                  <div></div>
                                                 </div>
                                               );
                                             })}
@@ -2933,21 +2935,23 @@ export default function ProjectPricerPage() {
                                               const name = equipmentRates.find((p: any) => p.id === x.e.rateId)?.description || "Equipment";
                                               const rowCost = rate * (x.e.hours || 0);
                                               return (
-                                                <div key={`e-${x.i}`} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-sm">
+                                                <div key={`e-${x.i}`} className={`${LEM_GRID} text-sm`}>
                                                   <div className="truncate"><span className="text-xs text-muted-foreground mr-1">Equip</span>{name}</div>
                                                   <div className="flex items-center gap-1">
                                                     <Input
                                                       type="number"
                                                       value={x.e.hours || ""}
                                                       onChange={(ev) => updateGroupedEntryHours(item, "equipment", x.i, parseFloat(ev.target.value) || 0)}
-                                                      className="h-8 w-16 text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                      className="h-8 w-full min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                       step="0.25"
                                                       disabled={isReadOnly}
                                                     />
                                                     <span className="text-sm text-muted-foreground">hrs</span>
                                                   </div>
-                                                  <div className="text-right tabular-nums text-muted-foreground w-24">${rate.toFixed(2)}/hr</div>
-                                                  <div className="text-right tabular-nums w-24">Cost: ${formatMoney(rowCost)}</div>
+                                                  <div></div>
+                                                  <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/hr</div>
+                                                  <div className="text-right tabular-nums">Cost: ${formatMoney(rowCost)}</div>
+                                                  <div></div>
                                                 </div>
                                               );
                                             })}
