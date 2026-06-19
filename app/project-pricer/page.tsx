@@ -771,6 +771,21 @@ export default function ProjectPricerPage() {
         setIsReadOnly(true);
       }
     } catch {}
+    // Adopt the opened quote's identity so Save updates that same record (no duplicate).
+    // Status is read from the authoritative pmz_saved_quotes so it's never stale.
+    try {
+      const cqId = localStorage.getItem("pmz_current_quote_id");
+      if (cqId) {
+        const sq = JSON.parse(localStorage.getItem("pmz_saved_quotes") || "[]");
+        const found = Array.isArray(sq) ? sq.find((q: any) => q.id === cqId) : null;
+        if (found) {
+          setCurrentQuoteId(cqId);
+          if (found.status) setCurrentQuoteStatus(found.status as QuoteStatus);
+        } else {
+          localStorage.removeItem("pmz_current_quote_id");
+        }
+      }
+    } catch {}
     // Hydration complete — allow the persist + customer-sync effects to write from here on.
     setHydrated(true);
   }, []);
@@ -1359,6 +1374,7 @@ export default function ProjectPricerPage() {
     try {
       localStorage.removeItem("pmz_current_quote_readonly");
       localStorage.removeItem("pmz_current_lem_v1");
+      localStorage.removeItem("pmz_current_quote_id");
     } catch {}
   }
 
@@ -1388,9 +1404,13 @@ export default function ProjectPricerPage() {
     setLineTotalEdits({});
     setEppCostingOpen({});
     setIsReadOnly(false);
+    // Demo is a fresh quote — drop the tracked id so Save creates a new record.
+    setCurrentQuoteId(null);
+    setCurrentQuoteStatus("Draft");
     try {
       localStorage.removeItem("pmz_current_quote_readonly");
       localStorage.removeItem("pmz_current_lem_v1");
+      localStorage.removeItem("pmz_current_quote_id");
     } catch {}
   }
 
@@ -1456,7 +1476,10 @@ export default function ProjectPricerPage() {
           description: item.description,
           quantity: item.quantity,
           unit: item.unit,
-          unitPrice: customerUnitPrice(item), // customer price (marked-up), not break-even cost
+          // Costed lines store the marked-up customer price; manually-priced lines (no costing
+          // entries, so customerUnitPrice would be 0) store the entered unit price so the value
+          // survives save -> reopen -> duplicate instead of zeroing out.
+          unitPrice: lineBreakEvenCost(item) > 0 ? customerUnitPrice(item) : (item.unitPrice || 0),
         }));
         proLems = [];
         // EPP cost = the real break-even cost; revenue = the marked-up bid (applied below).
@@ -1571,6 +1594,8 @@ export default function ProjectPricerPage() {
       if (existingIdx >= 0) quotes[existingIdx] = newQuote;
       else quotes.push(newQuote);
       localStorage.setItem(key, JSON.stringify(quotes));
+      // Remember this record's id across navigation so re-saving updates it in place.
+      try { localStorage.setItem("pmz_current_quote_id", quoteId); } catch {}
       setCurrentQuoteId(quoteId);
       setCurrentQuoteStatus((newQuote.status as QuoteStatus) || "Draft");
       return newQuote;
@@ -2328,7 +2353,7 @@ export default function ProjectPricerPage() {
       {/* Read-only banner when viewing a locked quote loaded from Quotes tab */}
       {isReadOnly && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-200 px-4 py-2 text-sm text-amber-800 dark:text-amber-200 flex items-center justify-between">
-          <span>Read-only mode — this quote is Approved and locked. Edit fields are disabled. Use “Duplicate” from Quotes to create an editable copy.</span>
+          <span>Read-only mode — this quote is locked (Approved or later in the lifecycle). Edit fields are disabled. Use “Duplicate” from Quotes to create an editable copy.</span>
         </div>
       )}
 

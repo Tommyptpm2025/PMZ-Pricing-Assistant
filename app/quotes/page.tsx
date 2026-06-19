@@ -280,6 +280,9 @@ export default function QuotesPage() {
       };
       localStorage.setItem("pmz_current_estimate_v1", JSON.stringify(estimateData));
 
+      // Identify the quote so the Pricer updates THIS record on Save (no duplicate).
+      localStorage.setItem("pmz_current_quote_id", quote.id);
+
       if (quote.proLemItems && quote.proLemItems.length > 0) {
         localStorage.setItem(
           "pmz_current_lem_v1",
@@ -884,7 +887,7 @@ export default function QuotesPage() {
 
                   {previewTarget.locked && (
                     <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                      This quote is locked (Approved read-only).
+                      This quote is locked — read-only.
                     </div>
                   )}
                 </div>
