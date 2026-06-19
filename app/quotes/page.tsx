@@ -42,7 +42,6 @@ import {
   Check,
   X,
   ChevronRight,
-  ChevronLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -601,77 +600,41 @@ export default function QuotesPage() {
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <StatusBadge status={quote.status} />
-                        <Select
-                          value={quote.status && STATUS_OPTIONS.includes(quote.status as any) ? quote.status : STATUS_OPTIONS[0]}
-                          onValueChange={(val) =>
-                            changeStatus(quote, val as SavedQuote["status"])
-                          }
-                          onClick={(e) => e.stopPropagation()}
+                        {/* Status change — a plain native <select> (reliable; NOT the custom Select).
+                            Normal options first; for super-users a SUPER USER optgroup with the
+                            jump statuses, Back (one step), and Reset to Draft. All route through the
+                            same libApplyStatusChange-backed handlers. Auto-resets to the placeholder. */}
+                        <select
+                          value=""
+                          aria-label="Change status"
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (!v) return;
+                            if (v.startsWith("set:")) changeStatus(quote, v.slice(4) as SavedQuote["status"]);
+                            else if (v.startsWith("jump:")) superUserSetStatus(quote, v.slice(5) as QuoteStatus);
+                            else if (v === "su-back") superUserBack(quote);
+                            else if (v === "su-reset") superUserResetToDraft(quote);
+                          }}
+                          className="h-6 rounded border px-1 text-[10px] bg-white"
+                          style={{ borderColor: "#7D1424", color: "#333333" }}
                         >
-                          <SelectTrigger className="h-6 w-auto px-1.5 text-[10px] border border-input/50 bg-white/50">
-                            <span>Change</span>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {STATUS_OPTIONS.filter((s) => !!s && s.trim() !== '').map((s) => (
-                              <SelectItem key={s} value={s} disabled={s === quote.status}>
-                                {s}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Super-user dev tool — distinct, dashed, off the normal flow (PART A/B/C) */}
-                      {isSuperUser && (
-                        <div
-                          className="mt-1.5 flex items-center gap-1 rounded border border-dashed px-1.5 py-1 w-fit"
-                          style={{ borderColor: "#EB3300", backgroundColor: "#21232208" }}
-                        >
-                          <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#EB3300" }}>
-                            Super User
-                          </span>
-                          <Select
-                            value=""
-                            onValueChange={(val) => { if (val) superUserSetStatus(quote, val as QuoteStatus); }}
-                          >
-                            <SelectTrigger
-                              className="h-6 w-auto px-1.5 text-[10px] bg-white"
-                              style={{ borderColor: "#7D1424", color: "#7D1424" }}
-                            >
-                              <span>Jump to…</span>
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ALL_STATUSES.map((s) => (
-                                <SelectItem key={s} value={s} disabled={s === quote.status}>
-                                  {s}
-                                </SelectItem>
+                          <option value="" disabled>Change…</option>
+                          {STATUS_OPTIONS.filter((s) => s !== quote.status).map((s) => (
+                            <option key={`set-${s}`} value={`set:${s}`}>{s}</option>
+                          ))}
+                          {isSuperUser && (
+                            <optgroup label="──  SUPER USER  ──">
+                              {ALL_STATUSES.filter((s) => s !== quote.status).map((s) => (
+                                <option key={`jump-${s}`} value={`jump:${s}`}>Jump → {s}</option>
                               ))}
-                            </SelectContent>
-                          </Select>
-                          {statusBack(quote.status) && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-6 px-1.5 text-[10px] bg-white"
-                              style={{ color: "#7D1424", borderColor: "#7D1424" }}
-                              title={`Back to ${statusBack(quote.status)}`}
-                              onClick={() => superUserBack(quote)}
-                            >
-                              <ChevronLeft className="h-3 w-3 mr-0.5" />
-                              Back
-                            </Button>
+                              {statusBack(quote.status) && (
+                                <option value="su-back">◄ Back to {statusBack(quote.status)}</option>
+                              )}
+                              <option value="su-reset">↺ Reset to Draft</option>
+                            </optgroup>
                           )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 px-1.5 text-[10px] bg-white"
-                            style={{ color: "#7D1424", borderColor: "#7D1424" }}
-                            onClick={() => superUserResetToDraft(quote)}
-                          >
-                            Reset to Draft
-                          </Button>
-                        </div>
-                      )}
+                        </select>
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">
                       {formatDate(quote.updatedAt || quote.createdAt)}
