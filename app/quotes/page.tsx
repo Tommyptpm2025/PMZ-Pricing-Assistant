@@ -36,9 +36,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Eye,
-  Edit,
-  Copy,
   Trash2,
   RefreshCw,
   Send,
@@ -697,33 +694,27 @@ export default function QuotesPage() {
                             {advanceNext(quote.status)}
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-xs"
-                          onClick={(e) => { e.stopPropagation(); setPreviewTarget(quote); }}
+                        {/* Secondary actions tucked into a compact menu so they don't run off-screen */}
+                        <Select
+                          value=""
+                          onValueChange={(val) => {
+                            if (val === "preview") setPreviewTarget(quote);
+                            else if (val === "edit") openQuote(quote);
+                            else if (val === "duplicate") duplicateQuote(quote);
+                          }}
                         >
-                          <Eye className="h-3.5 w-3.5 mr-1" />
-                          Preview
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs"
-                          onClick={(e) => { e.stopPropagation(); openQuote(quote); }}
-                        >
-                          <Edit className="h-3.5 w-3.5 mr-1" />
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-xs"
-                          onClick={(e) => { e.stopPropagation(); duplicateQuote(quote); }}
-                        >
-                          <Copy className="h-3.5 w-3.5 mr-1" />
-                          Duplicate
-                        </Button>
+                          <SelectTrigger
+                            className="h-7 w-auto px-2 text-xs bg-white"
+                            style={{ color: "#333333", borderColor: "#7D1424" }}
+                          >
+                            <span>Actions</span>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="preview">Preview</SelectItem>
+                            <SelectItem value="edit">Edit</SelectItem>
+                            <SelectItem value="duplicate">Duplicate</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -745,7 +736,7 @@ export default function QuotesPage() {
   }
 
   return (
-    <div className="max-w-7xl space-y-8 pb-12">
+    <div className="w-full space-y-8 pb-12">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>

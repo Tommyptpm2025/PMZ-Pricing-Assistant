@@ -2317,28 +2317,25 @@ export default function ProjectPricerPage() {
 
       {/* Save success banner (temporary, auto-dismisses) */}
       {saveMessage && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-200 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200 flex items-center justify-between gap-3">
-          <span>{saveMessage}</span>
+        <div
+          className="rounded-lg border bg-white px-4 py-3 text-sm flex items-center justify-between gap-3"
+          style={{ borderColor: "#7D1424", color: "#7D1424" }}
+        >
+          <span className="font-medium">{saveMessage}</span>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 border-emerald-300 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900 dark:hover:text-emerald-100 px-2"
-              onClick={() => {
-                console.log("View Saved Quotes clicked");
-                try {
-                  const quotes = JSON.parse(localStorage.getItem("pmz_saved_quotes") || "[]");
-                  console.log("pmz_saved_quotes:", quotes);
-                } catch {
-                  console.log("pmz_saved_quotes: []");
-                }
-              }}
-            >
-              View Saved Quotes
-            </Button>
+            <Link href="/quotes">
+              <Button
+                size="sm"
+                className="h-7 px-3 text-white font-semibold"
+                style={{ backgroundColor: "#7D1424" }}
+              >
+                Go to Quotes
+              </Button>
+            </Link>
             <button
               onClick={() => setSaveMessage(null)}
-              className="text-emerald-700 hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-100 font-bold px-1 leading-none"
+              className="font-bold px-1 leading-none"
+              style={{ color: "#7D1424" }}
               aria-label="Dismiss"
             >
               ×
