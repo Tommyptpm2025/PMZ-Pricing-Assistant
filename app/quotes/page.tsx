@@ -53,10 +53,17 @@ import {
   updateQuote,
   saveQuote,
 } from "@/lib/quote-storage";
-import { STATUS_FLOW, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
+import { STATUS_FLOW, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
 import { canTransition, applyStatusChange as libApplyStatusChange } from "@/lib/quote-lifecycle";
 
 const STATUS_OPTIONS = ["Draft", "Ready for Approval", "Approved", "Declined"] as const;
+
+// All nine lifecycle statuses, in forward order — for the super-user direct-jump control.
+const ALL_STATUSES = Object.keys(STATUS_FLOW) as QuoteStatus[];
+
+// Super-user gate (PART C). Hard-coded for now; when the role hierarchy arrives, flip this
+// single switch to a real permission check — nothing else needs to change.
+const isSuperUser = true;
 
 // Back-half statuses that advance via a single forward "Advance →" control.
 // (Draft → Send for Acceptance; Ready for Approval → Mark Accepted/Declined are
@@ -350,6 +357,38 @@ export default function QuotesPage() {
     applyStatusChange(quote, newStatus as QuoteStatus);
   }
 
+  // ---- Super-user status override (dev/test tool — PART A & B) ----
+
+  // PART A — jump to ANY status (backward, forward, any). Reuses the shared transition
+  // transform for the statusHistory append, then sets `locked` to match the CHOSEN status
+  // (a super-user can move backward, so the normal forward-only latch doesn't apply here).
+  function superUserSetStatus(quote: SavedQuote, newStatus: QuoteStatus) {
+    const transformed = libApplyStatusChange(quote, newStatus);
+    const updated: SavedQuote = { ...transformed, locked: isStatusLocked(newStatus) };
+    updateQuote(updated);
+    refresh();
+    setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
+  }
+
+  // PART B — reset to a genuinely fresh Draft: clear the lifecycle fields and re-seed
+  // statusHistory. Bid data (line items, customer, totals) is untouched.
+  function superUserResetToDraft(quote: SavedQuote) {
+    const now = new Date().toISOString();
+    const reset: SavedQuote = {
+      ...quote,
+      status: "Draft",
+      locked: false,
+      statusHistory: [{ status: "Draft", at: now }],
+      sentAt: undefined,
+      decidedAt: undefined,
+      decisionNote: undefined,
+      updatedAt: now,
+    };
+    updateQuote(reset);
+    refresh();
+    setPreviewTarget((prev) => (prev && prev.id === reset.id ? reset : prev));
+  }
+
   // PART A — send a tallied bid out for acceptance. Only a Draft quote can be sent.
   function sendForAcceptance(quote: SavedQuote) {
     if (quote.status !== "Draft" || !canTransition("Draft", "Ready for Approval")) return;
@@ -564,6 +603,46 @@ export default function QuotesPage() {
                           </SelectContent>
                         </Select>
                       </div>
+
+                      {/* Super-user dev tool — distinct, dashed, off the normal flow (PART A/B/C) */}
+                      {isSuperUser && (
+                        <div
+                          className="mt-1.5 flex items-center gap-1 rounded border border-dashed px-1.5 py-1 w-fit"
+                          style={{ borderColor: "#EB3300", backgroundColor: "#21232208" }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#EB3300" }}>
+                            Super User
+                          </span>
+                          <Select
+                            value={quote.status}
+                            onValueChange={(val) => superUserSetStatus(quote, val as QuoteStatus)}
+                          >
+                            <SelectTrigger
+                              className="h-6 w-auto px-1.5 text-[10px] bg-white"
+                              style={{ borderColor: "#7D1424", color: "#7D1424" }}
+                            >
+                              <span>Jump to…</span>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ALL_STATUSES.map((s) => (
+                                <SelectItem key={s} value={s} disabled={s === quote.status}>
+                                  {s}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-1.5 text-[10px] bg-white"
+                            style={{ color: "#7D1424", borderColor: "#7D1424" }}
+                            onClick={() => superUserResetToDraft(quote)}
+                          >
+                            Reset to Draft
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">
                       {formatDate(quote.updatedAt || quote.createdAt)}
