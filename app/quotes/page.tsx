@@ -42,6 +42,7 @@ import {
   Check,
   X,
   ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -77,6 +78,17 @@ const ADVANCE_STATUSES: QuoteStatus[] = [
 function advanceNext(status: QuoteStatus): QuoteStatus | null {
   if (!ADVANCE_STATUSES.includes(status)) return null;
   return STATUS_FLOW[status]?.[0] ?? null;
+}
+
+// The immediately prior status — the reverse of STATUS_FLOW (each status is a forward
+// target of exactly one other, so this is unambiguous). Null for Draft (nothing before it).
+// Yields: Paid->Invoiced->Ready to Invoice->Completed->In Progress->Approved->Ready for
+// Approval->Draft, and Declined->Ready for Approval.
+function statusBack(status: QuoteStatus): QuoteStatus | null {
+  for (const s of ALL_STATUSES) {
+    if ((STATUS_FLOW[s] || []).includes(status)) return s;
+  }
+  return null;
 }
 
 function formatMoney(amount: number): string {
@@ -367,6 +379,14 @@ export default function QuotesPage() {
     setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
   }
 
+  // Back — step exactly one status backward (mirror of forward Advance). Reuses the same
+  // jump path (libApplyStatusChange + lock rule + persist); no-op at Draft.
+  function superUserBack(quote: SavedQuote) {
+    const prev = statusBack(quote.status);
+    if (!prev) return;
+    superUserSetStatus(quote, prev);
+  }
+
   // PART B — reset to a genuinely fresh Draft: clear the lifecycle fields and re-seed
   // statusHistory. Bid data (line items, customer, totals) is untouched.
   function superUserResetToDraft(quote: SavedQuote) {
@@ -606,14 +626,13 @@ export default function QuotesPage() {
                         <div
                           className="mt-1.5 flex items-center gap-1 rounded border border-dashed px-1.5 py-1 w-fit"
                           style={{ borderColor: "#EB3300", backgroundColor: "#21232208" }}
-                          onClick={(e) => e.stopPropagation()}
                         >
                           <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#EB3300" }}>
                             Super User
                           </span>
                           <Select
-                            value={quote.status}
-                            onValueChange={(val) => superUserSetStatus(quote, val as QuoteStatus)}
+                            value=""
+                            onValueChange={(val) => { if (val) superUserSetStatus(quote, val as QuoteStatus); }}
                           >
                             <SelectTrigger
                               className="h-6 w-auto px-1.5 text-[10px] bg-white"
@@ -629,6 +648,19 @@ export default function QuotesPage() {
                               ))}
                             </SelectContent>
                           </Select>
+                          {statusBack(quote.status) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-1.5 text-[10px] bg-white"
+                              style={{ color: "#7D1424", borderColor: "#7D1424" }}
+                              title={`Back to ${statusBack(quote.status)}`}
+                              onClick={() => superUserBack(quote)}
+                            >
+                              <ChevronLeft className="h-3 w-3 mr-0.5" />
+                              Back
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
