@@ -57,6 +57,7 @@ import {
 import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer, QuoteStatus } from "@/lib/pmz-types";
 import { sendQuoteForAcceptance } from "@/lib/quote-lifecycle";
 import { updateQuote } from "@/lib/quote-storage";
+import { serializeEppLine, eppTotalRevenue } from "@/lib/epp-line";
 import { useRateStore } from "@/lib/rate-store";
 import { getAllTerms, type TermsBlock } from "@/lib/terms";
 
@@ -937,7 +938,7 @@ export default function ProjectPricerPage() {
   // Running Total Revenue — now the sum of the top line totals, which represent break-even cost
   // basis (qty × unitPrice, where unitPrice defaults to per-line cost ÷ qty).
   const totalRevenue = React.useMemo(() => {
-    return estimate.bidItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    return eppTotalRevenue(estimate.bidItems);
   }, [estimate.bidItems]);
 
   // Total break-even cost across all bid lines (Σ per-line real costing). Drives the target-margin
@@ -1471,16 +1472,10 @@ export default function ProjectPricerPage() {
         : eppRealCost;
 
       if (quoteType === "EPP") {
-        eppLines = estimate.bidItems.map((item): LineItem => ({
-          id: item.id,
-          description: item.description,
-          quantity: item.quantity,
-          unit: item.unit,
-          // Costed lines store the marked-up customer price; manually-priced lines (no costing
-          // entries, so customerUnitPrice would be 0) store the entered unit price so the value
-          // survives save -> reopen -> duplicate instead of zeroing out.
-          unitPrice: lineBreakEvenCost(item) > 0 ? customerUnitPrice(item) : (item.unitPrice || 0),
-        }));
+        // Persist the entered/displayed price per line (Σ qty × unitPrice == totalRevenue),
+        // so manually-priced lines survive save -> reload -> duplicate. Shared helper keeps
+        // this identical to the worksheet total computation.
+        eppLines = estimate.bidItems.map((item) => serializeEppLine(item));
         proLems = [];
         // EPP cost = the real break-even cost; revenue = the marked-up bid (applied below).
         directCogsDollars = eppRealCost;
@@ -1521,10 +1516,12 @@ export default function ProjectPricerPage() {
         finalGrossProfitAmount = computedGrossProfit;
         finalGrandTotal = realTotalLEM + finalGrossProfitAmount;
       } else {
-        // EPP: customer total = marked-up recommended bid; GP = bid − break-even cost.
-        finalGrandTotal = eppMarkedUpBid;
-        finalGrossProfitAmount = eppMarkedUpBid - eppRealCost;
-        finalGrossProfitPercent = eppMarkedUpBid > 0 ? ((eppMarkedUpBid - eppRealCost) / eppMarkedUpBid) * 100 : 0;
+        // EPP: customer total = the entered bid (sum of the worksheet line totals);
+        // GP = entered bid − break-even cost. Mirrors the on-screen EPP summary exactly,
+        // so a manually-priced quote no longer saves $0 just because it has no cost entries.
+        finalGrandTotal = totalRevenue;
+        finalGrossProfitAmount = totalRevenue - eppRealCost;
+        finalGrossProfitPercent = totalRevenue > 0 ? ((totalRevenue - eppRealCost) / totalRevenue) * 100 : 0;
       }
 
       // Capture customer from the controlled Customer selector state (selectedCustomerId + selectedCustomerName)
@@ -1580,7 +1577,7 @@ export default function ProjectPricerPage() {
         proLemItems: proLems,
         targetGpPercent: targetMargin,
         targetGpSource,
-        totalRevenue: quoteType === "EPP" ? eppMarkedUpBid : totalRevenue,
+        totalRevenue: totalRevenue, // sum of entered line totals — matches the worksheet (both EPP and Full)
         directCogsDollars,
         indirectCogsDollars,
         grossProfitDollars: finalGrossProfitAmount,
