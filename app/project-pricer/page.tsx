@@ -2622,14 +2622,16 @@ export default function ProjectPricerPage() {
                           />
                         </div>
                         <div>
-                          <Select value={item.unit} onValueChange={(val) => updateBidItem(item.id, "unit", val)} disabled={isReadOnly}>
-                            <SelectTrigger className="h-9 border-0 bg-transparent px-2 text-sm focus-visible:bg-white focus-visible:border focus-visible:border-border">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {COMMON_UNITS.map((u) => <SelectItem key={`unit-${u}`} value={u}>{u}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                          <select
+                            value={item.unit}
+                            onChange={(e) => updateBidItem(item.id, "unit", e.target.value)}
+                            disabled={isReadOnly}
+                            aria-label="Unit"
+                            className="h-9 w-full rounded border bg-white px-1 text-sm"
+                            style={{ borderColor: "#7D1424", color: "#333333" }}
+                          >
+                            {COMMON_UNITS.map((u) => <option key={`unit-${u}`} value={u}>{u}</option>)}
+                          </select>
                         </div>
                         <div className="text-right">
                           <CurrencyInput
@@ -2715,20 +2717,23 @@ export default function ProjectPricerPage() {
                               <div className="flex items-center justify-between mb-3">
                                 <div className="text-base font-semibold tracking-wider text-muted-foreground">PER-LINE REAL COSTING</div>
                                 <div className="flex items-center gap-2">
-                                <Select value="" onValueChange={(val) => { if (val) addCrewToLine(item, val); }} disabled={isReadOnly}>
-                                  <SelectTrigger className="h-6 px-2 text-xs w-auto gap-1">
-                                    <SelectValue placeholder="+ Add Crew" />
-                                  </SelectTrigger>
-                                  <SelectContent position="popper" align="start" sideOffset={4}>
-                                    {crews.length > 0 ? (
-                                      crews.map((c: any) => (
-                                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                                      ))
-                                    ) : (
-                                      <SelectItem key="no-crew" value="__none__" disabled>No crews — create in Crew Builder</SelectItem>
-                                    )}
-                                  </SelectContent>
-                                </Select>
+                                <select
+                                  value=""
+                                  aria-label="Add crew to line"
+                                  onChange={(e) => { if (e.target.value) addCrewToLine(item, e.target.value); }}
+                                  disabled={isReadOnly}
+                                  className="h-6 rounded border bg-white px-1 text-xs"
+                                  style={{ borderColor: "#7D1424", color: "#333333" }}
+                                >
+                                  <option value="" disabled>+ Add Crew…</option>
+                                  {crews.length > 0 ? (
+                                    crews.map((c: any) => (
+                                      <option key={c.id} value={c.id}>{c.name}</option>
+                                    ))
+                                  ) : (
+                                    <option value="__none__" disabled>No crews — create in Crew Builder</option>
+                                  )}
+                                </select>
                                 </div>
                               </div>
                               {/* Labor */}
@@ -2827,9 +2832,13 @@ export default function ProjectPricerPage() {
                                   const entryCost = rate * (entry.hours || 0);
                                   return (
                                     <div key={idx} className={LEM_GRID}>
-                                      <Select
+                                      <select
+                                        className="h-8 w-full rounded border bg-white px-1 text-sm"
+                                        style={{ borderColor: "#7D1424", color: "#333333" }}
+                                        aria-label="Labor rate"
                                         value={entry.rateId || "none"}
-                                        onValueChange={(val) => {
+                                        onChange={(e) => {
+                                          const val = e.target.value;
                                           const newId = val === "none" ? undefined : val;
                                           const current = [...(item.laborEntries || [])];
                                           current[idx] = { ...current[idx], rateId: newId };
@@ -2868,24 +2877,19 @@ export default function ProjectPricerPage() {
                                         }}
                                         disabled={isReadOnly}
                                       >
-                                        <SelectTrigger className="h-8 text-lg w-full">
-                                          <SelectValue placeholder="Select labor rate" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {laborRates.length > 0 ? (
-                                            [
-                                              <SelectItem key="none" value="none">— None —</SelectItem>,
-                                              ...laborRates
-                                                .filter((r: any, i, self) => i === self.findIndex((t) => t.id === r.id))
-                                                .map((r: any) => (
-                                                  <SelectItem key={r.id} value={r.id}>{r.role}</SelectItem>
-                                                ))
-                                            ]
-                                          ) : (
-                                            <SelectItem key="no-labor" value="no-labor" disabled>No saved labor profiles</SelectItem>
-                                          )}
-                                        </SelectContent>
-                                      </Select>
+                                        {laborRates.length > 0 ? (
+                                          <>
+                                            <option value="none">— None —</option>
+                                            {laborRates
+                                              .filter((r: any, i, self) => i === self.findIndex((t) => t.id === r.id))
+                                              .map((r: any) => (
+                                                <option key={r.id} value={r.id}>{r.role}</option>
+                                              ))}
+                                          </>
+                                        ) : (
+                                          <option value="no-labor" disabled>No saved labor profiles</option>
+                                        )}
+                                      </select>
                                         <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
@@ -3068,9 +3072,13 @@ export default function ProjectPricerPage() {
                                   const entryCost = rate * (entry.hours || 0);
                                   return (
                                     <div key={idx} className={LEM_GRID}>
-                                      <Select
+                                      <select
+                                        className="h-8 w-full rounded border bg-white px-1 text-sm"
+                                        style={{ borderColor: "#7D1424", color: "#333333" }}
+                                        aria-label="Equipment rate"
                                         value={entry.rateId || "none"}
-                                        onValueChange={(val) => {
+                                        onChange={(e) => {
+                                          const val = e.target.value;
                                           const newId = val === "none" ? undefined : val;
                                           const current = [...(item.equipmentEntries || [])];
                                           current[idx] = { ...current[idx], rateId: newId };
@@ -3097,22 +3105,17 @@ export default function ProjectPricerPage() {
                                         }}
                                         disabled={isReadOnly}
                                       >
-                                        <SelectTrigger className="h-8 text-lg w-full">
-                                          <SelectValue placeholder="Select equipment" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {equipmentRates.length > 0 ? (
-                                            [
-                                              <SelectItem key="none" value="none">— None —</SelectItem>,
-                                              ...equipmentRates.map((p: any) => (
-                                                <SelectItem key={p.id} value={p.id}>{p.description}</SelectItem>
-                                              ))
-                                            ]
-                                          ) : (
-                                            <SelectItem key="no-equip" value="no-equip" disabled>No saved equipment profiles</SelectItem>
-                                          )}
-                                        </SelectContent>
-                                      </Select>
+                                        {equipmentRates.length > 0 ? (
+                                          <>
+                                            <option value="none">— None —</option>
+                                            {equipmentRates.map((p: any) => (
+                                              <option key={p.id} value={p.id}>{p.description}</option>
+                                            ))}
+                                          </>
+                                        ) : (
+                                          <option value="no-equip" disabled>No saved equipment profiles</option>
+                                        )}
+                                      </select>
                                         <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
@@ -3236,9 +3239,13 @@ export default function ProjectPricerPage() {
                                   const entryCost = rate * (entry.quantity || 0);
                                   return (
                                     <div key={idx} className={LEM_GRID}>
-                                      <Select
+                                      <select
+                                        className="h-8 w-full rounded border bg-white px-1 text-sm"
+                                        style={{ borderColor: "#7D1424", color: "#333333" }}
+                                        aria-label="Material rate"
                                         value={entry.rateId || "none"}
-                                        onValueChange={(val) => {
+                                        onChange={(e) => {
+                                          const val = e.target.value;
                                           const newId = val === "none" ? undefined : val;
                                           const current = [...(item.materialEntries || [])];
                                           current[idx] = { ...current[idx], rateId: newId };
@@ -3265,22 +3272,17 @@ export default function ProjectPricerPage() {
                                         }}
                                         disabled={isReadOnly}
                                       >
-                                        <SelectTrigger className="h-8 text-lg w-full">
-                                          <SelectValue placeholder="Select material" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {materialRates.length > 0 ? (
-                                            [
-                                              <SelectItem key="none" value="none">— None —</SelectItem>,
-                                              ...materialRates.map((m: any) => (
-                                                <SelectItem key={m.id} value={m.id}>{m.description}</SelectItem>
-                                              ))
-                                            ]
-                                          ) : (
-                                            <SelectItem key="no-mat" value="no-mat" disabled>No saved material profiles</SelectItem>
-                                          )}
-                                        </SelectContent>
-                                      </Select>
+                                        {materialRates.length > 0 ? (
+                                          <>
+                                            <option value="none">— None —</option>
+                                            {materialRates.map((m: any) => (
+                                              <option key={m.id} value={m.id}>{m.description}</option>
+                                            ))}
+                                          </>
+                                        ) : (
+                                          <option value="no-mat" disabled>No saved material profiles</option>
+                                        )}
+                                      </select>
                                         <div className="flex items-center justify-end gap-1">
                                         <Input
                                           type="number"
@@ -3405,9 +3407,13 @@ export default function ProjectPricerPage() {
                                   return (
                                     <div key={idx} className={LEM_GRID}>
                                       <div className="flex flex-col">
-                                        <Select
+                                        <select
+                                          className="h-8 w-full rounded border bg-white px-1 text-sm"
+                                          style={{ borderColor: "#7D1424", color: "#333333" }}
+                                          aria-label="Misc rate"
                                           value={entry.rateId || "none"}
-                                          onValueChange={(val) => {
+                                          onChange={(e) => {
+                                            const val = e.target.value;
                                             const newId = val === "none" ? undefined : val;
                                             const current = [...(item.miscellaneousEntries || [])];
                                             current[idx] = { ...current[idx], rateId: newId };
@@ -3439,22 +3445,17 @@ export default function ProjectPricerPage() {
                                           }}
                                           disabled={isReadOnly}
                                         >
-                                          <SelectTrigger className="h-8 text-lg w-full">
-                                            <SelectValue placeholder="Select misc / custom" />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {miscRates.length > 0 ? (
-                                              [
-                                                <SelectItem key="none" value="none">— None —</SelectItem>,
-                                                ...miscRates.map((m: any) => (
-                                                  <SelectItem key={m.id} value={m.id}>{m.description}</SelectItem>
-                                                ))
-                                              ]
-                                            ) : (
-                                              <SelectItem key="no-misc" value="no-misc" disabled>No saved misc profiles</SelectItem>
-                                            )}
-                                          </SelectContent>
-                                        </Select>
+                                          {miscRates.length > 0 ? (
+                                            <>
+                                              <option value="none">— None —</option>
+                                              {miscRates.map((m: any) => (
+                                                <option key={m.id} value={m.id}>{m.description}</option>
+                                              ))}
+                                            </>
+                                          ) : (
+                                            <option value="no-misc" disabled>No saved misc profiles</option>
+                                          )}
+                                        </select>
                                         {(!entry.rateId || entry.rateId === "none") && (
                                           <Input
                                             value={entry.description || ""}
