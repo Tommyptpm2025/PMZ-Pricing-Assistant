@@ -687,7 +687,6 @@ export default function LaborRateBuilder() {
                     <TableHead className="text-right">Fixed Fringes</TableHead>
                     <TableHead className="text-right">Total Burden</TableHead>
                     <TableHead className="text-right">True Cost / Billable</TableHead>
-                    <TableHead className="text-right font-semibold">Recommended Rate</TableHead>
                     <TableHead className="w-px" />
                   </TableRow>
                 </TableHeader>
@@ -722,9 +721,6 @@ export default function LaborRateBuilder() {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{formatPercent(r.totalBurdenPercent)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatCurrency(r.trueCostPerBillableHour)}</TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums text-lg text-primary">
-                          {formatCurrency(r.recommendedBillableRate)}
-                        </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
                             <Button
