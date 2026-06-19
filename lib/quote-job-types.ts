@@ -3,6 +3,8 @@
  * Pure TypeScript interfaces. No side effects.
  */
 
+import type { QuoteStatus, StatusHistoryEntry } from './pmz-types';
+
 export interface QuoteLineItem {
   id: string;
   description: string;
@@ -31,8 +33,14 @@ export interface SavedQuote {
   proLemItems: RealLEMItem[];
   targetMargin: number;
   totalRevenue: number;
-  status: "Draft" | "Ready for Approval" | "Approved" | "Declined";
+  status: QuoteStatus;
   locked: boolean;
+  // Ordered audit trail of status changes (one entry appended per change).
+  statusHistory?: StatusHistoryEntry[];
+  // Acceptance-workflow timestamps / note (ISO strings).
+  sentAt?: string;        // when the bid was sent for acceptance
+  decidedAt?: string;     // when the customer's decision was recorded
+  decisionNote?: string;  // optional short note saved with the decision
   rateProfileSnapshot: {
     labor: number;
     equipment: number;

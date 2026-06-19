@@ -54,6 +54,18 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
 
   const termsText = q.termsText || null;
 
+  // Status badge for the document — clean customer-facing label, on-brand colors.
+  // Maroon text/border by default; Red accent while awaiting the customer's acceptance.
+  const STATUS_LABELS: Record<string, string> = {
+    "Draft": "Draft",
+    "Ready for Approval": "Awaiting acceptance",
+    "Approved": "Accepted",
+    "Declined": "Declined",
+  };
+  const statusLabel = STATUS_LABELS[q.status as string] || null;
+  const statusIsAwaiting = q.status === "Ready for Approval";
+  const statusColor = statusIsAwaiting ? "#EB3300" : "#7D1424";
+
   // Customer block (normalized by buildCustomerBlock): full address lines, contact, access, gps.
   const billToLines: string[] = Array.isArray(customer.billToLines) ? customer.billToLines : [];
   const jobSiteLines: string[] = Array.isArray(customer.jobSiteLines) ? customer.jobSiteLines : [];
@@ -128,12 +140,31 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, paddingBottom: 8, borderBottom: '2px solid #111' }}>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 'bold' }}>Performance Margin Zone</div>
+              <div style={{ fontSize: 14, fontWeight: 'bold' }}>Profit Margin Zone</div>
               <div style={{ fontSize: 8, color: '#555' }}>Total Profit Management</div>
             </div>
             <div style={{ textAlign: 'right', fontSize: 9 }}>
               Quote #{q.quoteNumber || Date.now().toString().slice(-7)}<br />
               {q.date || new Date().toLocaleDateString()}
+              {statusLabel && (
+                <div style={{ marginTop: 4 }}>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      fontSize: 8,
+                      fontWeight: 'bold',
+                      letterSpacing: 0.5,
+                      textTransform: 'uppercase',
+                      color: statusColor,
+                      border: `1px solid ${statusColor}`,
+                      borderRadius: 3,
+                      padding: '1px 5px',
+                    }}
+                  >
+                    {statusLabel}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

@@ -41,6 +41,9 @@ import {
   Copy,
   Trash2,
   RefreshCw,
+  Send,
+  Check,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -50,8 +53,14 @@ import {
   saveQuote,
 } from "@/lib/quote-storage";
 import type { SavedQuote } from "@/lib/quote-job-types";
+import { STATUS_FLOW, isStatusLocked, type QuoteStatus } from "@/lib/pmz-types";
 
 const STATUS_OPTIONS = ["Draft", "Ready for Approval", "Approved", "Declined"] as const;
+
+// Is `to` a legal next status from `from` per the lifecycle flow?
+function canTransition(from: QuoteStatus, to: QuoteStatus): boolean {
+  return (STATUS_FLOW[from] || []).includes(to);
+}
 
 function formatMoney(amount: number): string {
   return (amount || 0).toLocaleString(undefined, {
@@ -74,13 +83,19 @@ function formatDate(iso?: string): string {
   }
 }
 
+// On-brand status badge. Palette limited to Maroon #7D1424, Red #EB3300, Charcoal #333333.
+// "Ready for Approval" (out for acceptance) gets the Red accent; decided/neutral states use Maroon/Charcoal.
 function StatusBadge({ status }: { status: string }) {
-  let cls = "bg-slate-100 text-slate-700 border-slate-200";
-  if (status === "Approved") cls = "bg-emerald-100 text-emerald-800 border-emerald-200";
-  else if (status === "Ready for Approval") cls = "bg-amber-100 text-amber-800 border-amber-200";
-  else if (status === "Declined") cls = "bg-red-100 text-red-800 border-red-200";
+  let color = "#333333"; // Charcoal — Draft / neutral
+  if (status === "Approved") color = "#7D1424";          // Maroon — accepted/locked
+  else if (status === "Ready for Approval") color = "#EB3300"; // Red — awaiting acceptance
+  else if (status === "Declined") color = "#7D1424";     // Maroon
   return (
-    <Badge variant="outline" className={cn("font-medium text-xs", cls)}>
+    <Badge
+      variant="outline"
+      className="font-medium text-xs bg-white"
+      style={{ color, borderColor: color }}
+    >
       {status}
     </Badge>
   );
@@ -91,6 +106,8 @@ export default function QuotesPage() {
   const [allQuotes, setAllQuotes] = React.useState<SavedQuote[]>([]);
   const [deleteTarget, setDeleteTarget] = React.useState<SavedQuote | null>(null);
   const [previewTarget, setPreviewTarget] = React.useState<SavedQuote | null>(null);
+  // Optional note captured with an acceptance decision (e.g. "10% deposit received 6/20")
+  const [decisionNote, setDecisionNote] = React.useState("");
 
   // EPP list filters (independent)
   const [eppStatus, setEppStatus] = React.useState<string[]>([]);
@@ -277,6 +294,10 @@ export default function QuotesPage() {
       quoteNumber: Date.now().toString().slice(-7),
       status: "Draft",
       locked: false,
+      statusHistory: [{ status: "Draft", at: now }],
+      sentAt: undefined,
+      decidedAt: undefined,
+      decisionNote: undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -294,15 +315,60 @@ export default function QuotesPage() {
     openQuote(copy);
   }
 
-  function changeStatus(quote: SavedQuote, newStatus: SavedQuote["status"]) {
+  // Single source of truth for status changes: appends to statusHistory, applies the
+  // lock rule (locked once it reaches "Approved" and never un-locks — the frozen bid
+  // snapshot must never change), and stamps optional sentAt / decidedAt / decisionNote.
+  function applyStatusChange(
+    quote: SavedQuote,
+    newStatus: QuoteStatus,
+    extra?: { sentAt?: string; decidedAt?: string; decisionNote?: string }
+  ): SavedQuote {
+    const now = new Date().toISOString();
+    // Seed history for legacy quotes saved before statusHistory existed, so the
+    // trail starts from the quote's original status rather than losing it.
+    const existing = Array.isArray(quote.statusHistory) && quote.statusHistory.length > 0
+      ? quote.statusHistory
+      : [{ status: quote.status, at: quote.createdAt || now }];
     const updated: SavedQuote = {
       ...quote,
       status: newStatus,
-      locked: newStatus === "Approved" ? true : quote.locked,
-      updatedAt: new Date().toISOString(),
+      // Lock latches true at "Approved" and stays true; never un-lock.
+      locked: quote.locked || isStatusLocked(newStatus),
+      statusHistory: [...existing, { status: newStatus, at: now }],
+      updatedAt: now,
+      ...(extra?.sentAt ? { sentAt: extra.sentAt } : {}),
+      ...(extra?.decidedAt ? { decidedAt: extra.decidedAt } : {}),
+      ...(extra?.decisionNote ? { decisionNote: extra.decisionNote } : {}),
     };
     updateQuote(updated);
     refresh();
+    return updated;
+  }
+
+  function changeStatus(quote: SavedQuote, newStatus: SavedQuote["status"]) {
+    applyStatusChange(quote, newStatus as QuoteStatus);
+  }
+
+  // PART A — send a tallied bid out for acceptance. Only a Draft quote can be sent.
+  function sendForAcceptance(quote: SavedQuote) {
+    if (quote.status !== "Draft" || !canTransition("Draft", "Ready for Approval")) return;
+    const now = new Date().toISOString();
+    const updated = applyStatusChange(quote, "Ready for Approval", { sentAt: now });
+    setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
+  }
+
+  // PART B — record the customer's decision on a quote that is out for acceptance.
+  function recordDecision(quote: SavedQuote, accepted: boolean, note: string) {
+    if (quote.status !== "Ready for Approval") return;
+    const next: QuoteStatus = accepted ? "Approved" : "Declined";
+    if (!canTransition("Ready for Approval", next)) return;
+    const now = new Date().toISOString();
+    const updated = applyStatusChange(quote, next, {
+      decidedAt: now,
+      decisionNote: note.trim() || undefined,
+    });
+    setDecisionNote("");
+    setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
   }
 
   function handleDelete() {
@@ -492,6 +558,41 @@ export default function QuotesPage() {
                     </TableCell>
                     <TableCell className="text-right pr-3">
                       <div className="flex items-center justify-end gap-1">
+                        {quote.status === "Draft" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs bg-white"
+                            style={{ color: "#EB3300", borderColor: "#EB3300" }}
+                            onClick={(e) => { e.stopPropagation(); sendForAcceptance(quote); }}
+                          >
+                            <Send className="h-3.5 w-3.5 mr-1" />
+                            Send for Acceptance
+                          </Button>
+                        )}
+                        {quote.status === "Ready for Approval" && (
+                          <>
+                            <Button
+                              size="sm"
+                              className="h-7 px-2 text-xs text-white"
+                              style={{ backgroundColor: "#7D1424" }}
+                              onClick={(e) => { e.stopPropagation(); recordDecision(quote, true, ""); }}
+                            >
+                              <Check className="h-3.5 w-3.5 mr-1" />
+                              Mark Accepted
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs bg-white"
+                              style={{ color: "#7D1424", borderColor: "#7D1424" }}
+                              onClick={(e) => { e.stopPropagation(); recordDecision(quote, false, ""); }}
+                            >
+                              <X className="h-3.5 w-3.5 mr-1" />
+                              Mark Declined
+                            </Button>
+                          </>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -582,7 +683,7 @@ export default function QuotesPage() {
       </div>
 
       {/* Preview centered Dialog (modal) */}
-      <Dialog open={!!previewTarget} onOpenChange={(open) => !open && setPreviewTarget(null)}>
+      <Dialog open={!!previewTarget} onOpenChange={(open) => { if (!open) { setPreviewTarget(null); setDecisionNote(""); } }}>
         <DialogContent className="w-[92%] sm:w-[85%] md:w-[72%] lg:w-[60%] xl:w-[55%] max-w-[920px] !max-w-none">
           <DialogClose asChild>
             <button
@@ -611,6 +712,15 @@ export default function QuotesPage() {
                     <div><span className="font-medium text-muted-foreground">Status:</span> <StatusBadge status={previewTarget.status} /></div>
                     <div><span className="font-medium text-muted-foreground">Created:</span> {formatDate(previewTarget.createdAt)}</div>
                     <div><span className="font-medium text-muted-foreground">Last Updated:</span> {formatDate(previewTarget.updatedAt || previewTarget.createdAt)}</div>
+                    {previewTarget.sentAt && (
+                      <div><span className="font-medium text-muted-foreground">Sent for acceptance:</span> {formatDate(previewTarget.sentAt)}</div>
+                    )}
+                    {previewTarget.decidedAt && (
+                      <div><span className="font-medium text-muted-foreground">Decision recorded:</span> {formatDate(previewTarget.decidedAt)}</div>
+                    )}
+                    {previewTarget.decisionNote && (
+                      <div><span className="font-medium text-muted-foreground">Decision note:</span> {previewTarget.decisionNote}</div>
+                    )}
                   </div>
 
                   {previewTarget.quoteType === "Full" && previewTarget.proLemItems && previewTarget.proLemItems.length > 0 && (() => {
@@ -727,8 +837,61 @@ export default function QuotesPage() {
               </div>
             </>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPreviewTarget(null)}>Close</Button>
+          <DialogFooter className="flex-col sm:flex-col items-stretch gap-3">
+            {/* PART A — Send a Draft bid out for acceptance */}
+            {previewTarget?.status === "Draft" && (
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  className="text-white"
+                  style={{ backgroundColor: "#EB3300" }}
+                  onClick={() => previewTarget && sendForAcceptance(previewTarget)}
+                >
+                  <Send className="h-4 w-4 mr-1.5" />
+                  Send for Acceptance
+                </Button>
+              </div>
+            )}
+
+            {/* PART B — Record the customer's decision on a quote out for acceptance */}
+            {previewTarget?.status === "Ready for Approval" && (
+              <div
+                className="rounded-lg border p-3 space-y-2.5 text-left"
+                style={{ borderColor: "#7D1424" }}
+              >
+                <div className="text-sm font-medium" style={{ color: "#7D1424" }}>
+                  Record customer decision
+                </div>
+                <Input
+                  value={decisionNote}
+                  onChange={(e) => setDecisionNote(e.target.value)}
+                  placeholder="Optional note (e.g. 10% deposit received 6/20)"
+                  className="h-9 text-sm"
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    className="text-white"
+                    style={{ backgroundColor: "#7D1424" }}
+                    onClick={() => previewTarget && recordDecision(previewTarget, true, decisionNote)}
+                  >
+                    <Check className="h-4 w-4 mr-1.5" />
+                    Mark Accepted
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="bg-white"
+                    style={{ color: "#7D1424", borderColor: "#7D1424" }}
+                    onClick={() => previewTarget && recordDecision(previewTarget, false, decisionNote)}
+                  >
+                    <X className="h-4 w-4 mr-1.5" />
+                    Mark Declined
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setPreviewTarget(null)}>Close</Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

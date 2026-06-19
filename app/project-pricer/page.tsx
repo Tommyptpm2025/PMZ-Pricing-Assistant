@@ -1524,6 +1524,7 @@ export default function ProjectPricerPage() {
         },
         status: "Draft",
         locked: false,
+        statusHistory: [{ status: "Draft", at: now }],
         eppLineItems: eppLines,
         proLemItems: proLems,
         targetGpPercent: targetMargin,
