@@ -849,27 +849,59 @@ export default function QuotesPage() {
                     );
                   })()}
 
-                  {previewTarget.quoteType === "EPP" && previewTarget.eppLineItems && previewTarget.eppLineItems.length > 0 && (
-                    <div>
-                      <div className="font-medium text-muted-foreground mb-1">Bid Items Summary (EPP)</div>
-                      <div className="rounded-md border bg-muted/30 p-2 text-xs max-h-32 overflow-auto">
-                        {previewTarget.eppLineItems.slice(0, 8).map((item: any, idx: number) => (
-                          <div key={idx} className="flex justify-between py-0.5">
-                            <span>{item.description || "Item"}</span>
-                            <span className="tabular-nums">{item.quantity} × ${formatMoney(item.unitPrice)}</span>
+                  {previewTarget.quoteType === "EPP" && previewTarget.eppLineItems && previewTarget.eppLineItems.length > 0 && (() => {
+                    const items = previewTarget.eppLineItems;
+                    const subtotal = items.reduce((s: number, it: any) => s + (it.quantity || 0) * (it.unitPrice || 0), 0);
+                    const gpPercent = previewTarget.grossProfitPercent || 0;
+                    const gpDollars = previewTarget.grossProfitDollars || previewTarget.grossProfitAmount || 0;
+                    return (
+                      <div className="space-y-3">
+                        <div>
+                          <div className="font-medium text-muted-foreground mb-1.5">Bid Items (EPP)</div>
+                          <div className="max-h-[320px] overflow-y-auto pr-2">
+                            <table className="w-full text-xs border-collapse">
+                              <thead className="sticky top-0 bg-background z-10">
+                                <tr className="border-b border-muted-foreground/30">
+                                  <th className="text-left py-1 pr-2 text-[10px] font-normal text-muted-foreground">Description</th>
+                                  <th className="text-right py-1 px-1 w-[60px] text-[10px] font-normal text-muted-foreground">Qty</th>
+                                  <th className="text-right py-1 px-1 w-[70px] text-[10px] font-normal text-muted-foreground">Unit Price</th>
+                                  <th className="text-right py-1 pl-2 w-[80px] text-[10px] font-normal text-muted-foreground">Line Total</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-muted-foreground/20">
+                                {items.map((item: any, i: number) => {
+                                  const desc = item.description || "Item";
+                                  const qty = item.quantity || 0;
+                                  const price = item.unitPrice || 0;
+                                  const lineTotal = qty * price;
+                                  return (
+                                    <tr key={i}>
+                                      <td className="py-1 pr-2 truncate max-w-[140px]" title={desc}>{desc}</td>
+                                      <td className="py-1 px-1 text-right tabular-nums">{qty}</td>
+                                      <td className="py-1 px-1 text-right tabular-nums">${formatMoney(price)}</td>
+                                      <td className="py-1 pl-2 text-right tabular-nums font-medium">${formatMoney(lineTotal)}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
                           </div>
-                        ))}
-                        {previewTarget.eppLineItems.length > 8 && (
-                          <div className="text-muted-foreground pt-1">... +{previewTarget.eppLineItems.length - 8} more</div>
-                        )}
-                      </div>
-                      {previewTarget.grossProfitPercent != null && (
-                        <div className="mt-2 text-xs">
-                          <span className="font-medium text-muted-foreground">Gross Profit:</span> {previewTarget.grossProfitPercent.toFixed(1)}%
                         </div>
-                      )}
-                    </div>
-                  )}
+
+                        {/* Totals summary box — same style as the Full preview */}
+                        <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1">
+                          <div className="flex justify-between"><span>Bid items:</span><span className="tabular-nums">{items.length}</span></div>
+                          <div className="flex justify-between border-t pt-1 font-medium"><span>Bid Total:</span><span className="tabular-nums">${formatMoney(subtotal)}</span></div>
+                        </div>
+                        <div className="text-xs">
+                          <span className="font-medium text-muted-foreground">Gross Profit:</span> {gpPercent.toFixed(1)}% (${formatMoney(gpDollars)})
+                        </div>
+                        <div className="text-xs font-medium">
+                          <span className="font-medium text-muted-foreground">Grand Total (Revenue):</span> ${formatMoney(subtotal)}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {previewTarget.locked && (
                     <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
