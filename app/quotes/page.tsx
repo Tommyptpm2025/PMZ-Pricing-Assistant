@@ -851,6 +851,7 @@ export default function QuotesPage() {
                                       <tr className="border-b border-muted-foreground/30">
                                         <th className="text-left py-1 pr-2 text-[10px] font-normal text-muted-foreground">Description</th>
                                         <th className="text-right py-1 px-1 w-[60px] text-[10px] font-normal text-muted-foreground">Qty/Hrs</th>
+                                        <th className="text-center py-1 px-1 w-[50px] text-[10px] font-normal text-muted-foreground">Unit</th>
                                         <th className="text-right py-1 px-1 w-[70px] text-[10px] font-normal text-muted-foreground">Unit Rate</th>
                                         <th className="text-right py-1 pl-2 w-[80px] text-[10px] font-normal text-muted-foreground">Line Total</th>
                                       </tr>
@@ -865,6 +866,7 @@ export default function QuotesPage() {
                                           <tr key={i}>
                                             <td className="py-1 pr-2 truncate max-w-[140px]" title={desc}>{desc}</td>
                                             <td className="py-1 px-1 text-right tabular-nums">{qty}</td>
+                                            <td className="py-1 px-1 text-center">{item.unit || ""}</td>
                                             <td className="py-1 px-1 text-right tabular-nums">${formatMoney(rate)}</td>
                                             <td className="py-1 pl-2 text-right tabular-nums font-medium">${formatMoney(lineTotal)}</td>
                                           </tr>
@@ -910,6 +912,7 @@ export default function QuotesPage() {
                                 <tr className="border-b border-muted-foreground/30">
                                   <th className="text-left py-1 pr-2 text-[10px] font-normal text-muted-foreground">Description</th>
                                   <th className="text-right py-1 px-1 w-[60px] text-[10px] font-normal text-muted-foreground">Qty</th>
+                                  <th className="text-center py-1 px-1 w-[50px] text-[10px] font-normal text-muted-foreground">Unit</th>
                                   <th className="text-right py-1 px-1 w-[70px] text-[10px] font-normal text-muted-foreground">Unit Price</th>
                                   <th className="text-right py-1 pl-2 w-[80px] text-[10px] font-normal text-muted-foreground">Line Total</th>
                                 </tr>
@@ -924,6 +927,7 @@ export default function QuotesPage() {
                                     <tr key={i}>
                                       <td className="py-1 pr-2 truncate max-w-[140px]" title={desc}>{desc}</td>
                                       <td className="py-1 px-1 text-right tabular-nums">{qty}</td>
+                                      <td className="py-1 px-1 text-center">{item.unit || ""}</td>
                                       <td className="py-1 px-1 text-right tabular-nums">${formatMoney(price)}</td>
                                       <td className="py-1 pl-2 text-right tabular-nums font-medium">${formatMoney(lineTotal)}</td>
                                     </tr>
