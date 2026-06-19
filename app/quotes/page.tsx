@@ -111,18 +111,27 @@ function formatDate(iso?: string): string {
   }
 }
 
-// On-brand status badge. Palette limited to Maroon #7D1424, Red #EB3300, Charcoal #333333.
-// "Ready for Approval" (out for acceptance) gets the Red accent; decided/neutral states use Maroon/Charcoal.
+// Functional status palette — light tint bg / darker readable text per lifecycle stage.
+// Intentionally separate from the brand palette; Declined's rose stays distinct from brand red.
+const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
+  "Draft": { bg: "#F1F1F1", fg: "#555555" },              // grey
+  "Ready for Approval": { bg: "#FEF3C7", fg: "#92600E" }, // amber
+  "Approved": { bg: "#DBEAFE", fg: "#1E40AF" },           // blue
+  "In Progress": { bg: "#E0E7FF", fg: "#3730A3" },        // indigo
+  "Completed": { bg: "#CCFBF1", fg: "#115E59" },          // teal
+  "Ready to Invoice": { bg: "#FFEDD5", fg: "#9A3412" },   // orange
+  "Invoiced": { bg: "#E0F2FE", fg: "#075985" },           // sky
+  "Paid": { bg: "#DCFCE7", fg: "#166534" },               // green
+  "Declined": { bg: "#FFE4E6", fg: "#9F1239" },           // deep rose (≠ brand red #EB3300)
+};
+
 function StatusBadge({ status }: { status: string }) {
-  let color = "#333333"; // Charcoal — Draft / neutral
-  if (status === "Approved") color = "#7D1424";          // Maroon — accepted/locked
-  else if (status === "Ready for Approval") color = "#EB3300"; // Red — awaiting acceptance
-  else if (status === "Declined") color = "#7D1424";     // Maroon
+  const c = STATUS_COLORS[status] || STATUS_COLORS["Draft"];
   return (
     <Badge
       variant="outline"
-      className="font-medium text-xs bg-white"
-      style={{ color, borderColor: color }}
+      className="font-medium text-xs"
+      style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.fg }}
     >
       {status}
     </Badge>
@@ -600,28 +609,41 @@ export default function QuotesPage() {
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <StatusBadge status={quote.status} />
-                        {/* Status change — a plain native <select> (reliable; NOT the custom Select).
-                            Normal options first; for super-users a SUPER USER optgroup with the
-                            jump statuses, Back (one step), and Reset to Draft. All route through the
-                            same libApplyStatusChange-backed handlers. Auto-resets to the placeholder. */}
+                        {/* Single status control — native <select>. Options are the forward ACTIONS
+                            for the current status (reusing the exact same handlers the old row buttons
+                            called): Draft → Send for Acceptance; Ready for Approval → Mark Accepted /
+                            Declined; mid-stages → Advance to [next] (with its confirm). Then the
+                            SUPER USER optgroup. Auto-resets to the placeholder. */}
                         <select
                           value=""
                           aria-label="Change status"
                           onChange={(e) => {
                             const v = e.target.value;
                             if (!v) return;
-                            if (v.startsWith("set:")) changeStatus(quote, v.slice(4) as SavedQuote["status"]);
+                            if (v === "act:send") sendForAcceptance(quote);
+                            else if (v === "act:advance") setAdvanceTarget(quote);
+                            else if (v === "act:accept") recordDecision(quote, true, "");
+                            else if (v === "act:decline") recordDecision(quote, false, "");
                             else if (v.startsWith("jump:")) superUserSetStatus(quote, v.slice(5) as QuoteStatus);
                             else if (v === "su-back") superUserBack(quote);
                             else if (v === "su-reset") superUserResetToDraft(quote);
                           }}
-                          className="h-6 rounded border px-1 text-[10px] bg-white"
+                          className="h-6 w-24 rounded border px-1 text-[10px] bg-white"
                           style={{ borderColor: "#7D1424", color: "#333333" }}
                         >
                           <option value="" disabled>Change…</option>
-                          {STATUS_OPTIONS.filter((s) => s !== quote.status).map((s) => (
-                            <option key={`set-${s}`} value={`set:${s}`}>{s}</option>
-                          ))}
+                          {quote.status === "Draft" && (
+                            <option value="act:send">Send for Acceptance</option>
+                          )}
+                          {quote.status === "Ready for Approval" && (
+                            <>
+                              <option value="act:accept">Mark Accepted</option>
+                              <option value="act:decline">Mark Declined</option>
+                            </>
+                          )}
+                          {advanceNext(quote.status) && (
+                            <option value="act:advance">Advance to {advanceNext(quote.status)}</option>
+                          )}
                           {isSuperUser && (
                             <optgroup label="──  SUPER USER  ──">
                               {ALL_STATUSES.filter((s) => s !== quote.status).map((s) => (
@@ -641,54 +663,7 @@ export default function QuotesPage() {
                     </TableCell>
                     <TableCell className="text-right pr-3">
                       <div className="flex items-center justify-end gap-1">
-                        {quote.status === "Draft" && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs bg-white"
-                            style={{ color: "#EB3300", borderColor: "#EB3300" }}
-                            onClick={(e) => { e.stopPropagation(); sendForAcceptance(quote); }}
-                          >
-                            <Send className="h-3.5 w-3.5 mr-1" />
-                            Send for Acceptance
-                          </Button>
-                        )}
-                        {quote.status === "Ready for Approval" && (
-                          <>
-                            <Button
-                              size="sm"
-                              className="h-7 px-2 text-xs text-white"
-                              style={{ backgroundColor: "#7D1424" }}
-                              onClick={(e) => { e.stopPropagation(); recordDecision(quote, true, ""); }}
-                            >
-                              <Check className="h-3.5 w-3.5 mr-1" />
-                              Mark Accepted
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs bg-white"
-                              style={{ color: "#7D1424", borderColor: "#7D1424" }}
-                              onClick={(e) => { e.stopPropagation(); recordDecision(quote, false, ""); }}
-                            >
-                              <X className="h-3.5 w-3.5 mr-1" />
-                              Mark Declined
-                            </Button>
-                          </>
-                        )}
-                        {advanceNext(quote.status) && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs bg-white"
-                            style={{ color: "#7D1424", borderColor: "#7D1424" }}
-                            onClick={(e) => { e.stopPropagation(); setAdvanceTarget(quote); }}
-                          >
-                            Advance
-                            <ChevronRight className="h-3.5 w-3.5 mx-0.5" />
-                            {advanceNext(quote.status)}
-                          </Button>
-                        )}
+                        {/* Status actions now live in the Change dropdown (status column). */}
                         {/* Secondary actions — plain native <select> (reliable; NOT the custom
                             Select). Reuses the existing preview / openQuote / duplicate handlers.
                             Controlled value="" auto-resets to the placeholder after each pick. */}
