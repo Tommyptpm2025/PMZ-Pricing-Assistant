@@ -55,16 +55,25 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const termsText = q.termsText || null;
 
   // Status badge for the document — clean customer-facing label, on-brand colors.
-  // Maroon text/border by default; Red accent while awaiting the customer's acceptance.
+  // Red = action needed, Maroon = in-flight, Charcoal = closed out (Paid).
   const STATUS_LABELS: Record<string, string> = {
     "Draft": "Draft",
     "Ready for Approval": "Awaiting acceptance",
     "Approved": "Accepted",
     "Declined": "Declined",
+    "In Progress": "In progress",
+    "Completed": "Completed",
+    "Ready to Invoice": "Ready to invoice",
+    "Invoiced": "Invoiced",
+    "Paid": "Paid",
   };
   const statusLabel = STATUS_LABELS[q.status as string] || null;
-  const statusIsAwaiting = q.status === "Ready for Approval";
-  const statusColor = statusIsAwaiting ? "#EB3300" : "#7D1424";
+  // Red #EB3300 — action needed; Charcoal #333333 — Paid; Maroon #7D1424 — everything in-flight.
+  const STATUS_RED = ["Ready for Approval", "Ready to Invoice"];
+  const statusColor =
+    STATUS_RED.includes(q.status as string) ? "#EB3300"
+    : q.status === "Paid" ? "#333333"
+    : "#7D1424";
 
   // Customer block (normalized by buildCustomerBlock): full address lines, contact, access, gps.
   const billToLines: string[] = Array.isArray(customer.billToLines) ? customer.billToLines : [];

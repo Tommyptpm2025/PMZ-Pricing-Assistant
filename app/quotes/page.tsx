@@ -44,6 +44,7 @@ import {
   Send,
   Check,
   X,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -59,6 +60,23 @@ const STATUS_OPTIONS = ["Draft", "Ready for Approval", "Approved", "Declined"] a
 // Is `to` a legal next status from `from` per the lifecycle flow?
 function canTransition(from: QuoteStatus, to: QuoteStatus): boolean {
   return (STATUS_FLOW[from] || []).includes(to);
+}
+
+// Back-half statuses that advance via a single forward "Advance →" control.
+// (Draft → Send for Acceptance; Ready for Approval → Mark Accepted/Declined are
+// handled separately; Paid/Declined are terminal.)
+const ADVANCE_STATUSES: QuoteStatus[] = [
+  "Approved",
+  "In Progress",
+  "Completed",
+  "Ready to Invoice",
+  "Invoiced",
+];
+
+// The single legal next status for an advanceable quote, else null.
+function advanceNext(status: QuoteStatus): QuoteStatus | null {
+  if (!ADVANCE_STATUSES.includes(status)) return null;
+  return STATUS_FLOW[status]?.[0] ?? null;
 }
 
 function formatMoney(amount: number): string {
@@ -107,6 +125,8 @@ export default function QuotesPage() {
   const [previewTarget, setPreviewTarget] = React.useState<SavedQuote | null>(null);
   // Optional note captured with an acceptance decision (e.g. "10% deposit received 6/20")
   const [decisionNote, setDecisionNote] = React.useState("");
+  // Quote pending a forward lifecycle advance (confirm dialog target)
+  const [advanceTarget, setAdvanceTarget] = React.useState<SavedQuote | null>(null);
 
   // EPP list filters (independent)
   const [eppStatus, setEppStatus] = React.useState<string[]>([]);
@@ -370,6 +390,17 @@ export default function QuotesPage() {
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
   }
 
+  // PART A — advance a quote forward through the back half of the lifecycle
+  // (Approved → … → Paid). Forward-only; confirmed before applying.
+  function confirmAdvance() {
+    if (!advanceTarget) return;
+    const next = advanceNext(advanceTarget.status);
+    if (!next) { setAdvanceTarget(null); return; }
+    const updated = applyStatusChange(advanceTarget, next);
+    setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
+    setAdvanceTarget(null);
+  }
+
   function handleDelete() {
     if (!deleteTarget) return;
     deleteQuote(deleteTarget.id);
@@ -591,6 +622,19 @@ export default function QuotesPage() {
                               Mark Declined
                             </Button>
                           </>
+                        )}
+                        {advanceNext(quote.status) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs bg-white"
+                            style={{ color: "#7D1424", borderColor: "#7D1424" }}
+                            onClick={(e) => { e.stopPropagation(); setAdvanceTarget(quote); }}
+                          >
+                            Advance
+                            <ChevronRight className="h-3.5 w-3.5 mx-0.5" />
+                            {advanceNext(quote.status)}
+                          </Button>
                         )}
                         <Button
                           size="sm"
@@ -888,9 +932,50 @@ export default function QuotesPage() {
               </div>
             )}
 
+            {/* PART A — advance forward through the back half of the lifecycle */}
+            {previewTarget && advanceNext(previewTarget.status) && (
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  className="text-white"
+                  style={{ backgroundColor: "#7D1424" }}
+                  onClick={() => previewTarget && setAdvanceTarget(previewTarget)}
+                >
+                  Advance
+                  <ChevronRight className="h-4 w-4 mx-0.5" />
+                  {advanceNext(previewTarget.status)}
+                </Button>
+              </div>
+            )}
+
             <div className="flex justify-end">
               <Button variant="outline" onClick={() => setPreviewTarget(null)}>Close</Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Advance-status confirmation (forward-only, can't be undone) */}
+      <Dialog open={!!advanceTarget} onOpenChange={(open) => !open && setAdvanceTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Advance status?</DialogTitle>
+            <DialogDescription>
+              Move “{advanceTarget?.jobName || "Untitled"}” from {advanceTarget?.status} to{" "}
+              {advanceTarget ? advanceNext(advanceTarget.status) : ""}? This moves the job
+              forward and can’t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdvanceTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="text-white"
+              style={{ backgroundColor: "#7D1424" }}
+              onClick={confirmAdvance}
+            >
+              Advance to {advanceTarget ? advanceNext(advanceTarget.status) : ""}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
