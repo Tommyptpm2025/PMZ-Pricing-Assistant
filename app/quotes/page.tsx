@@ -689,27 +689,26 @@ export default function QuotesPage() {
                             {advanceNext(quote.status)}
                           </Button>
                         )}
-                        {/* Secondary actions tucked into a compact menu so they don't run off-screen */}
-                        <Select
+                        {/* Secondary actions — plain native <select> (reliable; NOT the custom
+                            Select). Reuses the existing preview / openQuote / duplicate handlers.
+                            Controlled value="" auto-resets to the placeholder after each pick. */}
+                        <select
                           value=""
-                          onValueChange={(val) => {
-                            if (val === "preview") setPreviewTarget(quote);
-                            else if (val === "edit") openQuote(quote);
-                            else if (val === "duplicate") duplicateQuote(quote);
+                          aria-label="Quote actions"
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "preview") setPreviewTarget(quote);
+                            else if (v === "edit") openQuote(quote);
+                            else if (v === "duplicate") duplicateQuote(quote);
                           }}
+                          className="h-7 rounded border px-1.5 text-xs bg-white"
+                          style={{ color: "#333333", borderColor: "#7D1424" }}
                         >
-                          <SelectTrigger
-                            className="h-7 w-auto px-2 text-xs bg-white"
-                            style={{ color: "#333333", borderColor: "#7D1424" }}
-                          >
-                            <span>Actions</span>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="preview">Preview</SelectItem>
-                            <SelectItem value="edit">Edit</SelectItem>
-                            <SelectItem value="duplicate">Duplicate</SelectItem>
-                          </SelectContent>
-                        </Select>
+                          <option value="" disabled>Actions…</option>
+                          <option value="preview">Preview</option>
+                          <option value="edit">Edit</option>
+                          <option value="duplicate">Duplicate</option>
+                        </select>
                         <Button
                           size="sm"
                           variant="ghost"
