@@ -156,6 +156,24 @@ export interface LemItem {
   bucket: Bucket;
 }
 
+// Full lifecycle a quote/job can move through, in forward order.
+export type QuoteStatus =
+  | "Draft"
+  | "Ready for Approval"
+  | "Approved"
+  | "Declined"
+  | "In Progress"
+  | "Completed"
+  | "Ready to Invoice"
+  | "Invoiced"
+  | "Paid";
+
+// One entry per status change, appended in order. `at` is an ISO timestamp string.
+export interface StatusHistoryEntry {
+  status: QuoteStatus;
+  at: string;
+}
+
 export interface SavedQuote {
   id: string;
   quoteType: "EPP" | "Full";
@@ -163,8 +181,12 @@ export interface SavedQuote {
   customerId: string;
   workTypeId: string;
   salesperson: string;
-  status: "Draft" | "ReadyForApproval" | "Approved" | "Declined";
+  status: QuoteStatus;
   locked: boolean;
+
+  // Ordered audit trail of status changes. Initialized with the current status
+  // when a quote is first saved; one entry appended on every status change.
+  statusHistory: StatusHistoryEntry[];
 
   eppLineItems: LineItem[];
   proLemItems: LemItem[];
@@ -180,4 +202,46 @@ export interface SavedQuote {
 
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Legal forward transitions. The UI may only advance a quote to one of the
+// statuses listed for its current status. "Declined" and "Paid" are terminal.
+export const STATUS_FLOW: Record<QuoteStatus, QuoteStatus[]> = {
+  "Draft": ["Ready for Approval"],
+  "Ready for Approval": ["Approved", "Declined"],
+  "Approved": ["In Progress"],
+  "In Progress": ["Completed"],
+  "Completed": ["Ready to Invoice"],
+  "Ready to Invoice": ["Invoiced"],
+  "Invoiced": ["Paid"],
+  "Declined": [],
+  "Paid": [],
+};
+
+// Statuses at which the bid snapshot is frozen. `locked` becomes true when a
+// quote reaches "Approved" and stays true for every status after it, through
+// "Paid". "Declined" does not lock.
+export const LOCKED_STATUSES: QuoteStatus[] = [
+  "Approved",
+  "In Progress",
+  "Completed",
+  "Ready to Invoice",
+  "Invoiced",
+  "Paid",
+];
+
+/** Whether a given status should hold `locked === true` (frozen bid snapshot). */
+export function isStatusLocked(status: QuoteStatus): boolean {
+  return LOCKED_STATUSES.includes(status);
+}
+
+/** Whole days elapsed since the most recent statusHistory entry's `at`. */
+export function getDaysInCurrentStatus(quote: SavedQuote): number {
+  const history = quote.statusHistory;
+  if (!history || history.length === 0) return 0;
+  const last = history[history.length - 1];
+  const since = new Date(last.at).getTime();
+  if (Number.isNaN(since)) return 0;
+  const elapsedMs = Date.now() - since;
+  return Math.max(0, Math.floor(elapsedMs / (1000 * 60 * 60 * 24)));
 }
