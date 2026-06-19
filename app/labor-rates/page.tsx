@@ -353,11 +353,11 @@ export default function LaborRateBuilder() {
                 </div>
               </div>
 
-              {/* Fixed Fringes — Union / Prevailing Wage Style */}
+              {/* Fixed Fringes — flat dollars-per-hour benefits (union, prevailing-wage, or open-shop) */}
               <div className="rounded-xl border bg-surface-2 p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <span className="text-sm font-semibold tracking-wider text-muted-foreground">
-                    FIXED FRINGES — UNION / PREVAILING WAGE STYLE
+                    FIXED FRINGES &amp; BENEFITS
                   </span>
                   <span className="text-xs font-mono text-primary">
                     Real dollars per hour (not %)
@@ -367,10 +367,10 @@ export default function LaborRateBuilder() {
                 {/* Clean 2x2 grid for the four fringe fields */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {[
-                    { key: "healthAndWelfare" as const, label: "Health & Welfare (H&W)", hint: "Medical, dental, vision — paid to the fund" },
-                    { key: "pension" as const, label: "Pension / Annuity", hint: "Pension and annuity contributions" },
-                    { key: "training" as const, label: "Training / JATC", hint: "Apprenticeship and training fund" },
-                    { key: "otherFixedFringes" as const, label: "Other Fixed Fringes", hint: "Vacation, supplemental, industry funds" },
+                    { key: "healthAndWelfare" as const, label: "Health & Welfare (H&W)", hint: "Medical, dental, vision benefits" },
+                    { key: "pension" as const, label: "Pension / Retirement", hint: "Pension, annuity, or 401(k) contributions" },
+                    { key: "training" as const, label: "Training", hint: "Apprenticeship or training contributions" },
+                    { key: "otherFixedFringes" as const, label: "Other Fixed Fringes", hint: "Vacation, supplemental, other fixed benefits" },
                   ].map(({ key, label, hint }) => (
                     <div key={key}>
                       <Label htmlFor={key} className="text-sm">{label}</Label>
@@ -402,7 +402,7 @@ export default function LaborRateBuilder() {
                 </div>
 
                 <p className="mt-3 text-[11px] text-muted-foreground">
-                  These amounts come straight from your union remittance statement or prevailing wage determination. They add dollar-for-dollar to your cost.
+                  Enter any fixed hourly benefits you pay — from a union remittance, a prevailing-wage determination, or your own benefit package. They add dollar-for-dollar to your cost.
                 </p>
               </div>
 
@@ -413,7 +413,7 @@ export default function LaborRateBuilder() {
                   <div className="h-px flex-1 bg-border" />
                 </div>
 
-                {/* Insurance Burden sub-group (prominent for union/heavy work) */}
+                {/* Insurance Burden sub-group (prominent for heavy / civil work) */}
                 <div className="mb-6">
                   <div className="mb-3 flex items-center gap-2">
                     <span className="text-sm font-semibold tracking-wider text-muted-foreground">INSURANCE BURDEN</span>
@@ -582,7 +582,7 @@ export default function LaborRateBuilder() {
                 </p>
               </div>
 
-              {/* Quick breakdown — now shows union-style contributions clearly */}
+              {/* Quick breakdown — shows fixed-fringe contributions clearly */}
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm pt-2 border-t">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Base wage</span>
