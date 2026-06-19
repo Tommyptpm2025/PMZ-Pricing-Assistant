@@ -1382,7 +1382,7 @@ export default function ProjectPricerPage() {
       const key = "pmz_saved_quotes";
       const raw = localStorage.getItem(key);
       const quotes: PMZSavedQuote[] = raw ? JSON.parse(raw) : [];
-      const now = new Date();
+      const now = new Date().toISOString();
 
       const selectedWT = workTypes.find((w: any) => w.name === estimate.workTypeName);
       const workTypeId = (selectedWT as any)?.id || estimate.workTypeName || "";

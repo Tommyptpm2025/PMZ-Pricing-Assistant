@@ -174,6 +174,11 @@ export interface StatusHistoryEntry {
   at: string;
 }
 
+// Single source of truth for a persisted quote record ('pmz_saved_quotes').
+// This merges the two historical SavedQuote definitions (this one + the former
+// lib/quote-job-types.ts one) into one type. Field names and the on-disk JSON
+// shape are unchanged; legacy/divergent fields are kept as optional so the type
+// fully describes every persisted record without altering storage.
 export interface SavedQuote {
   id: string;
   quoteType: "EPP" | "Full";
@@ -188,6 +193,11 @@ export interface SavedQuote {
   // when a quote is first saved; one entry appended on every status change.
   statusHistory: StatusHistoryEntry[];
 
+  // Acceptance-workflow fields (set as a quote moves through the lifecycle).
+  sentAt?: string;        // when the bid was sent for acceptance (ISO)
+  decidedAt?: string;     // when the customer's decision was recorded (ISO)
+  decisionNote?: string;  // optional short note saved with the decision
+
   eppLineItems: LineItem[];
   proLemItems: LemItem[];
 
@@ -200,8 +210,27 @@ export interface SavedQuote {
   grossProfitDollars: number;
   grossProfitPercent: number;
 
-  createdAt: Date;
-  updatedAt: Date;
+  // Fields merged from the legacy quote-job-types.SavedQuote so this one type
+  // describes the whole persisted record. Optional because not every writer
+  // populates them (the storage format itself is unchanged).
+  customer: string;             // denormalized customer name (quote-storage path)
+  workType: string;             // denormalized work-type name (quote-storage path)
+  targetMargin?: number;        // legacy alias for targetGpPercent
+  rateProfileSnapshot?: { labor: number; equipment: number; material: number };
+  quoteNumber?: string;
+  termsText?: string | null;
+
+  // Denormalized snapshot fields written by the Project Pricer save path, kept so
+  // this one type fully describes the persisted record (storage format unchanged).
+  customerName?: string;
+  billingAddress?: string;
+  jobSiteAddress?: string;
+  customerDetails?: { id?: string; name?: string; billingAddress?: string; jobSiteAddress?: string };
+  grossProfitAmount?: number;
+  grandTotal?: number;
+
+  createdAt: string;            // ISO timestamp (persisted format)
+  updatedAt: string;            // ISO timestamp (persisted format)
 }
 
 // Legal forward transitions. The UI may only advance a quote to one of the

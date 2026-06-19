@@ -4,7 +4,8 @@
  * Do not use these keys anywhere else: 'pmz_saved_quotes', 'pmz_jobs'
  */
 
-import type { SavedQuote, Job } from './quote-job-types';
+import type { SavedQuote } from './pmz-types';
+import type { Job } from './quote-job-types';
 
 const QUOTES_KEY = 'pmz_saved_quotes';
 const JOBS_KEY = 'pmz_jobs';

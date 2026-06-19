@@ -3,7 +3,9 @@
  * Pure TypeScript interfaces. No side effects.
  */
 
-import type { QuoteStatus, StatusHistoryEntry } from './pmz-types';
+// SavedQuote now lives in lib/pmz-types.ts (single source of truth). Re-exported
+// here so existing `from './quote-job-types'` imports keep resolving.
+export type { SavedQuote } from './pmz-types';
 
 export interface QuoteLineItem {
   id: string;
@@ -20,36 +22,6 @@ export interface RealLEMItem {
   description: string;
   quantity: number;
   unitCost: number;
-}
-
-export interface SavedQuote {
-  id: string;
-  jobName: string;
-  customer: string;
-  workType: string;
-  salesperson: string;
-  quoteType: "EPP" | "Full";
-  eppLineItems: QuoteLineItem[];
-  proLemItems: RealLEMItem[];
-  targetMargin: number;
-  totalRevenue: number;
-  status: QuoteStatus;
-  locked: boolean;
-  // Ordered audit trail of status changes (one entry appended per change).
-  statusHistory?: StatusHistoryEntry[];
-  // Acceptance-workflow timestamps / note (ISO strings).
-  sentAt?: string;        // when the bid was sent for acceptance
-  decidedAt?: string;     // when the customer's decision was recorded
-  decisionNote?: string;  // optional short note saved with the decision
-  rateProfileSnapshot: {
-    labor: number;
-    equipment: number;
-    material: number;
-  };
-  createdAt: string;
-  updatedAt: string;
-  quoteNumber?: string;
-  termsText?: string;
 }
 
 export interface Job {

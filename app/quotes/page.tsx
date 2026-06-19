@@ -52,8 +52,7 @@ import {
   updateQuote,
   saveQuote,
 } from "@/lib/quote-storage";
-import type { SavedQuote } from "@/lib/quote-job-types";
-import { STATUS_FLOW, isStatusLocked, type QuoteStatus } from "@/lib/pmz-types";
+import { STATUS_FLOW, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
 
 const STATUS_OPTIONS = ["Draft", "Ready for Approval", "Approved", "Declined"] as const;
 
