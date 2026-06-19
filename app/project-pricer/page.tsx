@@ -36,6 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
 import QuotePreview from "@/components/QuotePreview";
@@ -53,7 +54,9 @@ import {
   calculateLaborRate,
   type LaborRateInputs,
 } from "@/lib/calculations";
-import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer } from "@/lib/pmz-types";
+import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer, QuoteStatus } from "@/lib/pmz-types";
+import { sendQuoteForAcceptance } from "@/lib/quote-lifecycle";
+import { updateQuote } from "@/lib/quote-storage";
 import { useRateStore } from "@/lib/rate-store";
 import { getAllTerms, type TermsBlock } from "@/lib/terms";
 
@@ -440,6 +443,19 @@ export default function ProjectPricerPage() {
 
   // Read-only mode when a locked (Approved) quote is opened from the Quotes tab
   const [isReadOnly, setIsReadOnly] = React.useState(false);
+
+  // Track the current quote's saved id + lifecycle status so it can be sent /
+  // updated in place rather than duplicated. Default is an unsaved Draft.
+  const [currentQuoteId, setCurrentQuoteId] = React.useState<string | null>(null);
+  const [currentQuoteStatus, setCurrentQuoteStatus] = React.useState<QuoteStatus>("Draft");
+
+  // Send Quote (recipient capture) dialog state
+  const [showSendDialog, setShowSendDialog] = React.useState(false);
+  const [sendQuoteType, setSendQuoteType] = React.useState<"EPP" | "Full">("EPP");
+  const [sendName, setSendName] = React.useState("");
+  const [sendEmail, setSendEmail] = React.useState("");
+  const [sendPhone, setSendPhone] = React.useState("");
+  const [sentMessage, setSentMessage] = React.useState<string | null>(null);
 
   // Interactive real LEM lines for the Pro green section (pulls from actual saved profiles)
   const [realLEMItems, setRealLEMItems] = React.useState<RealLEMItem[]>([]);
@@ -1337,6 +1353,9 @@ export default function ProjectPricerPage() {
     setEditableGrossProfitPercent(0);
     setGpPercentEdit("");
     setShowRealLEM(false);
+    // Starting a fresh quote — drop the tracked id so the next save creates a new record.
+    setCurrentQuoteId(null);
+    setCurrentQuoteStatus("Draft");
     try {
       localStorage.removeItem("pmz_current_quote_readonly");
       localStorage.removeItem("pmz_current_lem_v1");
@@ -1377,7 +1396,7 @@ export default function ProjectPricerPage() {
 
   // Unified save to pmz_saved_quotes per spec. Captures snapshot of active rates at save time.
   // Uses PMZ types from lib/pmz-types.ts for SavedQuote, LineItem, LemItem, Bucket.
-  function saveQuote(quoteType: "EPP" | "Full") {
+  function saveQuote(quoteType: "EPP" | "Full"): PMZSavedQuote | null {
     try {
       const key = "pmz_saved_quotes";
       const raw = localStorage.getItem(key);
@@ -1502,8 +1521,13 @@ export default function ProjectPricerPage() {
         }
       }
 
+      // Save in place when we already track a current quote id; otherwise create one.
+      const existingIdx = currentQuoteId ? quotes.findIndex((q) => q.id === currentQuoteId) : -1;
+      const existing = existingIdx >= 0 ? quotes[existingIdx] : null;
+      const quoteId = existing?.id || currentQuoteId || `${quoteType.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
       const newQuote: PMZSavedQuote & { customerName?: string } = {
-        id: `${quoteType.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        id: quoteId,
         quoteType,
         jobName: estimate.jobName || "Untitled",
         customer: savedCustomerName || "",
@@ -1522,9 +1546,13 @@ export default function ProjectPricerPage() {
         jobSiteAddress: savedCustomerJobSite,
           jobSiteAddress: savedCustomerJobSite,
         },
-        status: "Draft",
-        locked: false,
-        statusHistory: [{ status: "Draft", at: now }],
+        // Preserve lifecycle fields when updating; initialize them on first save.
+        status: existing?.status || "Draft",
+        locked: existing?.locked || false,
+        statusHistory: existing?.statusHistory || [{ status: "Draft", at: now }],
+        ...(existing?.sentAt ? { sentAt: existing.sentAt } : {}),
+        ...(existing?.decidedAt ? { decidedAt: existing.decidedAt } : {}),
+        ...(existing?.decisionNote ? { decisionNote: existing.decisionNote } : {}),
         eppLineItems: eppLines,
         proLemItems: proLems,
         targetGpPercent: targetMargin,
@@ -1537,13 +1565,18 @@ export default function ProjectPricerPage() {
         grossProfitAmount: finalGrossProfitAmount,
         grandTotal: finalGrandTotal,
         termsText,
-        createdAt: now,
+        createdAt: existing?.createdAt || now,
         updatedAt: now,
       };
-      quotes.push(newQuote);
+      if (existingIdx >= 0) quotes[existingIdx] = newQuote;
+      else quotes.push(newQuote);
       localStorage.setItem(key, JSON.stringify(quotes));
+      setCurrentQuoteId(quoteId);
+      setCurrentQuoteStatus((newQuote.status as QuoteStatus) || "Draft");
+      return newQuote;
     } catch {
       // fail silently (storage issues)
+      return null;
     }
   }
 
@@ -1571,6 +1604,83 @@ export default function ProjectPricerPage() {
     setTimeout(() => setIsSavingFull(false), 1500);
     // auto dismiss message
     setTimeout(() => setSaveMessage(null), 4500);
+  }
+
+  // ---- Send Quote (recipient capture + status + PDF hand-off) ----
+
+  function isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((email || "").trim());
+  }
+
+  // Open the recipient dialog, pre-filling from the linked customer record if any.
+  function openSendDialog(quoteType: "EPP" | "Full") {
+    const linked = customers.find((c) => c.id === (selectedCustomerId || ""));
+    setSendQuoteType(quoteType);
+    setSendName((linked?.contactName || linked?.name || selectedCustomerName || estimate.customerName || "").trim());
+    setSendEmail((linked?.email || "").trim());
+    setSendPhone((linked?.phone || linked?.mobile || "").trim());
+    setSentMessage(null);
+    setShowSendDialog(true);
+  }
+
+  // Persist the entered recipient back to the customer record (create or update)
+  // so it isn't re-entered next time. Returns the customer id.
+  function saveRecipientToCustomer(): string | null {
+    try {
+      const raw = localStorage.getItem("pmz_customers");
+      const list: Customer[] = raw ? JSON.parse(raw) : [];
+      const nowDate = new Date();
+      let id = selectedCustomerId || "";
+      const idx = id ? list.findIndex((c) => c.id === id) : -1;
+      if (idx >= 0) {
+        list[idx] = {
+          ...list[idx],
+          contactName: sendName || list[idx].contactName,
+          email: sendEmail || list[idx].email,
+          phone: sendPhone || list[idx].phone,
+          updatedAt: nowDate,
+        };
+      } else {
+        id = `cust_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        list.push({
+          id,
+          name: sendName || selectedCustomerName || "New Customer",
+          contactName: sendName || undefined,
+          email: sendEmail || undefined,
+          phone: sendPhone || undefined,
+          createdAt: nowDate,
+          updatedAt: nowDate,
+        } as Customer);
+      }
+      localStorage.setItem("pmz_customers", JSON.stringify(list));
+      setCustomers(list);
+      if (id) {
+        setSelectedCustomerId(id);
+        if (sendName) setSelectedCustomerName(sendName);
+      }
+      return id || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function handleConfirmSend() {
+    if (!isValidEmail(sendEmail)) return;
+    // 1) Save the recipient back to the customer record (create/update).
+    saveRecipientToCustomer();
+    // 2) Save first — create the SavedQuote (or update the existing Draft), getting its id.
+    const saved = saveQuote(sendQuoteType);
+    if (!saved) return;
+    // 3) Run the shared send path: Draft -> Ready for Approval (+sentAt, statusHistory, lock rule).
+    const sent = sendQuoteForAcceptance(saved) || saved;
+    updateQuote(sent);
+    setCurrentQuoteStatus("Ready for Approval");
+    // 4) Confirm; the quote now shows in the Quotes tab as "Awaiting acceptance".
+    setShowSendDialog(false);
+    setSentMessage(`Quote sent to ${sendEmail.trim()} — status is now Awaiting acceptance.`);
+    setTimeout(() => setSentMessage(null), 6000);
+    // 5) Hand off to the existing Print / Export PDF view for manual delivery.
+    handleExportNext();
   }
 
   function handlePrintQuote() {
@@ -3587,10 +3697,88 @@ export default function ProjectPricerPage() {
             >
               Save Quote
             </Button>
+            {currentQuoteStatus === "Draft" && !isReadOnly && (
+              <Button
+                size="default"
+                onClick={() => openSendDialog("EPP")}
+                disabled={!eppHasItems}
+                title={!eppHasItems ? "Add items first" : "Send this quote to the customer"}
+                className="font-semibold shadow-sm text-white"
+                style={{ backgroundColor: "#EB3300" }}
+              >
+                Send Quote
+              </Button>
+            )}
           </div>
+          {sentMessage && (
+            <div className="px-1 pb-1 text-right text-xs font-medium" style={{ color: "#7D1424" }}>
+              {sentMessage}
+            </div>
+          )}
         </Card>
         )}
       </div>
+
+      {/* Send Quote — recipient capture */}
+      <Dialog open={showSendDialog} onOpenChange={setShowSendDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Send Quote</DialogTitle>
+            <DialogDescription>
+              Confirm the recipient. This marks the {sendQuoteType} quote as sent (Awaiting
+              acceptance) and opens the print / PDF view for delivery. Contact details are saved
+              to the customer record.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div>
+              <Label htmlFor="send-name" className="text-sm">Recipient name</Label>
+              <Input
+                id="send-name"
+                value={sendName}
+                onChange={(e) => setSendName(e.target.value)}
+                placeholder="Contact name"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="send-email" className="text-sm">Email <span style={{ color: "#EB3300" }}>*</span></Label>
+              <Input
+                id="send-email"
+                type="email"
+                value={sendEmail}
+                onChange={(e) => setSendEmail(e.target.value)}
+                placeholder="name@company.com"
+                className="mt-1"
+              />
+              {sendEmail.trim() !== "" && !isValidEmail(sendEmail) && (
+                <p className="mt-1 text-xs" style={{ color: "#EB3300" }}>Enter a valid email address.</p>
+              )}
+            </div>
+            <div>
+              <Label htmlFor="send-phone" className="text-sm">Phone / contact info</Label>
+              <Input
+                id="send-phone"
+                value={sendPhone}
+                onChange={(e) => setSendPhone(e.target.value)}
+                placeholder="Phone, mobile, or note"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSendDialog(false)}>Cancel</Button>
+            <Button
+              onClick={handleConfirmSend}
+              disabled={!isValidEmail(sendEmail)}
+              className={cn("font-semibold text-white", !isValidEmail(sendEmail) && "opacity-60 cursor-not-allowed")}
+              style={{ backgroundColor: "#EB3300" }}
+            >
+              Send &amp; Open PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Update Export Modal */}
       <Dialog open={showUpdateExport} onOpenChange={setShowUpdateExport}>
@@ -4203,7 +4391,24 @@ export default function ProjectPricerPage() {
             >
               Save Full Quote
             </Button>
+            {currentQuoteStatus === "Draft" && !isReadOnly && (
+              <Button
+                size="default"
+                onClick={() => openSendDialog("Full")}
+                disabled={!proHasItems}
+                title={!proHasItems ? "Add items first" : "Send this quote to the customer"}
+                className="font-semibold shadow-sm text-white"
+                style={{ backgroundColor: "#EB3300" }}
+              >
+                Send Quote
+              </Button>
+            )}
           </div>
+          {sentMessage && (
+            <div className="pt-1 text-right text-xs font-medium" style={{ color: "#7D1424" }}>
+              {sentMessage}
+            </div>
+          )}
 
         </>
         )}

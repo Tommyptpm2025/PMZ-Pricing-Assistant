@@ -53,14 +53,10 @@ import {
   updateQuote,
   saveQuote,
 } from "@/lib/quote-storage";
-import { STATUS_FLOW, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
+import { STATUS_FLOW, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
+import { canTransition, applyStatusChange as libApplyStatusChange } from "@/lib/quote-lifecycle";
 
 const STATUS_OPTIONS = ["Draft", "Ready for Approval", "Approved", "Declined"] as const;
-
-// Is `to` a legal next status from `from` per the lifecycle flow?
-function canTransition(from: QuoteStatus, to: QuoteStatus): boolean {
-  return (STATUS_FLOW[from] || []).includes(to);
-}
 
 // Back-half statuses that advance via a single forward "Advance →" control.
 // (Draft → Send for Acceptance; Ready for Approval → Mark Accepted/Declined are
@@ -334,31 +330,14 @@ export default function QuotesPage() {
     openQuote(copy);
   }
 
-  // Single source of truth for status changes: appends to statusHistory, applies the
-  // lock rule (locked once it reaches "Approved" and never un-locks — the frozen bid
-  // snapshot must never change), and stamps optional sentAt / decidedAt / decisionNote.
+  // Apply a status change via the shared lifecycle transform (single source of
+  // truth — same path the Project Pricer uses), then persist + refresh the list.
   function applyStatusChange(
     quote: SavedQuote,
     newStatus: QuoteStatus,
     extra?: { sentAt?: string; decidedAt?: string; decisionNote?: string }
   ): SavedQuote {
-    const now = new Date().toISOString();
-    // Seed history for legacy quotes saved before statusHistory existed, so the
-    // trail starts from the quote's original status rather than losing it.
-    const existing = Array.isArray(quote.statusHistory) && quote.statusHistory.length > 0
-      ? quote.statusHistory
-      : [{ status: quote.status, at: quote.createdAt || now }];
-    const updated: SavedQuote = {
-      ...quote,
-      status: newStatus,
-      // Lock latches true at "Approved" and stays true; never un-lock.
-      locked: quote.locked || isStatusLocked(newStatus),
-      statusHistory: [...existing, { status: newStatus, at: now }],
-      updatedAt: now,
-      ...(extra?.sentAt ? { sentAt: extra.sentAt } : {}),
-      ...(extra?.decidedAt ? { decidedAt: extra.decidedAt } : {}),
-      ...(extra?.decisionNote ? { decisionNote: extra.decisionNote } : {}),
-    };
+    const updated = libApplyStatusChange(quote, newStatus, extra);
     updateQuote(updated);
     refresh();
     return updated;
