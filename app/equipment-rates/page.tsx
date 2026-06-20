@@ -320,7 +320,7 @@ export default function EquipmentRateBuilder() {
           </div>
         </div>
         <Button variant="outline" size="sm" onClick={resetToDefaults} className="self-start sm:self-auto">
-          <RotateCcw className="mr-2 h-4 w-4" /> Reset to Defaults
+          <RotateCcw className="mr-2 h-4 w-4" /> Start New
         </Button>
         <Button variant="outline" size="sm" onClick={reloadSavedRates} className="self-start sm:self-auto">
           <RotateCcw className="mr-2 h-4 w-4" /> Reload Saved Rates
@@ -548,7 +548,7 @@ export default function EquipmentRateBuilder() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="meterHours" className="text-sm">Meter Hours (lifetime)</Label>
+                  <Label htmlFor="meterHours" className="text-sm">Hour Meter</Label>
                   <Input
                     id="meterHours"
                     type="number"
