@@ -432,7 +432,7 @@ export default function EquipmentRateBuilder() {
                   id="mgrDescription"
                   value={inputs.description}
                   onChange={(e) => updateField("description", e.target.value)}
-                  className="mt-1.5 text-base font-semibold"
+                  className="mt-1.5 text-base font-semibold placeholder:font-normal"
                   placeholder="Cat 320 Excavator - 2024"
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground">
