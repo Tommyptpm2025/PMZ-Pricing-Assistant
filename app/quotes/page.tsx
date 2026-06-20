@@ -633,7 +633,7 @@ export default function QuotesPage() {
                         >
                           <option value="" disabled>Change…</option>
                           {quote.status === "Draft" && (
-                            <option value="act:send">Send for Acceptance</option>
+                            <option value="act:send">Mark Ready for Approval</option>
                           )}
                           {quote.status === "Ready for Approval" && (
                             <>
