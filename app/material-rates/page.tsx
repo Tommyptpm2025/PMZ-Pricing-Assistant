@@ -197,15 +197,17 @@ export default function MaterialRateBuilder() {
             </p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={resetToDefaults} className="self-start sm:self-auto">
-          <RotateCcw className="mr-2 h-4 w-4" /> Start New
-        </Button>
-        <Button variant="outline" size="sm" onClick={reloadSavedRates} className="self-start sm:self-auto">
-          <RotateCcw className="mr-2 h-4 w-4" /> Reload Saved Rates
-        </Button>
-        {reloadMsg && (
-          <span className="text-xs text-emerald-600 self-start sm:self-auto ml-2">{reloadMsg}</span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={resetToDefaults}>
+            <RotateCcw className="mr-2 h-4 w-4" /> Start New
+          </Button>
+          <Button variant="outline" size="sm" onClick={reloadSavedRates}>
+            <RotateCcw className="mr-2 h-4 w-4" /> Reload Saved Rates
+          </Button>
+          {reloadMsg && (
+            <span className="text-xs text-emerald-600 ml-1">{reloadMsg}</span>
+          )}
+        </div>
       </div>
 
       {/* Clean modern tabbed interface - exact same as Labor & Equipment */}
@@ -310,7 +312,7 @@ export default function MaterialRateBuilder() {
                     id="mgrDescription"
                     value={inputs.description}
                     onChange={(e) => updateField("description", e.target.value)}
-                    className="mt-1.5 h-10 rounded-md border border-border bg-background text-base font-semibold"
+                    className="mt-1.5 h-10 rounded-md border border-border bg-background text-base font-semibold placeholder:font-normal"
                     placeholder="e.g. Concrete - 4000 PSI"
                   />
                 </div>
@@ -336,19 +338,6 @@ export default function MaterialRateBuilder() {
                       <Plus className="mr-2 h-4 w-4" /> Save Current as New Material
                     </Button>
                   )}
-                  <Button
-                    onClick={() => {
-                      const fresh = { ...BLANK_MATERIAL };
-                      setInputs(fresh);
-                      setEditingId(null);
-                      setSelectedId(null);
-                      setJustSaved(false);
-                    }}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Start Fresh (New Blank)
-                  </Button>
                   <Button
                     onClick={() => {
                       if (editingId) {
@@ -433,7 +422,7 @@ export default function MaterialRateBuilder() {
                   onChange={(v) => updateField("baseCost", v)}
                   unit={inputs.unitOfMeasure}
                   placeholder="0.00"
-                  className="pl-0 text-left font-semibold"
+                  className="pl-0 text-left font-semibold placeholder:font-normal"
                   wrapperClassName="h-10 border border-border bg-background"
                 />
               </div>

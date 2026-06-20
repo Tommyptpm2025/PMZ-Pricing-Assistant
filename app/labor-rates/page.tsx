@@ -199,27 +199,27 @@ export default function LaborRateBuilder() {
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={resetToDefaults}
-          className="self-start sm:self-auto"
-        >
-          <RotateCcw className="mr-2 h-4 w-4" />
-          Start New
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={reloadSavedRates}
-          className="self-start sm:self-auto"
-        >
-          <RotateCcw className="mr-2 h-4 w-4" />
-          Reload Saved Rates
-        </Button>
-        {reloadMsg && (
-          <span className="text-xs text-emerald-600 self-start sm:self-auto ml-2">{reloadMsg}</span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetToDefaults}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Start New
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={reloadSavedRates}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Reload Saved Rates
+          </Button>
+          {reloadMsg && (
+            <span className="text-xs text-emerald-600 ml-1">{reloadMsg}</span>
+          )}
+        </div>
       </div>
 
       {/* Clean modern tabbed interface at the very top (exact match to Equipment Rate Builder) */}
@@ -322,7 +322,7 @@ export default function LaborRateBuilder() {
                     onChange={(v) => updateField("baseWage", v)}
                     placeholder="0.00"
                     wrapperClassName="h-10"
-                    className="font-semibold"
+                    className="font-semibold placeholder:font-normal"
                   />
                   <p className="mt-1 text-xs text-muted-foreground">What the employee actually receives per hour worked.</p>
                 </div>

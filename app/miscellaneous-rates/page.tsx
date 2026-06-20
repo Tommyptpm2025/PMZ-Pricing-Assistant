@@ -258,6 +258,7 @@ export default function MiscRateBuilder() {
                     id="description"
                     value={inputs.description}
                     onChange={(e) => setInputs({ ...inputs, description: e.target.value })}
+                    placeholder="e.g. Scaffolding rental - weekly"
                     className="h-10 rounded-md border border-border bg-background px-3 text-sm dark:border-white/20 dark:bg-black/30"
                   />
                 </div>
@@ -303,6 +304,7 @@ export default function MiscRateBuilder() {
                     id="supplier"
                     value={inputs.supplier || ""}
                     onChange={(e) => setInputs({ ...inputs, supplier: e.target.value })}
+                    placeholder="e.g. ABC Rentals"
                     className="h-10 rounded-md border border-border bg-background px-3 text-sm dark:border-white/20 dark:bg-black/30"
                   />
                 </div>
@@ -312,6 +314,7 @@ export default function MiscRateBuilder() {
                     id="notes"
                     value={inputs.notes || ""}
                     onChange={(e) => setInputs({ ...inputs, notes: e.target.value })}
+                    placeholder="e.g. Includes setup and takedown"
                     className="h-10 rounded-md border border-border bg-background px-3 text-sm dark:border-white/20 dark:bg-black/30"
                   />
                 </div>

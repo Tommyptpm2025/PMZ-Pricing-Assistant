@@ -322,15 +322,17 @@ export default function EquipmentRateBuilder() {
             </p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={resetToDefaults} className="self-start sm:self-auto">
-          <RotateCcw className="mr-2 h-4 w-4" /> Start New
-        </Button>
-        <Button variant="outline" size="sm" onClick={reloadSavedRates} className="self-start sm:self-auto">
-          <RotateCcw className="mr-2 h-4 w-4" /> Reload Saved Rates
-        </Button>
-        {reloadMsg && (
-          <span className="text-xs text-emerald-600 self-start sm:self-auto ml-2">{reloadMsg}</span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={resetToDefaults}>
+            <RotateCcw className="mr-2 h-4 w-4" /> Start New
+          </Button>
+          <Button variant="outline" size="sm" onClick={reloadSavedRates}>
+            <RotateCcw className="mr-2 h-4 w-4" /> Reload Saved Rates
+          </Button>
+          {reloadMsg && (
+            <span className="text-xs text-emerald-600 ml-1">{reloadMsg}</span>
+          )}
+        </div>
       </div>
 
       {/* Clean modern tabbed interface at the very top */}
@@ -453,19 +455,6 @@ export default function EquipmentRateBuilder() {
                     Save Current Form as New Profile
                   </Button>
                 )}
-                <Button
-                  onClick={() => {
-                    const fresh = { ...BLANK_BUILDER_INPUTS };
-                    setInputs(fresh);
-                    setEditingId(null);
-                    setSelectedId(null);
-                    setJustSaved(false);
-                  }}
-                  size="sm"
-                  variant="outline"
-                >
-                  Start Fresh (New Blank)
-                </Button>
                 <Button
                   onClick={() => {
                     if (editingId) {
@@ -625,7 +614,7 @@ export default function EquipmentRateBuilder() {
                     value={inputs.startingValue}
                     onChange={(v) => updateField("startingValue", v)}
                     placeholder="0.00"
-                    className="font-semibold"
+                    className="font-semibold placeholder:font-normal"
                   />
                 </div>
                 <div>
@@ -635,7 +624,7 @@ export default function EquipmentRateBuilder() {
                     value={inputs.endingValue}
                     onChange={(v) => updateField("endingValue", v)}
                     placeholder="0.00"
-                    className="font-semibold"
+                    className="font-semibold placeholder:font-normal"
                   />
                 </div>
 
@@ -806,7 +795,7 @@ export default function EquipmentRateBuilder() {
                     value={inputs.estimatedHours || ""}
                     onChange={(e) => updateField("estimatedHours", parseFloat(e.target.value) || 0)}
                     placeholder="0"
-                    className="mt-1 h-9 text-center font-semibold tabular-nums"
+                    className="mt-1 h-9 text-center font-semibold tabular-nums placeholder:font-normal"
                   />
                 </div>
                 <div>
@@ -816,7 +805,7 @@ export default function EquipmentRateBuilder() {
                     value={inputs.actualHours || ""}
                     onChange={(e) => updateField("actualHours", parseFloat(e.target.value) || 0)}
                     placeholder="0"
-                    className="mt-1 h-9 text-center font-semibold tabular-nums"
+                    className="mt-1 h-9 text-center font-semibold tabular-nums placeholder:font-normal"
                   />
                 </div>
               </div>
