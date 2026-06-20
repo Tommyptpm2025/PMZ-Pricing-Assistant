@@ -40,6 +40,10 @@ interface CostLine {
 // Main inputs for the rich Equipment Rate Builder
 interface EquipmentBuilderInputs {
   description: string;
+  // Identity / asset (manual entry; meterHours is the future telematics/depreciation hook — no automation yet)
+  serialNumber: string;
+  unitNumber: string;
+  meterHours: number;
   // Depreciation section
   startDate: string;
   endDate: string;
@@ -63,6 +67,9 @@ interface SavedEquipmentProfile extends EquipmentBuilderInputs {
 // Default detailed profile (realistic for a service truck / heavy equipment)
 const DEFAULT_BUILDER_INPUTS: EquipmentBuilderInputs = {
   description: "2022 Ford F-250 Service Truck",
+  serialNumber: "1FT7W2BT5NEF12345",
+  unitNumber: "Unit 12",
+  meterHours: 4820,
   startDate: "2022-03-15",
   endDate: "2030-03-15",
   startingValue: 52000,
@@ -90,6 +97,9 @@ const DEFAULT_BUILDER_INPUTS: EquipmentBuilderInputs = {
 // is no longer used to seed a new entry.
 const BLANK_BUILDER_INPUTS: EquipmentBuilderInputs = {
   description: "",
+  serialNumber: "",
+  unitNumber: "",
+  meterHours: 0,
   startDate: "",
   endDate: "",
   startingValue: 0,
@@ -507,6 +517,52 @@ export default function EquipmentRateBuilder() {
       <div className="grid gap-6 xl:grid-cols-12">
         {/* LEFT COLUMN — INPUTS */}
         <div className="xl:col-span-7 space-y-6">
+          {/* EQUIPMENT IDENTITY SECTION — asset identifiers (manual entry) */}
+          <Card className="card">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-xl">Equipment Identity</CardTitle>
+              <CardDescription>
+                Asset identifiers for this machine. Meter hours is the lifetime/odometer reading — not this year&apos;s usage.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-5 sm:grid-cols-3">
+                <div>
+                  <Label htmlFor="serialNumber" className="text-sm">Serial Number</Label>
+                  <Input
+                    id="serialNumber"
+                    value={inputs.serialNumber || ""}
+                    onChange={(e) => updateField("serialNumber", e.target.value)}
+                    className="mt-1.5 h-10"
+                    placeholder="Manufacturer serial #"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="unitNumber" className="text-sm">Unit Number</Label>
+                  <Input
+                    id="unitNumber"
+                    value={inputs.unitNumber || ""}
+                    onChange={(e) => updateField("unitNumber", e.target.value)}
+                    className="mt-1.5 h-10"
+                    placeholder="Unit 12"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="meterHours" className="text-sm">Meter Hours (lifetime)</Label>
+                  <Input
+                    id="meterHours"
+                    type="number"
+                    value={inputs.meterHours || ""}
+                    onChange={(e) => updateField("meterHours", parseFloat(e.target.value) || 0)}
+                    className="mt-1.5 h-10 text-center font-medium tabular-nums"
+                    placeholder="0"
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">Total accumulated meter / odometer hours — not this year&apos;s usage.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* DEPRECIATION SECTION */}
           <Card className="card">
             <CardHeader className="pb-4">

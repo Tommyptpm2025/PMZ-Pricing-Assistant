@@ -9,6 +9,10 @@ export interface SavedLaborRate extends LaborRateInputs {
 export interface SavedEquipmentProfile {
   id: string;
   description: string;
+  // Identity / asset fields (manual entry; carried through the existing save/load path).
+  serialNumber: string;
+  unitNumber: string;
+  meterHours: number;
   startDate: string;
   endDate: string;
   startingValue: number;
