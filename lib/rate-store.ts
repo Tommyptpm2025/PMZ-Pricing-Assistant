@@ -12,7 +12,8 @@ export interface SavedEquipmentProfile {
   // Identity / asset fields (manual entry; carried through the existing save/load path).
   serialNumber: string;
   unitNumber: string;
-  meterHours: number;
+  meterReading: number;
+  meterUnit: 'hours' | 'miles' | 'km';
   startDate: string;
   endDate: string;
   startingValue: number;

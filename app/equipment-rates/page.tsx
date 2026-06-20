@@ -40,10 +40,11 @@ interface CostLine {
 // Main inputs for the rich Equipment Rate Builder
 interface EquipmentBuilderInputs {
   description: string;
-  // Identity / asset (manual entry; meterHours is the future telematics/depreciation hook — no automation yet)
+  // Identity / asset (manual entry; meterReading is the future telematics/depreciation hook — no automation yet)
   serialNumber: string;
   unitNumber: string;
-  meterHours: number;
+  meterReading: number;                 // accumulated reading (hours for machines, miles/km for trucks)
+  meterUnit: 'hours' | 'miles' | 'km';
   // Depreciation section
   startDate: string;
   endDate: string;
@@ -69,7 +70,8 @@ const DEFAULT_BUILDER_INPUTS: EquipmentBuilderInputs = {
   description: "2022 Ford F-250 Service Truck",
   serialNumber: "1FT7W2BT5NEF12345",
   unitNumber: "Unit 12",
-  meterHours: 4820,
+  meterReading: 4820,
+  meterUnit: 'hours',
   startDate: "2022-03-15",
   endDate: "2030-03-15",
   startingValue: 52000,
@@ -99,7 +101,8 @@ const BLANK_BUILDER_INPUTS: EquipmentBuilderInputs = {
   description: "",
   serialNumber: "",
   unitNumber: "",
-  meterHours: 0,
+  meterReading: 0,
+  meterUnit: 'hours',
   startDate: "",
   endDate: "",
   startingValue: 0,
@@ -548,16 +551,28 @@ export default function EquipmentRateBuilder() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="meterHours" className="text-sm">Hour Meter</Label>
-                  <Input
-                    id="meterHours"
-                    type="number"
-                    value={inputs.meterHours || ""}
-                    onChange={(e) => updateField("meterHours", parseFloat(e.target.value) || 0)}
-                    className="mt-1.5 h-10 text-center font-medium tabular-nums"
-                    placeholder="0"
-                  />
-                  <p className="mt-1 text-[11px] text-muted-foreground">Total accumulated meter / odometer hours — not this year&apos;s usage.</p>
+                  <Label htmlFor="meterReading" className="text-sm">Meter Reading</Label>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <Input
+                      id="meterReading"
+                      type="number"
+                      value={inputs.meterReading || ""}
+                      onChange={(e) => updateField("meterReading", parseFloat(e.target.value) || 0)}
+                      className="h-10 flex-1 text-center font-medium tabular-nums"
+                      placeholder="0"
+                    />
+                    <select
+                      aria-label="Meter unit"
+                      value={inputs.meterUnit || "hours"}
+                      onChange={(e) => updateField("meterUnit", e.target.value as 'hours' | 'miles' | 'km')}
+                      className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+                    >
+                      <option value="hours">Hours</option>
+                      <option value="miles">Miles</option>
+                      <option value="km">KM</option>
+                    </select>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">Total accumulated reading — hours for machines, miles/km for trucks. Not this year&apos;s usage.</p>
                 </div>
               </div>
             </CardContent>
