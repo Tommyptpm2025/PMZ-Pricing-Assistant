@@ -67,7 +67,7 @@ interface SavedEquipmentProfile extends EquipmentBuilderInputs {
 
 // Default detailed profile (realistic for a service truck / heavy equipment)
 const DEFAULT_BUILDER_INPUTS: EquipmentBuilderInputs = {
-  description: "2022 Ford F-250 Service Truck",
+  description: "Cat 320 Excavator - 2024",
   serialNumber: "1FT7W2BT5NEF12345",
   unitNumber: "Unit 12",
   meterReading: 4820,
@@ -436,7 +436,7 @@ export default function EquipmentRateBuilder() {
                   value={inputs.description}
                   onChange={(e) => updateField("description", e.target.value)}
                   className="mt-1.5 text-base font-semibold placeholder:font-normal"
-                  placeholder="Cat 320 Excavator - 2024"
+                  placeholder="e.g. Cat 320 Excavator - 2024"
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Rename the current profile here. All sections below update live.
@@ -746,7 +746,7 @@ export default function EquipmentRateBuilder() {
                             {line.name}
                             {line.name === "Wear Items" && (
                               <div className="text-[10px] leading-tight text-muted-foreground mt-0.5">
-                                tires, tracks, cutting edges, bucket teeth, etc.
+                                e.g. Tracks, Tires, Teeth…
                               </div>
                             )}
                           </TableCell>

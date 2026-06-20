@@ -206,7 +206,7 @@ export default function LaborRateBuilder() {
           className="self-start sm:self-auto"
         >
           <RotateCcw className="mr-2 h-4 w-4" />
-          Reset to Defaults
+          Start New
         </Button>
         <Button
           variant="outline"
@@ -310,7 +310,7 @@ export default function LaborRateBuilder() {
                     value={inputs.role}
                     onChange={(e) => updateField("role", e.target.value)}
                     className="mt-1.5 text-base"
-                    placeholder="Journeyman Electrician"
+                    placeholder="e.g. Equipment Operator"
                   />
                   <p className="mt-1 text-xs text-muted-foreground">This name will appear in the Project Pricer.</p>
                 </div>

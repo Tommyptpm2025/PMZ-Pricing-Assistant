@@ -331,7 +331,7 @@ export default function MiscRateBuilder() {
                   <Save className="h-4 w-4" /> {editingId ? "Update Saved Rate" : "Save New Rate"}
                 </Button>
                 <Button variant="outline" onClick={startNew} className="gap-2">
-                  <Plus className="h-4 w-4" /> New / Clear
+                  <Plus className="h-4 w-4" /> Start New
                 </Button>
                 {editingId && (
                   <Button variant="destructive" onClick={deleteSelected} className="gap-2">
