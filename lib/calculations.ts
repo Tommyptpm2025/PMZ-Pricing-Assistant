@@ -263,6 +263,28 @@ export const DEFAULT_LABOR_INPUTS: LaborRateInputs = {
   generalLiabilityPerThousand: 10,    // $10 per $1,000 payroll (payroll-based: produces realistic ~$0.49/hr at default base wage)
 };
 
+/**
+ * Blank template — a NEW labor rate starts empty (all numerics 0 so the inputs render a
+ * faded placeholder instead of a literal value). DEFAULT_LABOR_INPUTS above stays available
+ * but is no longer used to seed a new builder entry.
+ */
+export const BLANK_LABOR_INPUTS: LaborRateInputs = {
+  role: "",
+  baseWage: 0,
+  payrollTaxes: 0,
+  workersComp: 0,
+  pto: 0,
+  supervision: 0,
+  downtime: 0,
+  targetMargin: 0,
+  perDiem: 0,
+  healthAndWelfare: 0,
+  pension: 0,
+  training: 0,
+  otherFixedFringes: 0,
+  generalLiabilityPerThousand: 0,
+};
+
 /* =====================================================
    EQUIPMENT RATE CALCULATIONS
    Clean, transparent model for contractors

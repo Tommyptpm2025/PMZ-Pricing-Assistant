@@ -54,7 +54,7 @@ const UOM_OPTIONS = [
   "Other",
 ];
 
-// Realistic default example (misc example)
+// Realistic default example (kept for reference; builders no longer seed from it).
 const DEFAULT_MISC: MiscProfile = {
   id: "",
   description: "Scaffolding Rental - Weekly",
@@ -65,9 +65,21 @@ const DEFAULT_MISC: MiscProfile = {
   notes: "Includes setup and takedown. Weekly rate.",
 };
 
+// Blank template — a NEW misc rate starts empty (numeric fields show a faded placeholder,
+// not a literal 0). DEFAULT_MISC above stays available but is no longer used for seeding.
+const BLANK_MISC: MiscProfile = {
+  id: "",
+  description: "",
+  unitOfMeasure: "",
+  baseCost: 0,
+  deliveryCost: 0,
+  supplier: "",
+  notes: "",
+};
+
 export default function MiscRateBuilder() {
   // Current working profile (live calculator)
-  const [inputs, setInputs] = React.useState<MiscProfile>({ ...DEFAULT_MISC });
+  const [inputs, setInputs] = React.useState<MiscProfile>({ ...BLANK_MISC });
 
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -154,13 +166,13 @@ export default function MiscRateBuilder() {
     setSelectedId(null);
     if (editingId === selectedId) {
       setEditingId(null);
-      setInputs({ ...DEFAULT_MISC });
+      setInputs({ ...BLANK_MISC });
     }
     console.log('[Misc Rates] deleted id=', selectedId);
   }
 
   function startNew() {
-    setInputs({ ...DEFAULT_MISC });
+    setInputs({ ...BLANK_MISC });
     setEditingId(null);
     setSelectedId(null);
     setActiveTab('builder');
@@ -174,7 +186,7 @@ export default function MiscRateBuilder() {
     current.forEach(r => deleteMiscRate(r.id));
     setSelectedId(null);
     setEditingId(null);
-    setInputs({ ...DEFAULT_MISC });
+    setInputs({ ...BLANK_MISC });
     console.log('[Misc Rates] cleared all');
   }
 
@@ -257,6 +269,7 @@ export default function MiscRateBuilder() {
                     onChange={(e) => setInputs({ ...inputs, unitOfMeasure: e.target.value })}
                     className="w-full h-10 rounded-md border border-border bg-background px-3 text-sm dark:border-white/20 dark:bg-black/30"
                   >
+                    <option value="" disabled>Select unit…</option>
                     {UOM_OPTIONS.map((u) => (
                       <option key={u} value={u}>{u}</option>
                     ))}
@@ -268,6 +281,7 @@ export default function MiscRateBuilder() {
                     id="baseCost"
                     value={inputs.baseCost}
                     onChange={(v) => setInputs({ ...inputs, baseCost: v })}
+                    placeholder="0.00"
                     wrapperClassName="h-10 rounded-md border border-border bg-background dark:border-white/20 dark:bg-black/30"
                     className="pl-0 text-left"
                   />
@@ -278,6 +292,7 @@ export default function MiscRateBuilder() {
                     id="deliveryCost"
                     value={inputs.deliveryCost}
                     onChange={(v) => setInputs({ ...inputs, deliveryCost: v })}
+                    placeholder="0.00"
                     wrapperClassName="h-10 rounded-md border border-border bg-background dark:border-white/20 dark:bg-black/30"
                     className="pl-0 text-left"
                   />

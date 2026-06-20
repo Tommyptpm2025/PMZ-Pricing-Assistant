@@ -84,6 +84,33 @@ const DEFAULT_BUILDER_INPUTS: EquipmentBuilderInputs = {
   targetMargin: 15,
 };
 
+// Blank template — a NEW equipment entry starts empty. Ownership/operating rows are FIXED
+// categories (no add/remove UI), so they're kept as labeled rows with zero cost — the cost
+// inputs render a faded "0.00" placeholder. DEFAULT_BUILDER_INPUTS above stays available but
+// is no longer used to seed a new entry.
+const BLANK_BUILDER_INPUTS: EquipmentBuilderInputs = {
+  description: "",
+  startDate: "",
+  endDate: "",
+  startingValue: 0,
+  endingValue: 0,
+  ownership: [
+    { id: "ins", name: "Insurance", cost: 0 },
+    { id: "tax", name: "Tax / License", cost: 0 },
+    { id: "int", name: "Interest (Financing)", cost: 0 },
+    { id: "misc", name: "Misc (Storage, Transport)", cost: 0 },
+    { id: "oth", name: "Other Ownership", cost: 0 },
+  ],
+  operating: [
+    { id: "maint", name: "Maintenance & Repairs", cost: 0 },
+    { id: "fuel", name: "Fuel / Energy", cost: 0 },
+    { id: "wear", name: "Wear Items", cost: 0 },
+  ],
+  estimatedHours: 0,
+  actualHours: 0,
+  targetMargin: 0,
+};
+
 // Helper to create a cost line
 function createCostLine(name: string, cost: number): CostLine {
   return { id: createId(), name, cost };
@@ -146,7 +173,7 @@ function normalizeOperatingLines(operating: CostLine[]): CostLine[] {
 
 export default function EquipmentRateBuilder() {
   // Current working inputs (rich live calculator)
-  const [inputs, setInputs] = React.useState<EquipmentBuilderInputs>(DEFAULT_BUILDER_INPUTS);
+  const [inputs, setInputs] = React.useState<EquipmentBuilderInputs>(BLANK_BUILDER_INPUTS);
 
   const [editingId, setEditingId] = React.useState<string | null>(null);
 
@@ -200,7 +227,7 @@ export default function EquipmentRateBuilder() {
   }
 
   function resetToDefaults() {
-    setInputs(DEFAULT_BUILDER_INPUTS);
+    setInputs(BLANK_BUILDER_INPUTS);
     setEditingId(null);
     setSelectedId(null);
     setJustSaved(false);
@@ -415,7 +442,7 @@ export default function EquipmentRateBuilder() {
                 )}
                 <Button
                   onClick={() => {
-                    const fresh = { ...DEFAULT_BUILDER_INPUTS, description: "New Equipment" };
+                    const fresh = { ...BLANK_BUILDER_INPUTS };
                     setInputs(fresh);
                     setEditingId(null);
                     setSelectedId(null);
@@ -526,6 +553,7 @@ export default function EquipmentRateBuilder() {
                     id="startingValue"
                     value={inputs.startingValue}
                     onChange={(v) => updateField("startingValue", v)}
+                    placeholder="0.00"
                     className="font-semibold"
                   />
                 </div>
@@ -535,6 +563,7 @@ export default function EquipmentRateBuilder() {
                     id="endingValue"
                     value={inputs.endingValue}
                     onChange={(v) => updateField("endingValue", v)}
+                    placeholder="0.00"
                     className="font-semibold"
                   />
                 </div>
@@ -590,6 +619,7 @@ export default function EquipmentRateBuilder() {
                             <CurrencyInput
                               value={line.cost}
                               onChange={(v) => updateCostLine("ownership", line.id, v)}
+                              placeholder="0.00"
                               wrapperClassName="h-9"
                               className="font-medium text-sm"
                             />
@@ -653,6 +683,7 @@ export default function EquipmentRateBuilder() {
                             <CurrencyInput
                               value={line.cost}
                               onChange={(v) => updateCostLine("operating", line.id, v)}
+                              placeholder="0.00"
                               wrapperClassName="h-9"
                               className="font-medium text-sm"
                             />
@@ -701,8 +732,9 @@ export default function EquipmentRateBuilder() {
                   <Label className="text-xs text-muted-foreground">Estimated Use (hours)</Label>
                   <Input
                     type="number"
-                    value={inputs.estimatedHours}
+                    value={inputs.estimatedHours || ""}
                     onChange={(e) => updateField("estimatedHours", parseFloat(e.target.value) || 0)}
+                    placeholder="0"
                     className="mt-1 h-9 text-center font-semibold tabular-nums"
                   />
                 </div>
@@ -710,8 +742,9 @@ export default function EquipmentRateBuilder() {
                   <Label className="text-xs text-muted-foreground">Actual Use (hours)</Label>
                   <Input
                     type="number"
-                    value={inputs.actualHours}
+                    value={inputs.actualHours || ""}
                     onChange={(e) => updateField("actualHours", parseFloat(e.target.value) || 0)}
+                    placeholder="0"
                     className="mt-1 h-9 text-center font-semibold tabular-nums"
                   />
                 </div>

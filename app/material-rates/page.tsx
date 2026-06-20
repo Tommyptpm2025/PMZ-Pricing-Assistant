@@ -54,7 +54,7 @@ const UOM_OPTIONS = [
   "Other",
 ];
 
-// Realistic default example
+// Realistic default example (kept for reference; builders no longer seed from it).
 const DEFAULT_MATERIAL: MaterialProfile = {
   id: "",
   description: "Concrete - 4000 PSI",
@@ -65,9 +65,21 @@ const DEFAULT_MATERIAL: MaterialProfile = {
   notes: "Standard delivery within 10 miles. Fuel surcharge may apply.",
 };
 
+// Blank template — a NEW material starts empty (numeric fields show a faded placeholder,
+// not a literal 0). DEFAULT_MATERIAL above stays available but is no longer used for seeding.
+const BLANK_MATERIAL: MaterialProfile = {
+  id: "",
+  description: "",
+  unitOfMeasure: "",
+  baseCost: 0,
+  deliveryCost: 0,
+  supplier: "",
+  notes: "",
+};
+
 export default function MaterialRateBuilder() {
   // Current working profile (live calculator)
-  const [inputs, setInputs] = React.useState<MaterialProfile>({ ...DEFAULT_MATERIAL });
+  const [inputs, setInputs] = React.useState<MaterialProfile>({ ...BLANK_MATERIAL });
 
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -108,7 +120,7 @@ export default function MaterialRateBuilder() {
   }
 
   function resetToDefaults() {
-    setInputs({ ...DEFAULT_MATERIAL });
+    setInputs({ ...BLANK_MATERIAL });
     setEditingId(null);
     setSelectedId(null);
     setJustSaved(false);
@@ -326,7 +338,7 @@ export default function MaterialRateBuilder() {
                   )}
                   <Button
                     onClick={() => {
-                      const fresh = { ...DEFAULT_MATERIAL };
+                      const fresh = { ...BLANK_MATERIAL };
                       setInputs(fresh);
                       setEditingId(null);
                       setSelectedId(null);
@@ -405,6 +417,7 @@ export default function MaterialRateBuilder() {
                   onChange={(e) => updateField("unitOfMeasure", e.target.value)}
                   className="mt-1.5 w-full h-10 rounded-md border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
+                  <option value="" disabled>Select unit…</option>
                   {UOM_OPTIONS.map((uom) => (
                     <option key={uom} value={uom}>{uom}</option>
                   ))}
@@ -419,6 +432,7 @@ export default function MaterialRateBuilder() {
                   value={inputs.baseCost}
                   onChange={(v) => updateField("baseCost", v)}
                   unit={inputs.unitOfMeasure}
+                  placeholder="0.00"
                   className="pl-0 text-left font-semibold"
                   wrapperClassName="h-10 border border-border bg-background"
                 />
@@ -432,6 +446,7 @@ export default function MaterialRateBuilder() {
                   value={inputs.deliveryCost}
                   onChange={(v) => updateField("deliveryCost", v)}
                   unit={inputs.unitOfMeasure}
+                  placeholder="0.00"
                   className="pl-0 text-left font-medium"
                   wrapperClassName="h-10 border border-border bg-background"
                 />

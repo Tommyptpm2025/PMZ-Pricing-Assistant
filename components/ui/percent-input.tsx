@@ -11,6 +11,7 @@ interface PercentInputProps {
   className?: string;
   wrapperClassName?: string;
   disabled?: boolean;
+  placeholder?: string;
 }
 
 /**
@@ -24,11 +25,15 @@ export function PercentInput({
   className,
   wrapperClassName,
   disabled,
+  placeholder,
 }: PercentInputProps) {
   const [localValue, setLocalValue] = React.useState<string>("");
   const [isFocused, setIsFocused] = React.useState(false);
 
-  const displayValue = isFocused ? localValue : value.toString();
+  // Opt-in blank rendering (see CurrencyInput): empty/0 shows the faded placeholder
+  // instead of a literal "0" when a placeholder is supplied.
+  const blankMode = placeholder !== undefined && !value;
+  const displayValue = isFocused ? localValue : (blankMode ? "" : value.toString());
 
   const commitValue = (raw: string) => {
     if (raw === "" || raw === ".") {
@@ -41,7 +46,7 @@ export function PercentInput({
 
   const handleFocus = () => {
     setIsFocused(true);
-    setLocalValue(value.toString());
+    setLocalValue(blankMode ? "" : value.toString());
   };
 
   const handleBlur = () => {
@@ -72,6 +77,7 @@ export function PercentInput({
         type="text"
         inputMode="decimal"
         value={displayValue}
+        placeholder={placeholder}
         onFocus={handleFocus}
         onBlur={handleBlur}
         onChange={handleChange}

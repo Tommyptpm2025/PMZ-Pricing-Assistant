@@ -24,6 +24,7 @@ import {
   formatCurrency,
   formatPercent,
   DEFAULT_LABOR_INPUTS,
+  BLANK_LABOR_INPUTS,
   normalizeLaborRateInputs,
   type LaborRateInputs,
   type LaborRateResult,
@@ -41,7 +42,7 @@ interface SavedRate extends LaborRateInputs {
 
 export default function LaborRateBuilder() {
   // Current working inputs (live calculator)
-  const [inputs, setInputs] = React.useState<LaborRateInputs>(DEFAULT_LABOR_INPUTS);
+  const [inputs, setInputs] = React.useState<LaborRateInputs>(BLANK_LABOR_INPUTS);
 
   // Live calculation result
   const result: LaborRateResult = React.useMemo(() => calculateLaborRate(inputs), [inputs]);
@@ -87,7 +88,7 @@ export default function LaborRateBuilder() {
   }
 
   function resetToDefaults() {
-    setInputs(DEFAULT_LABOR_INPUTS);
+    setInputs(BLANK_LABOR_INPUTS);
     setEditingId(null);
     setSelectedId(null);
     setJustSaved(false);
@@ -319,6 +320,7 @@ export default function LaborRateBuilder() {
                     id="baseWage"
                     value={inputs.baseWage}
                     onChange={(v) => updateField("baseWage", v)}
+                    placeholder="0.00"
                     wrapperClassName="h-10"
                     className="font-semibold"
                   />
@@ -344,6 +346,7 @@ export default function LaborRateBuilder() {
                           id={key}
                           value={inputs[key]}
                           onChange={(v) => updateField(key, v)}
+                          placeholder="0"
                           className="font-medium"
                         />
                       </div>
@@ -380,6 +383,7 @@ export default function LaborRateBuilder() {
                           value={inputs[key]}
                           onChange={(v) => updateField(key, v)}
                           unit="/ hr"
+                          placeholder="0.00"
                           className="font-medium"
                         />
                       </div>
@@ -430,6 +434,7 @@ export default function LaborRateBuilder() {
                           value={inputs.workersComp}
                           onChange={(v) => updateField("workersComp", v)}
                           unit="/ $100"
+                          placeholder="0.00"
                           className="font-medium"
                         />
                       </div>
@@ -445,6 +450,7 @@ export default function LaborRateBuilder() {
                           value={inputs.generalLiabilityPerThousand}
                           onChange={(v) => updateField("generalLiabilityPerThousand", v)}
                           unit="/ $1,000 payroll"
+                          placeholder="0.00"
                           className="font-medium"
                         />
                       </div>
@@ -469,6 +475,7 @@ export default function LaborRateBuilder() {
                           id={key}
                           value={inputs[key]}
                           onChange={(v) => updateField(key, v)}
+                          placeholder="0"
                           className="font-medium"
                         />
                       </div>
@@ -485,6 +492,7 @@ export default function LaborRateBuilder() {
                         value={inputs.perDiem}
                         onChange={(v) => updateField("perDiem", v)}
                         unit="/ hr"
+                        placeholder="0.00"
                         className="font-medium"
                       />
                     </div>

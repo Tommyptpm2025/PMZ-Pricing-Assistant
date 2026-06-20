@@ -12,6 +12,7 @@ interface CurrencyInputProps {
   className?: string;
   wrapperClassName?: string;
   disabled?: boolean;
+  placeholder?: string;
 }
 
 /**
@@ -29,11 +30,16 @@ export function CurrencyInput({
   className,
   wrapperClassName,
   disabled,
+  placeholder,
 }: CurrencyInputProps) {
   const [localValue, setLocalValue] = React.useState<string>("");
   const [isFocused, setIsFocused] = React.useState(false);
 
-  const displayValue = isFocused ? localValue : value.toFixed(2);
+  // Opt-in blank rendering: when a placeholder is supplied and the value is empty/0,
+  // render nothing so the faded placeholder shows instead of a literal "0.00".
+  // Callers that don't pass a placeholder keep the original behavior (0 -> "0.00").
+  const blankMode = placeholder !== undefined && !value;
+  const displayValue = isFocused ? localValue : (blankMode ? "" : value.toFixed(2));
 
   const roundToTwo = (n: number) => Math.round(n * 100) / 100;
 
@@ -52,7 +58,7 @@ export function CurrencyInput({
 
   const handleFocus = () => {
     setIsFocused(true);
-    setLocalValue(value.toFixed(2));
+    setLocalValue(blankMode ? "" : value.toFixed(2));
   };
 
   const handleBlur = () => {
@@ -84,6 +90,7 @@ export function CurrencyInput({
         type="text"
         inputMode="decimal"
         value={displayValue}
+        placeholder={placeholder}
         onFocus={handleFocus}
         onBlur={handleBlur}
         onChange={handleChange}
