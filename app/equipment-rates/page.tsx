@@ -547,7 +547,7 @@ export default function EquipmentRateBuilder() {
                     value={inputs.unitNumber || ""}
                     onChange={(e) => updateField("unitNumber", e.target.value)}
                     className="mt-1.5 h-10"
-                    placeholder="Unit 12"
+                    placeholder="e.g. Unit 12"
                   />
                 </div>
                 <div>

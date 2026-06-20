@@ -311,7 +311,7 @@ export default function MaterialRateBuilder() {
                     value={inputs.description}
                     onChange={(e) => updateField("description", e.target.value)}
                     className="mt-1.5 h-10 rounded-md border border-border bg-background text-base font-semibold"
-                    placeholder="Concrete - 4000 PSI"
+                    placeholder="e.g. Concrete - 4000 PSI"
                   />
                 </div>
 
@@ -322,7 +322,7 @@ export default function MaterialRateBuilder() {
                     value={inputs.notes || ""}
                     onChange={(e) => updateField("notes", e.target.value)}
                     className="mt-1.5 h-10 rounded-md border border-border bg-background"
-                    placeholder="Lead time, minimum order, delivery radius..."
+                    placeholder="e.g. Lead time, minimum order, delivery radius..."
                   />
                 </div>
 
@@ -462,7 +462,7 @@ export default function MaterialRateBuilder() {
                 value={inputs.notes || ""}
                 onChange={(e) => updateField("notes", e.target.value)}
                 className="mt-1.5 h-10 rounded-md"
-                placeholder="Lead time, minimum order quantity, delivery radius..."
+                placeholder="e.g. Lead time, minimum order quantity, delivery radius..."
               />
             </div>
 
