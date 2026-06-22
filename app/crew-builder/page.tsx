@@ -269,7 +269,7 @@ export default function CrewBuilder() {
 
   return (
     <div className="max-w-5xl space-y-6 pb-12">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-primary p-3 text-primary-foreground">
@@ -277,17 +277,17 @@ export default function CrewBuilder() {
             </div>
             <div>
               <h1 className="text-3xl font-semibold tracking-[-0.02em]">Crew Builder</h1>
-              <p className="mt-1 text-muted-foreground">
+              <p className="mt-1 text-muted-foreground max-w-2xl">
                 Build reusable Labor + Equipment crews from your saved rate profiles. Cumulative hourly rate only — apply hours later in Project Pricer.
               </p>
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={clearCurrent}>
+        <div className="flex flex-nowrap items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={clearCurrent} className="whitespace-nowrap shrink-0">
             <RotateCcw className="mr-2 h-4 w-4" /> Start New
           </Button>
-          <Button variant="outline" size="sm" onClick={reloadProfiles}>
+          <Button variant="outline" size="sm" onClick={reloadProfiles} className="whitespace-nowrap shrink-0">
             <RotateCcw className="mr-2 h-4 w-4" /> Reload Profiles
           </Button>
         </div>
