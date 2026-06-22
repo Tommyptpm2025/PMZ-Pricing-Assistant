@@ -5,29 +5,59 @@ export interface Customer {
   name: string;                    // Company or contact name
   contactName?: string;            // Primary contact person
   title?: string;                  // Title / Role
+  isDecisionMaker?: boolean;       // Is the contact the decision-maker?
+  signsOff?: string;               // Who actually signs (when contact is not the decision-maker)
   phone?: string;
   mobile?: string;
   email?: string;
-  preferredContact?: "Phone" | "Email" | "Text";
+  preferredContact?: "Phone" | "Mobile" | "Email" | "Text";
+  bestTimeToReach?: string;          // 24-hour "HHMM" (e.g. "0930"); legacy values may be text
   website?: string;
+  // The actual decision-maker / point of contact, captured when the primary contact is NOT the
+  // decision-maker. A distinct fact from the primary contact (the export keeps them separate).
+  decisionMakerContact?: {
+    name?: string;
+    title?: string;
+    phone?: string;
+    mobile?: string;
+    email?: string;
+    preferredContact?: "Phone" | "Mobile" | "Email" | "Text";
+  };
+  // Legacy: a generic "alternate contact" from an earlier iteration. No longer written; values are
+  // migrated into decisionMakerContact on edit. Kept optional so old records still type-check.
+  altContact?: {
+    name?: string;
+    title?: string;
+    phone?: string;
+    mobile?: string;
+    email?: string;
+    preferredContact?: "Phone" | "Mobile" | "Email" | "Text";
+  };
   billingAddress?: {
     street?: string;
     street2?: string;
     city?: string;
-    state?: string;
+    state?: string;                // full name (CRM export matches on the name)
+    stateCode?: string;            // 2-letter code
     zip?: string;
-    country?: string;
+    country?: string;              // full name
+    countryCode?: string;          // 2-letter ISO code
   };
   jobSiteAddress?: {
     street?: string;
     street2?: string;
     city?: string;
-    state?: string;
+    state?: string;                // full name
+    stateCode?: string;            // 2-letter code
     zip?: string;
+    country?: string;              // full name
+    countryCode?: string;          // 2-letter ISO code
     latitude?: number;
     longitude?: number;
     accessNotes?: string;
   };
+  paymentTerms?: "Due on receipt" | "Net 15" | "Net 30" | "Net 60" | "COD";
+  apContact?: string;              // AP / billing contact if different
   externalIds?: {
     odoo?: string;
     quickbooks?: string;
