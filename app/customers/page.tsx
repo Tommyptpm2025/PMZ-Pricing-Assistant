@@ -658,11 +658,26 @@ export default function CustomersPage() {
                           </div>
                           <div>
                             <Label htmlFor="dmPhone">Phone <OptionalTag /></Label>
-                            <Input id="dmPhone" value={form.dmPhone} onChange={(e) => setForm({ ...form, dmPhone: formatPhone(e.target.value) })} placeholder="(555) 123-4567" className="mt-1.5" />
+                            <Input id="dmPhone" value={form.dmPhone} onChange={(e) => {
+                              const v = formatPhone(e.target.value);
+                              setForm((prev) => {
+                                const next = { ...prev, dmPhone: v };
+                                // Auto-fill §2 Phone while it's empty or still mirroring the old DM value (never clobber a user-typed §2 value).
+                                if (prev.isDecisionMaker === "no" && (prev.phone === "" || prev.phone === prev.dmPhone)) next.phone = v;
+                                return next;
+                              });
+                            }} placeholder="(555) 123-4567" className="mt-1.5" />
                           </div>
                           <div>
                             <Label htmlFor="dmMobile">Mobile <OptionalTag /></Label>
-                            <Input id="dmMobile" value={form.dmMobile} onChange={(e) => setForm({ ...form, dmMobile: formatPhone(e.target.value) })} placeholder="(555) 987-6543" className="mt-1.5" />
+                            <Input id="dmMobile" value={form.dmMobile} onChange={(e) => {
+                              const v = formatPhone(e.target.value);
+                              setForm((prev) => {
+                                const next = { ...prev, dmMobile: v };
+                                if (prev.isDecisionMaker === "no" && (prev.mobile === "" || prev.mobile === prev.dmMobile)) next.mobile = v;
+                                return next;
+                              });
+                            }} placeholder="(555) 987-6543" className="mt-1.5" />
                           </div>
                           <div>
                             <Label htmlFor="dmEmail">Email <OptionalTag /></Label>
@@ -670,7 +685,15 @@ export default function CustomersPage() {
                               id="dmEmail"
                               type="email"
                               value={form.dmEmail}
-                              onChange={(e) => { setForm({ ...form, dmEmail: e.target.value }); if (dmEmailError) setDmEmailError(false); }}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setForm((prev) => {
+                                  const next = { ...prev, dmEmail: v };
+                                  if (prev.isDecisionMaker === "no" && (prev.email === "" || prev.email === prev.dmEmail)) next.email = v;
+                                  return next;
+                                });
+                                if (dmEmailError) setDmEmailError(false);
+                              }}
                               onBlur={() => setDmEmailError(!!form.dmEmail.trim() && !isValidEmail(form.dmEmail))}
                               placeholder="e.g. pat@acme.com"
                               className={cn("mt-1.5", dmEmailError && "border-destructive focus-visible:ring-destructive")}
@@ -679,7 +702,15 @@ export default function CustomersPage() {
                           </div>
                           <div>
                             <Label htmlFor="dmPreferred">Preferred Contact Method <OptionalTag /></Label>
-                            <select id="dmPreferred" value={form.dmPreferredContact} onChange={(e) => setForm({ ...form, dmPreferredContact: e.target.value as any })} className={SELECT_CLS}>
+                            <select id="dmPreferred" value={form.dmPreferredContact} onChange={(e) => {
+                              const v = e.target.value as typeof form.dmPreferredContact;
+                              setForm((prev) => {
+                                const next = { ...prev, dmPreferredContact: v };
+                                // Preferred defaults to "Phone"; mirror while §2 still matches the old DM value (not user-changed).
+                                if (prev.isDecisionMaker === "no" && prev.preferredContact === prev.dmPreferredContact) next.preferredContact = v;
+                                return next;
+                              });
+                            }} className={SELECT_CLS}>
                               {PREFERRED_CONTACTS.map((p) => <option key={p} value={p}>{p}</option>)}
                             </select>
                           </div>
