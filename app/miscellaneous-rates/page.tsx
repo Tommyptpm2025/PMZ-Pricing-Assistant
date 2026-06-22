@@ -211,7 +211,7 @@ export default function MiscRateBuilder() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={reloadSavedRates} className="gap-2">
-            <RotateCcw className="h-4 w-4" /> Reload from Storage
+            <RotateCcw className="h-4 w-4" /> Reload Saved Rates
           </Button>
           <Button variant="outline" size="sm" onClick={clearAll} className="gap-2 text-destructive hover:text-destructive">
             <Trash2 className="h-4 w-4" /> Clear All Saved
@@ -378,7 +378,7 @@ export default function MiscRateBuilder() {
                 <CardDescription>Load any saved profile back into the builder for quick edits or reference.</CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={reloadSavedRates} className="gap-2">
-                <RotateCcw className="h-4 w-4" /> Reload from Storage
+                <RotateCcw className="h-4 w-4" /> Reload Saved Rates
               </Button>
             </div>
           </CardHeader>

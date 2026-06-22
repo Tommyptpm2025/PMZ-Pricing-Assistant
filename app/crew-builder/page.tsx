@@ -360,7 +360,7 @@ export default function CrewBuilder() {
                   disabled={!isLoaded}
                 />
               </div>
-              <Button onClick={addLaborLine} disabled={!pendingLaborId || !isLoaded} size="sm">
+              <Button onClick={addLaborLine} disabled={!pendingLaborId || !isLoaded} size="sm" className="w-40">
                 <Plus className="mr-1.5 h-4 w-4" /> Add Labor
               </Button>
             </div>
@@ -453,7 +453,7 @@ export default function CrewBuilder() {
                   disabled={!isLoaded}
                 />
               </div>
-              <Button onClick={addEquipmentLine} disabled={!pendingEquipId || !isLoaded} size="sm">
+              <Button onClick={addEquipmentLine} disabled={!pendingEquipId || !isLoaded} size="sm" className="w-40">
                 <Plus className="mr-1.5 h-4 w-4" /> Add Equipment
               </Button>
             </div>
