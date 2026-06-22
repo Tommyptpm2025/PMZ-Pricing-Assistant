@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Edit2, Copy, Trash2, Save, RefreshCw, Users, Wrench } from "lucide-react";
+import { Plus, Edit2, Copy, Trash2, Save, RotateCcw, Users, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRateStore } from "@/lib/rate-store";
 import {
@@ -283,12 +283,12 @@ export default function CrewBuilder() {
             </div>
           </div>
         </div>
-        <div className="flex gap-2 items-center">
-          <Button variant="outline" size="sm" onClick={reloadProfiles}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Reload Profiles
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={clearCurrent}>
+            <RotateCcw className="mr-2 h-4 w-4" /> Start New
           </Button>
-          <Button variant="ghost" size="sm" onClick={clearCurrent}>
-            New Crew
+          <Button variant="outline" size="sm" onClick={reloadProfiles}>
+            <RotateCcw className="mr-2 h-4 w-4" /> Reload Profiles
           </Button>
         </div>
       </div>
