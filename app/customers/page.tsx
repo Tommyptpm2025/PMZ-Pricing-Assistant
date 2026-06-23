@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Users, Edit2, Trash2, ChevronDown, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { Users, Edit2, Trash2, ChevronDown, CheckCircle2, AlertTriangle, Loader2, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Customer } from "@/lib/pmz-types";
 import { StateProvinceSelect, CountrySelect } from "@/components/customer/GeoSelects";
@@ -134,12 +134,146 @@ function CompletenessBadge({ customer }: { customer: Customer }) {
 // Shared section helper styling
 const SELECT_CLS = "mt-1.5 w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+// Format a stored 24-hour "HHMM" best-time back to "HH:MM"; legacy free-text passes through.
+function formatBestTime(v?: string): string | undefined {
+  if (!v) return undefined;
+  return /^\d{4}$/.test(v) ? `${v.slice(0, 2)}:${v.slice(2)}` : v;
+}
+
+// One read-only field in the preview: label above, value as plain text (muted em-dash when empty).
+function PreviewField({ label, value, full }: { label: string; value?: React.ReactNode; full?: boolean }) {
+  const empty = value === undefined || value === null || value === "";
+  return (
+    <div className={full ? "sm:col-span-2" : undefined}>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className={cn("mt-0.5 text-sm break-words", empty && "text-muted-foreground/50")}>{empty ? "—" : value}</p>
+    </div>
+  );
+}
+
+// A read-only section mirroring the form's section chrome (header bar + bordered body).
+function PreviewSection({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div className="border rounded-md overflow-hidden">
+      <div className="px-4 py-3 bg-muted/30 border-b">
+        <span className="font-semibold">{title}</span>
+        {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+      </div>
+      <div className="p-4">
+        <div className="grid gap-4 sm:grid-cols-2">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// Full read-only preview of a saved customer — same five-section layout as Add/Edit, every field
+// rendered as locked text (no inputs, no Save). Editing is reached only from the list's pencil.
+function CustomerPreview({ customer, onBack }: { customer: Customer; onBack: () => void }) {
+  const c = customer;
+  const job: any = c.jobSiteAddress || {};
+  const bill: any = c.billingAddress || {};
+  const dm: any = c.decisionMakerContact || c.altContact || {};
+  const dmAnswer = c.isDecisionMaker === true ? "Yes" : c.isDecisionMaker === false ? "No" : undefined;
+  const jobState = job.state || job.stateCode;
+  const billState = bill.state || bill.stateCode;
+  return (
+    <Card className="card">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle>{c.name || "Customer"}</CardTitle>
+            <CardDescription>Saved customer — read-only preview.</CardDescription>
+          </div>
+          <Button type="button" variant="outline" size="lg" className="shrink-0" onClick={onBack}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Back to list
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-8">
+          {/* §1 WHO */}
+          <PreviewSection title="1. WHO ARE WE WORKING WITH?" subtitle="Know who you're talking to — and who actually signs.">
+            <PreviewField full label="Company Name" value={c.name} />
+            <PreviewField label="Contact Name" value={c.contactName} />
+            <PreviewField label="Title / Role" value={c.title} />
+            <PreviewField full label="Is this person the decision-maker?" value={dmAnswer} />
+            {c.isDecisionMaker === false && (
+              <div className="sm:col-span-2">
+                <div className="rounded-md border p-4 bg-muted/20">
+                  <p className="text-sm font-medium mb-3">Decision-Maker / Point of Contact</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <PreviewField label="Name" value={dm.name} />
+                    <PreviewField label="Title / Role" value={dm.title} />
+                    <PreviewField label="Phone" value={dm.phone} />
+                    <PreviewField label="Mobile" value={dm.mobile} />
+                    <PreviewField label="Email" value={dm.email ? renderContactLink(dm.email) : undefined} />
+                    <PreviewField label="Preferred Contact Method" value={dm.preferredContact} />
+                  </div>
+                </div>
+              </div>
+            )}
+            <PreviewField full label="Website" value={c.website} />
+          </PreviewSection>
+
+          {/* §2 HOW */}
+          <PreviewSection title="2. HOW DO WE REACH THEM?" subtitle="One place for every way to reach them.">
+            <PreviewField label="Phone" value={c.phone} />
+            <PreviewField label="Mobile" value={c.mobile} />
+            <PreviewField label="Email" value={c.email ? renderContactLink(c.email) : undefined} />
+            <PreviewField label="Preferred Contact Method" value={c.preferredContact} />
+            <PreviewField label="Best Time to Reach" value={formatBestTime(c.bestTimeToReach)} />
+          </PreviewSection>
+
+          {/* §3 WHERE (Job Site) */}
+          <PreviewSection title="3. WHERE'S THE WORK? (Job Site / Project Location)" subtitle="Where the crew actually goes.">
+            <PreviewField full label="Street Address" value={job.street} />
+            <PreviewField full label="Street Address 2" value={job.street2} />
+            <PreviewField label="City" value={job.city} />
+            <PreviewField label="State / Province" value={jobState} />
+            <PreviewField label="Postal / ZIP" value={job.zip} />
+            <PreviewField label="Country" value={job.country || job.countryCode} />
+            <PreviewField label="Latitude" value={job.latitude != null ? String(job.latitude) : undefined} />
+            <PreviewField label="Longitude" value={job.longitude != null ? String(job.longitude) : undefined} />
+            <PreviewField full label="Access Notes / Delivery Instructions" value={job.accessNotes} />
+          </PreviewSection>
+
+          {/* §4 NOTES */}
+          <PreviewSection title="4. NOTES — TEAM BRIEFING" subtitle="The shared briefing everyone reads.">
+            <div className="sm:col-span-2">
+              <p className="text-xs font-medium text-muted-foreground">Notes</p>
+              <p className={cn("mt-0.5 text-sm whitespace-pre-wrap break-words", !c.notes && "text-muted-foreground/50")}>{c.notes || "—"}</p>
+            </div>
+          </PreviewSection>
+
+          {/* §5 BILLING & TERMS */}
+          <PreviewSection title="5. BILLING & TERMS" subtitle="Bill the right entity on the right terms.">
+            <PreviewField full label="Street Address" value={bill.street} />
+            <PreviewField full label="Street Address 2" value={bill.street2} />
+            <PreviewField label="City" value={bill.city} />
+            <PreviewField label="State / Province" value={billState} />
+            <PreviewField label="Postal / ZIP" value={bill.zip} />
+            <PreviewField label="Country" value={bill.country || bill.countryCode} />
+            <PreviewField label="Payment Terms" value={c.paymentTerms} />
+            <PreviewField full label="AP / Billing Contact" value={c.apContact ? renderContactLink(c.apContact) : undefined} />
+          </PreviewSection>
+
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" size="lg" onClick={onBack}>
+              <ArrowLeft className="mr-2 h-4 w-4" /> Back to list
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function CustomersPage() {
   const [customers, setCustomers] = React.useState<Customer[]>([]);
   const [isLoaded, setIsLoaded] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<Customer | null>(null);
-  const [profileTarget, setProfileTarget] = React.useState<Customer | null>(null);
+  const [previewTarget, setPreviewTarget] = React.useState<Customer | null>(null);
 
   // Email validation (on blur), Advanced (lat/long) toggle, tab + save-UX state
   const [emailError, setEmailError] = React.useState(false);
@@ -551,6 +685,10 @@ export default function CustomersPage() {
         </div>
       </div>
 
+      {previewTarget ? (
+        <CustomerPreview customer={previewTarget} onBack={() => { setPreviewTarget(null); setActiveTab("saved"); }} />
+      ) : (
+      <>
       {/* Tabs */}
       <div className="flex gap-1 border-b">
         <button
@@ -975,9 +1113,9 @@ export default function CustomersPage() {
                           <TableCell className="font-medium">
                             <button
                               type="button"
-                              onClick={() => setProfileTarget(customer)}
+                              onClick={() => { setPreviewTarget(customer); setActiveTab("saved"); }}
                               className="text-left cursor-pointer hover:underline focus-visible:underline outline-none"
-                              title="View profile"
+                              title="View customer"
                             >
                               {customer.name}
                             </button>
@@ -1018,131 +1156,8 @@ export default function CustomersPage() {
         </CardContent>
       </Card>
       )}
-
-      {/* Customer Profile (read-only) */}
-      <Dialog open={!!profileTarget} onOpenChange={(open) => !open && setProfileTarget(null)}>
-        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{profileTarget?.name || "Customer"}</DialogTitle>
-            <DialogDescription>Customer profile — read-only view of the saved record.</DialogDescription>
-          </DialogHeader>
-          {profileTarget && (() => {
-            const c = profileTarget;
-            const billing: any = c.billingAddress || {};
-            const job: any = c.jobSiteAddress || {};
-            const billingCityLine = [[billing.city, billing.state].filter(Boolean).join(", "), billing.zip].filter(Boolean).join(" ");
-            const jobCityLine = [[job.city, job.state].filter(Boolean).join(", "), job.zip].filter(Boolean).join(" ");
-            const hasBilling = !!(billing.street || billing.street2 || billing.city || billing.state || billing.zip || billing.country);
-            const hasContact = !!(c.contactName || c.title || c.phone || c.mobile || c.email);
-            const dm: any = c.decisionMakerContact || c.altContact || {};
-            const hasDM = !!(dm.name || dm.title || dm.phone || dm.mobile || dm.email);
-            const hasBillingMeta = !!(c.paymentTerms || c.apContact);
-            const hasJobAddr = !!(job.street || job.street2 || job.city || job.state || job.zip);
-            // Job-site address is "same as billing" when it has no distinct address fields, or they all match billing.
-            const addrSameAsBilling = !hasJobAddr || (
-              (billing.street || "") === (job.street || "") &&
-              (billing.street2 || "") === (job.street2 || "") &&
-              (billing.city || "") === (job.city || "") &&
-              (billing.state || "") === (job.state || "") &&
-              (billing.zip || "") === (job.zip || "")
-            );
-            const labelCls = "text-muted-foreground";
-            const headCls = "text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1";
-            return (
-              <div className="space-y-4 text-sm py-1">
-                {/* Basic */}
-                <section>
-                  <h3 className={headCls}>Basic</h3>
-                  <div className="font-medium">{c.name}</div>
-                  {c.preferredContact && <div><span className={labelCls}>Preferred contact: </span>{c.preferredContact}</div>}
-                  {c.website && <div><span className={labelCls}>Website: </span>{c.website}</div>}
-                </section>
-
-                {/* Primary Contact */}
-                {hasContact && (
-                  <section>
-                    <h3 className={headCls}>Primary Contact</h3>
-                    {(c.contactName || c.title) && <div>{[c.contactName, c.title].filter(Boolean).join(", ")}</div>}
-                    {c.phone && <div><span className={labelCls}>Phone: </span>{c.phone}</div>}
-                    {c.mobile && <div><span className={labelCls}>Mobile: </span>{c.mobile}</div>}
-                    {c.email && <div><span className={labelCls}>Email: </span>{c.email}</div>}
-                  </section>
-                )}
-
-                {/* Decision-Maker / Point of Contact (captured when the primary contact isn't the decision-maker) */}
-                {hasDM && (
-                  <section>
-                    <h3 className={headCls}>Decision-Maker / Point of Contact</h3>
-                    {(dm.name || dm.title) && <div>{[dm.name, dm.title].filter(Boolean).join(", ")}</div>}
-                    {dm.phone && <div><span className={labelCls}>Phone: </span>{dm.phone}</div>}
-                    {dm.mobile && <div><span className={labelCls}>Mobile: </span>{dm.mobile}</div>}
-                    {dm.email && <div><span className={labelCls}>Email: </span>{renderContactLink(dm.email)}</div>}
-                    {dm.preferredContact && <div><span className={labelCls}>Preferred contact: </span>{dm.preferredContact}</div>}
-                  </section>
-                )}
-
-                {/* Billing Address */}
-                {hasBilling && (
-                  <section>
-                    <h3 className={headCls}>Billing Address</h3>
-                    {billing.street && <div>{billing.street}</div>}
-                    {billing.street2 && <div>{billing.street2}</div>}
-                    {billingCityLine && <div>{billingCityLine}</div>}
-                    {billing.country && <div>{billing.country}</div>}
-                  </section>
-                )}
-
-                {/* Billing & Terms */}
-                {hasBillingMeta && (
-                  <section>
-                    <h3 className={headCls}>Billing &amp; Terms</h3>
-                    {c.paymentTerms && <div><span className={labelCls}>Payment terms: </span>{c.paymentTerms}</div>}
-                    {c.apContact && <div><span className={labelCls}>AP / Billing contact: </span>{renderContactLink(c.apContact)}</div>}
-                  </section>
-                )}
-
-                {/* Job Site / Project Location */}
-                <section>
-                  <h3 className={headCls}>Job Site / Project Location</h3>
-                  {addrSameAsBilling ? (
-                    <div>Same as billing address</div>
-                  ) : (
-                    <>
-                      {job.street && <div>{job.street}</div>}
-                      {job.street2 && <div>{job.street2}</div>}
-                      {jobCityLine && <div>{jobCityLine}</div>}
-                    </>
-                  )}
-                  {/* GPS + access notes are job-specific extras; show whenever populated (even if address is same as billing). */}
-                  {job.latitude != null && <div><span className={labelCls}>Latitude: </span>{job.latitude}</div>}
-                  {job.longitude != null && <div><span className={labelCls}>Longitude: </span>{job.longitude}</div>}
-                  {job.accessNotes && <div><span className={labelCls}>Access Notes: </span>{job.accessNotes}</div>}
-                </section>
-
-                {/* Internal Notes — internal admin view; never shown on the customer-facing quote. */}
-                {c.notes && (
-                  <section>
-                    <h3 className={headCls}>Internal Notes</h3>
-                    <div className="whitespace-pre-wrap">{c.notes}</div>
-                  </section>
-                )}
-              </div>
-            );
-          })()}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setProfileTarget(null)}>Close</Button>
-            <Button
-              onClick={() => {
-                const c = profileTarget;
-                setProfileTarget(null);
-                if (c) loadForEdit(c);
-              }}
-            >
-              Edit
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
