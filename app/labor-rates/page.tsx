@@ -127,10 +127,11 @@ export default function LaborRateBuilder() {
     setTimeout(() => setJustSaved(false), 2500);
   }
 
-  // Load a saved rate into the live calculator for editing / what-if
+  // Load a saved rate into the live calculator AND enter edit mode — mirrors Equipment's loadProfile
+  // exactly: spread the whole record (so inputs carries the id) then apply normalized field defaults,
+  // and set editingId in the same pass so isEditing flips true immediately on click.
   function loadRate(rate: SavedRate) {
-    // Normalize in case the saved rate is from before the union fields were added
-    const normalized = normalizeLaborRateInputs(rate);
+    const normalized = { ...rate, ...normalizeLaborRateInputs(rate) };
     setInputs(normalized);
     setEditingId(rate.id);
     setSelectedId(rate.id);
@@ -258,6 +259,110 @@ export default function LaborRateBuilder() {
       {/* Rate Builder tab content (full calculator + editing UI + banners) */}
       <div className={activeTab === 'builder' ? '' : 'hidden'}>
 
+      {/* Labor Manager — left-panel Saved Profiles list + name + actions (mirrors Equipment Manager) */}
+      <Card className="card mb-6">
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">Labor Manager</CardTitle>
+              <CardDescription className="mt-0.5">
+                Manage multiple roles. Click a profile on the left to load it instantly into the calculator below.
+              </CardDescription>
+            </div>
+            <Button onClick={addCurrentRate} size="sm">
+              <Plus className="mr-2 h-4 w-4" /> Add New Role
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left: clean list of saved roles (names only) */}
+            <div className="lg:col-span-4 xl:col-span-3">
+              <div className="text-xs font-semibold tracking-wider text-muted-foreground mb-2 px-1">SAVED PROFILES</div>
+              {savedRates.length === 0 ? (
+                <div className="rounded-md border border-dashed bg-surface-2 p-4 text-xs text-muted-foreground">
+                  No profiles saved yet.<br />Use &ldquo;Add New Role&rdquo; or customize the form below then save.
+                </div>
+              ) : (
+                <div className="max-h-[168px] overflow-y-auto space-y-1 pr-1">
+                  {savedRates.map((rate) => {
+                    const isActive = selectedId === rate.id;
+                    return (
+                      <div
+                        key={rate.id}
+                        onClick={() => loadRate(rate)}
+                        className={cn(
+                          "group flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm cursor-pointer border transition-colors",
+                          isActive
+                            ? "border-primary/40 bg-primary/5 font-medium"
+                            : "border-transparent hover:bg-muted hover:border-border"
+                        )}
+                      >
+                        <span className="truncate">{rate.role || "Untitled role"}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 opacity-60 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteRate(rate.id);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Right: editable Role name for the current working profile + actions */}
+            <div className="lg:col-span-8 xl:col-span-9 space-y-3">
+              <div>
+                <Label htmlFor="mgrRole" className="text-sm font-medium">Role / Title</Label>
+                <Input
+                  id="mgrRole"
+                  value={inputs.role}
+                  onChange={(e) => updateField("role", e.target.value)}
+                  className="mt-1.5 text-base font-semibold placeholder:font-normal"
+                  placeholder="e.g. Journeyman Electrician"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Rename the current profile here. All sections below update live.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {isEditing ? (
+                  <Button onClick={updateSavedRate} size="sm">
+                    Save Changes to This Profile
+                  </Button>
+                ) : (
+                  <Button onClick={addCurrentRate} size="sm" variant="default">
+                    Save Current Form as New Profile
+                  </Button>
+                )}
+                <Button
+                  onClick={() => {
+                    if (editingId) {
+                      const current = savedRates.find((r) => r.id === editingId);
+                      if (current) duplicateRate(current);
+                    } else {
+                      addCurrentRate();
+                    }
+                  }}
+                  size="sm"
+                  variant="outline"
+                >
+                  Duplicate Current
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Prominent Save Changes banner — appears at the top of the calculator/form area when editing a saved rate.
           Matches the Equipment Rate Builder pattern for discoverable updates without duplicates. */}
       {isEditing && (
@@ -301,19 +406,8 @@ export default function LaborRateBuilder() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
-              {/* Role + Base Wage */}
+              {/* Base Wage (role/name is managed in the Labor Manager card above) */}
               <div className="grid gap-5 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="role" className="text-sm">Role / Position</Label>
-                  <Input
-                    id="role"
-                    value={inputs.role}
-                    onChange={(e) => updateField("role", e.target.value)}
-                    className="mt-1.5 text-base"
-                    placeholder="e.g. Equipment Operator"
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">This name will appear in the Project Pricer.</p>
-                </div>
                 <div>
                   <Label htmlFor="baseWage" className="text-sm">Base Hourly Wage</Label>
                   <CurrencyInput

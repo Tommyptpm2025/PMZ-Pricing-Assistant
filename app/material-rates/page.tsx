@@ -18,6 +18,7 @@ import { Package, Plus, RotateCcw, Edit2, Copy, Trash2, Save } from "lucide-reac
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
 import { useRateStore } from "@/lib/rate-store";
+import { UOM_OPTIONS } from "@/lib/uom";
 
 function createId() {
   return Math.random().toString(36).slice(2, 11);
@@ -36,23 +37,6 @@ interface MaterialProfile {
 interface SavedMaterial extends MaterialProfile {}
 
 // Common units of measure for construction / pricing
-const UOM_OPTIONS = [
-  "Ton",
-  "Cubic Yard",
-  "Each",
-  "Bag",
-  "Gallon",
-  "Litre",
-  "Linear Foot",
-  "Square Foot",
-  "Cubic Foot",
-  "Pound",
-  "Piece",
-  "Roll",
-  "Sheet",
-  "Pallet",
-  "Other",
-];
 
 // Realistic default example (kept for reference; builders no longer seed from it).
 const DEFAULT_MATERIAL: MaterialProfile = {

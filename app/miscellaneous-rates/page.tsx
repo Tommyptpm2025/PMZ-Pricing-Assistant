@@ -18,9 +18,18 @@ import { Box, Plus, RotateCcw, Edit2, Copy, Trash2, Save } from "lucide-react";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
 import { useRateStore } from "@/lib/rate-store";
+import { UOM_OPTIONS } from "@/lib/uom";
 
 function createId() {
   return Math.random().toString(36).slice(2, 11);
+}
+
+// Supplier placeholder text. Browsers can autofill location-ish fields with this string; it must
+// never be persisted as a real value, so we strip it on both load and save.
+const SUPPLIER_PLACEHOLDER = "City near you";
+function cleanSupplier(s?: string): string {
+  const v = (s || "").trim();
+  return v.toLowerCase() === SUPPLIER_PLACEHOLDER.toLowerCase() ? "" : v;
 }
 
 interface MiscProfile {
@@ -35,24 +44,6 @@ interface MiscProfile {
 
 interface SavedMisc extends MiscProfile {}
 
-// Common units of measure for construction / pricing
-const UOM_OPTIONS = [
-  "Ton",
-  "Cubic Yard",
-  "Each",
-  "Bag",
-  "Gallon",
-  "Litre",
-  "Linear Foot",
-  "Square Foot",
-  "Cubic Foot",
-  "Pound",
-  "Piece",
-  "Roll",
-  "Sheet",
-  "Pallet",
-  "Other",
-];
 
 // Realistic default example (kept for reference; builders no longer seed from it).
 const DEFAULT_MISC: MiscProfile = {
@@ -114,9 +105,13 @@ export default function MiscRateBuilder() {
     return base + delivery;
   }, [inputs.baseCost, inputs.deliveryCost]);
 
+  // Editing flag — drives the EDITING banner and create-vs-update buttons (matches Equipment).
+  const isEditing = !!editingId;
+
   // Load selected into builder
   function loadIntoBuilder(item: MiscProfile) {
-    setInputs({ ...item });
+    // Treat a stored "City near you" autofill artifact as an empty supplier.
+    setInputs({ ...item, supplier: cleanSupplier(item.supplier) });
     setEditingId(item.id);
     setSelectedId(item.id);
     setActiveTab('builder');
@@ -136,7 +131,7 @@ export default function MiscRateBuilder() {
       unitOfMeasure: inputs.unitOfMeasure || "Each",
       baseCost: Number(inputs.baseCost) || 0,
       deliveryCost: Number(inputs.deliveryCost) || 0,
-      supplier: inputs.supplier?.trim() || undefined,
+      supplier: cleanSupplier(inputs.supplier) || undefined,
       notes: inputs.notes?.trim() || undefined,
     };
 
@@ -176,6 +171,44 @@ export default function MiscRateBuilder() {
     setEditingId(null);
     setSelectedId(null);
     setActiveTab('builder');
+    setJustSaved(false);
+  }
+
+  // Save the current form as a brand-new profile (always creates, even while editing) —
+  // mirrors Equipment's addCurrentProfile, used by "Add New" / "Save Current Form as New Profile".
+  function addCurrentAsNew() {
+    if (!inputs.description.trim()) {
+      alert("Description is required.");
+      return;
+    }
+    const newId = saveMiscRate({
+      ...inputs,
+      description: inputs.description.trim(),
+      unitOfMeasure: inputs.unitOfMeasure || "Each",
+      baseCost: Number(inputs.baseCost) || 0,
+      deliveryCost: Number(inputs.deliveryCost) || 0,
+      supplier: cleanSupplier(inputs.supplier) || undefined,
+      notes: inputs.notes?.trim() || undefined,
+    });
+    setEditingId(newId);
+    setSelectedId(newId);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 1500);
+  }
+
+  // Clone a profile as a new saved rate (matches Equipment's duplicateProfile).
+  function duplicateProfile(item: MiscProfile) {
+    saveMiscRate({ ...item, description: `${item.description} (Copy)` });
+  }
+
+  // Delete a profile from the left list and clear builder state if it was loaded.
+  function deleteProfile(id: string) {
+    deleteMiscRate(id);
+    if (editingId === id) {
+      setEditingId(null);
+      setInputs({ ...BLANK_MISC });
+    }
+    if (selectedId === id) setSelectedId(null);
     setJustSaved(false);
   }
 
@@ -244,127 +277,290 @@ export default function MiscRateBuilder() {
       {/* BUILDER TAB */}
       {activeTab === 'builder' && (
         <div className="space-y-6">
-          {/* Live Calculator - FULL WIDTH form with 3-column grid */}
-          <Card className="border border-border bg-card dark:border-white/10 dark:bg-[#1a1a1a]">
-            <CardHeader>
-              <CardTitle className="text-xl">Live Cost Calculator</CardTitle>
-              <CardDescription>Enter details; landed cost updates instantly. Save to persist.</CardDescription>
+          {/* Miscellaneous Manager — left-panel Saved Profiles list + name + actions (mirrors Equipment Manager) */}
+          <Card className="card">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg">Miscellaneous Manager</CardTitle>
+                  <CardDescription className="mt-0.5">
+                    Manage multiple items. Click a profile on the left to load it instantly into the calculator below.
+                  </CardDescription>
+                </div>
+                <Button onClick={startNew} size="sm">
+                  <Plus className="mr-2 h-4 w-4" /> Add New Item
+                </Button>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="description">Description / Name</Label>
-                  <Input
-                    id="description"
-                    value={inputs.description}
-                    onChange={(e) => setInputs({ ...inputs, description: e.target.value })}
-                    placeholder="e.g. Scaffolding rental - weekly"
-                    className="h-10 rounded-md border border-border bg-background px-3 text-sm dark:border-white/20 dark:bg-black/30"
-                  />
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left: clean list of saved items (names only) */}
+                <div className="lg:col-span-4 xl:col-span-3">
+                  <div className="text-xs font-semibold tracking-wider text-muted-foreground mb-2 px-1">SAVED PROFILES</div>
+                  {savedMisc.length === 0 ? (
+                    <div className="rounded-md border border-dashed bg-surface-2 p-4 text-xs text-muted-foreground">
+                      No profiles saved yet.<br />Use &ldquo;Add New Item&rdquo; or customize the form below then save.
+                    </div>
+                  ) : (
+                    <div className="max-h-[168px] overflow-y-auto space-y-1 pr-1">
+                      {savedMisc.map((m) => {
+                        const isActive = selectedId === m.id;
+                        return (
+                          <div
+                            key={m.id}
+                            onClick={() => loadIntoBuilder(m)}
+                            className={cn(
+                              "group flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm cursor-pointer border transition-colors",
+                              isActive
+                                ? "border-primary/40 bg-primary/5 font-medium"
+                                : "border-transparent hover:bg-muted hover:border-border"
+                            )}
+                          >
+                            <span className="truncate">{m.description || "Untitled item"}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 opacity-60 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteProfile(m.id);
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <Label htmlFor="uom">Unit of Measure</Label>
-                  <select
-                    id="uom"
-                    value={inputs.unitOfMeasure}
-                    onChange={(e) => setInputs({ ...inputs, unitOfMeasure: e.target.value })}
-                    className="w-full h-10 rounded-md border border-border bg-background px-3 text-sm dark:border-white/20 dark:bg-black/30"
-                  >
-                    <option value="" disabled>Select unit…</option>
-                    {UOM_OPTIONS.map((u) => (
-                      <option key={u} value={u}>{u}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label htmlFor="baseCost">Base Cost per Unit ($)</Label>
-                  <CurrencyInput
-                    id="baseCost"
-                    value={inputs.baseCost}
-                    onChange={(v) => setInputs({ ...inputs, baseCost: v })}
-                    placeholder="0.00"
-                    wrapperClassName="h-10 rounded-md border border-border bg-background dark:border-white/20 dark:bg-black/30"
-                    className="pl-0 text-left"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="deliveryCost">Delivery / Freight per Unit ($)</Label>
-                  <CurrencyInput
-                    id="deliveryCost"
-                    value={inputs.deliveryCost}
-                    onChange={(v) => setInputs({ ...inputs, deliveryCost: v })}
-                    placeholder="0.00"
-                    wrapperClassName="h-10 rounded-md border border-border bg-background dark:border-white/20 dark:bg-black/30"
-                    className="pl-0 text-left"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="supplier">Supplier (optional)</Label>
-                  <Input
-                    id="supplier"
-                    value={inputs.supplier || ""}
-                    onChange={(e) => setInputs({ ...inputs, supplier: e.target.value })}
-                    placeholder="e.g. ABC Rentals"
-                    className="h-10 rounded-md border border-border bg-background px-3 text-sm dark:border-white/20 dark:bg-black/30"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="notes">Notes (optional)</Label>
-                  <Input
-                    id="notes"
-                    value={inputs.notes || ""}
-                    onChange={(e) => setInputs({ ...inputs, notes: e.target.value })}
-                    placeholder="e.g. Includes setup and takedown"
-                    className="h-10 rounded-md border border-border bg-background px-3 text-sm dark:border-white/20 dark:bg-black/30"
-                  />
+
+                {/* Right: editable Item name for the current working profile + actions */}
+                <div className="lg:col-span-8 xl:col-span-9 space-y-3">
+                  <div>
+                    <Label htmlFor="mgrDescription" className="text-sm font-medium">Item Name / Description</Label>
+                    <Input
+                      id="mgrDescription"
+                      value={inputs.description}
+                      onChange={(e) => setInputs({ ...inputs, description: e.target.value })}
+                      className="mt-1.5 text-base font-semibold placeholder:font-normal"
+                      placeholder="e.g. Scaffolding rental - weekly"
+                    />
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Rename the current profile here. All fields below update live.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isEditing ? (
+                      <Button onClick={saveCurrent} size="sm">
+                        Save Changes to This Profile
+                      </Button>
+                    ) : (
+                      <Button onClick={addCurrentAsNew} size="sm" variant="default">
+                        Save Current Form as New Profile
+                      </Button>
+                    )}
+                    <Button
+                      onClick={() => {
+                        if (editingId) {
+                          const current = savedMisc.find((m) => m.id === editingId);
+                          if (current) duplicateProfile(current);
+                        } else {
+                          addCurrentAsNew();
+                        }
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Duplicate Current
+                    </Button>
+                  </div>
                 </div>
               </div>
-
-              {/* Live Result - kept prominent */}
-              <div className="mt-4 p-4 rounded border border-border bg-muted/50 dark:border-white/10 dark:bg-white/5">
-                <div className="text-sm text-muted-foreground">Landed Cost per Unit (true cost)</div>
-                <div className="text-4xl font-semibold tabular-nums tracking-tighter mt-1">
-                  ${landedCost.toFixed(2)}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">= Base + Delivery (per unit)</div>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <Button onClick={saveCurrent} className="gap-2">
-                  <Save className="h-4 w-4" /> {editingId ? "Update Saved Rate" : "Save New Rate"}
-                </Button>
-                <Button variant="outline" onClick={startNew} className="gap-2">
-                  <Plus className="h-4 w-4" /> Start New
-                </Button>
-                {editingId && (
-                  <Button variant="destructive" onClick={deleteSelected} className="gap-2">
-                    <Trash2 className="h-4 w-4" /> Delete This Saved
-                  </Button>
-                )}
-              </div>
-
-              {justSaved && (
-                <div className="text-xs text-emerald-600 dark:text-emerald-400">Saved! (persisted to storage)</div>
-              )}
-              {reloadMsg && (
-                <div className="text-xs text-amber-600 dark:text-amber-400">{reloadMsg}</div>
-              )}
             </CardContent>
           </Card>
 
-          {/* How to use - full-width strip at BOTTOM (moved from right column) */}
-          <Card className="border border-border bg-card dark:border-white/10 dark:bg-[#1a1a1a]">
-            <CardHeader>
-              <CardTitle className="text-lg">How to use</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm space-y-3 text-muted-foreground">
-              <div>• Fill the fields above — landed cost recalculates live.</div>
-              <div>• Click <strong>Save New Rate</strong> to persist to your saved list (or Update if editing).</div>
-              <div>• Switch to the Saved tab to browse / load past profiles back into the calculator.</div>
-              <div>• Rates are stored independently in your browser (separate from Material Rates).</div>
-              <div className="pt-2 text-xs">Tip: Use for scaffolding, small tools, permits, or other per-unit costs not covered by Labor/Equip/Material.</div>
-            </CardContent>
-          </Card>
+          {/* Prominent Save Changes banner — appears when editing a saved rate (matches Equipment/Labor) */}
+          {isEditing && (
+            <div className="rounded-xl border-2 border-primary/30 bg-primary/5 px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 shadow-sm">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge className="bg-primary text-white border-0">EDITING</Badge>
+                  <span className="font-semibold text-lg truncate">
+                    {inputs.description || "Selected Item"}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Changes below are live. Click <span className="font-medium">Save Changes</span> to update the selected saved rate.
+                </p>
+              </div>
+              <Button
+                onClick={saveCurrent}
+                size="lg"
+                className="text-base font-semibold px-8 whitespace-nowrap"
+              >
+                <Save className="mr-2 h-4 w-4" /> Save Changes
+              </Button>
+            </div>
+          )}
+
+          {/* Brief success message after saving (replaces editing banner) */}
+          {!isEditing && justSaved && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-emerald-700 text-sm flex items-center gap-2 shadow-sm">
+              ✓ Saved successfully! The selected miscellaneous rate has been saved.
+            </div>
+          )}
+
+          {/* Main grid — inputs (left) + sticky LIVE RESULTS (right) */}
+          <div className="grid gap-6 xl:grid-cols-12">
+            {/* LEFT COLUMN — INPUTS */}
+            <div className="xl:col-span-7 space-y-6">
+              <Card className="card">
+                <CardHeader>
+                  <CardTitle className="text-lg">Cost Inputs</CardTitle>
+                  <CardDescription>Enter details; landed cost updates instantly on the right. Save to persist.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="uom">Unit of Measure</Label>
+                      <select
+                        id="uom"
+                        value={inputs.unitOfMeasure}
+                        onChange={(e) => setInputs({ ...inputs, unitOfMeasure: e.target.value })}
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm mt-1.5"
+                      >
+                        <option value="" disabled>Select unit…</option>
+                        {UOM_OPTIONS.map((u) => (
+                          <option key={u} value={u}>{u}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label htmlFor="baseCost">Base Cost per Unit ($)</Label>
+                      <CurrencyInput
+                        id="baseCost"
+                        value={inputs.baseCost}
+                        onChange={(v) => setInputs({ ...inputs, baseCost: v })}
+                        placeholder="0.00"
+                        wrapperClassName="h-10 mt-1.5"
+                        className="font-semibold placeholder:font-normal"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="deliveryCost">Delivery / Freight per Unit ($)</Label>
+                      <CurrencyInput
+                        id="deliveryCost"
+                        value={inputs.deliveryCost}
+                        onChange={(v) => setInputs({ ...inputs, deliveryCost: v })}
+                        placeholder="0.00"
+                        wrapperClassName="h-10 mt-1.5"
+                        className="font-semibold placeholder:font-normal"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="supplier">Supplier (optional)</Label>
+                      <Input
+                        id="supplier"
+                        name="misc-supplier"
+                        autoComplete="off"
+                        value={inputs.supplier || ""}
+                        onChange={(e) => setInputs({ ...inputs, supplier: e.target.value })}
+                        onBlur={() => setInputs((prev) => ({ ...prev, supplier: cleanSupplier(prev.supplier) }))}
+                        placeholder={SUPPLIER_PLACEHOLDER}
+                        className="mt-1.5 h-10"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Label htmlFor="notes">Notes (optional)</Label>
+                      <Input
+                        id="notes"
+                        value={inputs.notes || ""}
+                        onChange={(e) => setInputs({ ...inputs, notes: e.target.value })}
+                        placeholder="e.g. Includes setup and takedown"
+                        className="mt-1.5 h-10"
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* How to use */}
+              <Card className="card">
+                <CardHeader>
+                  <CardTitle className="text-lg">How to use</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm space-y-3 text-muted-foreground">
+                  <div>• Fill the fields — landed cost recalculates live on the right.</div>
+                  <div>• Click a saved profile on the left to load it; the <strong>EDITING</strong> banner appears.</div>
+                  <div>• Use <strong>Save Changes to This Profile</strong> to update in place, or <strong>Duplicate Current</strong> to branch a copy.</div>
+                  <div>• Rates are stored independently in your browser (separate from Material Rates).</div>
+                  <div className="pt-2 text-xs">Tip: Use for scaffolding, small tools, permits, or other per-unit costs not covered by Labor/Equip/Material.</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* RIGHT COLUMN — LIVE RESULTS (sticky) */}
+            <div className="xl:col-span-5">
+              <Card className="card border-primary/30 sticky top-20 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="text-sm tracking-[0.5px] text-muted-foreground">LIVE RESULTS</CardTitle>
+                  <div className="text-xl font-semibold tracking-tight mt-0.5">{inputs.description || "New Item"}</div>
+                  {isEditing && <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30 w-fit">Editing</Badge>}
+                </CardHeader>
+                <CardContent className="space-y-6 pt-2">
+                  <div>
+                    <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">LANDED COST PER UNIT</div>
+                    <div className="text-6xl font-semibold tabular-nums tracking-[-0.04em] text-foreground">
+                      ${landedCost.toFixed(2)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      = Base + Delivery {inputs.unitOfMeasure ? `(per ${inputs.unitOfMeasure})` : "(per unit)"}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-md border bg-surface-2 p-3">
+                      <div className="text-xs text-muted-foreground">Base Cost</div>
+                      <div className="font-semibold tabular-nums">${(inputs.baseCost || 0).toFixed(2)}</div>
+                    </div>
+                    <div className="rounded-md border bg-surface-2 p-3">
+                      <div className="text-xs text-muted-foreground">Delivery / Freight</div>
+                      <div className="font-semibold tabular-nums">${(inputs.deliveryCost || 0).toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {isEditing ? (
+                      <Button onClick={saveCurrent} size="lg" className="flex-1 text-base">
+                        <Edit2 className="mr-2 h-4 w-4" /> Update Saved Rate
+                      </Button>
+                    ) : (
+                      <Button onClick={addCurrentAsNew} size="lg" className="flex-1 text-base">
+                        <Plus className="mr-2 h-4 w-4" /> Add to My Rates
+                      </Button>
+                    )}
+                    <Button onClick={startNew} size="lg" variant="outline">
+                      Start New
+                    </Button>
+                    {isEditing && (
+                      <Button onClick={deleteSelected} size="lg" variant="destructive">
+                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                      </Button>
+                    )}
+                  </div>
+
+                  {justSaved && (
+                    <div className="text-xs text-emerald-600 dark:text-emerald-400">Saved! (persisted to storage)</div>
+                  )}
+                  {reloadMsg && (
+                    <div className="text-xs text-amber-600 dark:text-amber-400">{reloadMsg}</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </div>
       )}
 
@@ -372,14 +568,9 @@ export default function MiscRateBuilder() {
       {activeTab === 'saved' && (
         <Card className="border border-border bg-card dark:border-white/10 dark:bg-[#1a1a1a]">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-xl">Saved Miscellaneous Rates</CardTitle>
-                <CardDescription>Load any saved profile back into the builder for quick edits or reference.</CardDescription>
-              </div>
-              <Button variant="outline" size="sm" onClick={reloadSavedRates} className="gap-2">
-                <RotateCcw className="h-4 w-4" /> Reload Saved Rates
-              </Button>
+            <div>
+              <CardTitle className="text-xl">Saved Miscellaneous Rates</CardTitle>
+              <CardDescription>Load any saved profile back into the builder for quick edits or reference.</CardDescription>
             </div>
           </CardHeader>
           <CardContent>
@@ -405,7 +596,14 @@ export default function MiscRateBuilder() {
                     const landed = (m.baseCost || 0) + (m.deliveryCost || 0);
                     const isSelected = selectedId === m.id;
                     return (
-                      <TableRow key={m.id} className={cn("hover:bg-muted dark:hover:bg-white/5", isSelected && "bg-muted dark:bg-white/5")}>
+                      <TableRow
+                        key={m.id}
+                        onClick={() => loadIntoBuilder(m)}
+                        className={cn(
+                          "transition-colors cursor-pointer hover:bg-muted dark:hover:bg-white/5",
+                          isSelected && "bg-primary/10 border-l-4 border-primary font-medium"
+                        )}
+                      >
                         <TableCell className="font-medium">{m.description}</TableCell>
                         <TableCell>{m.unitOfMeasure}</TableCell>
                         <TableCell className="text-right tabular-nums">${(m.baseCost || 0).toFixed(2)}</TableCell>
@@ -416,16 +614,18 @@ export default function MiscRateBuilder() {
                           <div className="flex items-center justify-end gap-2">
                             <Button
                               variant="ghost"
-                              size="sm"
-                              onClick={() => loadIntoBuilder(m)}
-                              className="h-7 px-2 text-xs"
+                              size="icon"
+                              onClick={(e) => { e.stopPropagation(); loadIntoBuilder(m); }}
+                              className="h-7 w-7"
+                              title="Load"
                             >
-                              <Edit2 className="h-3.5 w-3.5 mr-1" /> Load / Edit
+                              <Edit2 className="h-3.5 w-3.5" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 // quick duplicate from saved list (same as builder action would do)
                                 const copy = { ...m, id: undefined as any, description: `${m.description} (Copy)` };
                                 const newId = saveMiscRate(copy);
@@ -445,7 +645,8 @@ export default function MiscRateBuilder() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 if (confirm(`Delete saved rate "${m.description}"?`)) {
                                   deleteMiscRate(m.id);
                                 }
