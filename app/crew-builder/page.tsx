@@ -62,6 +62,9 @@ export default function CrewBuilder() {
   const [justSaved, setJustSaved] = React.useState(false);
   const [reloadMsg, setReloadMsg] = React.useState("");
 
+  // Tabbed interface — 'builder' (Current Crew) | 'saved' (Saved Crews), matching the rate builders.
+  const [activeTab, setActiveTab] = React.useState<'builder' | 'saved'>('builder');
+
   // Pending adders for labor/equipment lines
   const [pendingLaborId, setPendingLaborId] = React.useState<string>("");
   const [pendingLaborQty, setPendingLaborQty] = React.useState<number>(1);
@@ -225,6 +228,7 @@ export default function CrewBuilder() {
     setPendingLaborQty(1);
     setPendingEquipId("");
     setPendingEquipQty(1);
+    setActiveTab('builder'); // jump to the builder so the loaded crew is visible for editing
   }
 
   function duplicateCrew(crew: Crew) {
@@ -297,6 +301,41 @@ export default function CrewBuilder() {
         <div className="text-xs text-emerald-600 dark:text-emerald-400">{reloadMsg}</div>
       )}
 
+      {/* Tabbed interface — Current Crew | Saved Crews (matches the rate builders) */}
+      <div className="flex items-center">
+        <div className="inline-flex rounded-lg border border-border bg-muted/30 p-1 text-sm">
+          <button
+            onClick={() => setActiveTab('builder')}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-5 py-2 font-medium transition-all",
+              activeTab === 'builder'
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
+          >
+            Current Crew
+          </button>
+          <button
+            onClick={() => setActiveTab('saved')}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-5 py-2 font-medium transition-all",
+              activeTab === 'saved'
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
+          >
+            Saved Crews
+            {crews.length > 0 && (
+              <span className="ml-1 rounded-full bg-muted px-1.5 py-0 text-[10px] font-mono text-muted-foreground">
+                {crews.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Current Crew tab content */}
+      <div className={activeTab === 'builder' ? '' : 'hidden'}>
       {/* Editor Card */}
       <Card className="card">
         <CardHeader>
@@ -538,7 +577,10 @@ export default function CrewBuilder() {
           )}
         </CardContent>
       </Card>
+      </div>
 
+      {/* Saved Crews tab content */}
+      <div className={activeTab === 'saved' ? '' : 'hidden'}>
       {/* Saved Crews */}
       <Card className="card">
         <CardHeader>
@@ -572,17 +614,26 @@ export default function CrewBuilder() {
                   const cRate = Math.round((cLabor + cEquip) * 100) / 100;
                   return (
                     <TableRow key={crew.id}>
-                      <TableCell className="font-medium">{crew.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <button
+                          type="button"
+                          onClick={() => loadCrewForEdit(crew)}
+                          className="text-left cursor-pointer hover:underline focus-visible:underline outline-none"
+                          title="Load into builder"
+                        >
+                          {crew.name}
+                        </button>
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{(crew.laborLines || []).length}</TableCell>
                       <TableCell className="text-right tabular-nums">{(crew.equipmentLines || []).length}</TableCell>
                       <TableCell className="text-right font-semibold tabular-nums">${cRate.toFixed(2)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => loadCrewForEdit(crew)} disabled={!isLoaded}>
-                            <Edit2 className="h-3.5 w-3.5 mr-1" /> Load
+                          <Button size="sm" variant="ghost" onClick={() => loadCrewForEdit(crew)} disabled={!isLoaded} title="Load">
+                            <Edit2 className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => duplicateCrew(crew)} disabled={!isLoaded}>
-                            <Copy className="h-3.5 w-3.5 mr-1" /> Copy
+                          <Button size="sm" variant="ghost" onClick={() => duplicateCrew(crew)} disabled={!isLoaded} title="Duplicate">
+                            <Copy className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             size="sm"
@@ -590,6 +641,7 @@ export default function CrewBuilder() {
                             className="text-destructive/70 hover:text-destructive"
                             onClick={() => deleteCrew(crew.id)}
                             disabled={!isLoaded}
+                            title="Delete"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -603,6 +655,7 @@ export default function CrewBuilder() {
           )}
         </CardContent>
       </Card>
+      </div>
 
       <div className="text-[11px] text-muted-foreground">
         Crews contain Labor + Equipment only. The cumulative rate is the fully-burdened hourly cost of the whole crew. Apply actual hours per line item in the Project Pricer.

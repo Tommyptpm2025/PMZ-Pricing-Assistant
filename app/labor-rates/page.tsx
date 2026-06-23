@@ -807,7 +807,14 @@ export default function LaborRateBuilder() {
                         )}
                       >
                         <TableCell className="font-medium">
-                          {rate.role}
+                          <button
+                            type="button"
+                            onClick={() => loadRate(rate)}
+                            className="text-left cursor-pointer hover:underline focus-visible:underline outline-none"
+                            title="Load into builder"
+                          >
+                            {rate.role}
+                          </button>
                           {isActivelyEditing && (
                             <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 py-0 align-middle">Editing</Badge>
                           )}

@@ -598,13 +598,21 @@ export default function MiscRateBuilder() {
                     return (
                       <TableRow
                         key={m.id}
-                        onClick={() => loadIntoBuilder(m)}
                         className={cn(
-                          "transition-colors cursor-pointer hover:bg-muted dark:hover:bg-white/5",
+                          "transition-colors",
                           isSelected && "bg-primary/10 border-l-4 border-primary font-medium"
                         )}
                       >
-                        <TableCell className="font-medium">{m.description}</TableCell>
+                        <TableCell className="font-medium">
+                          <button
+                            type="button"
+                            onClick={() => loadIntoBuilder(m)}
+                            className="text-left cursor-pointer hover:underline focus-visible:underline outline-none"
+                            title="Load into builder"
+                          >
+                            {m.description}
+                          </button>
+                        </TableCell>
                         <TableCell>{m.unitOfMeasure}</TableCell>
                         <TableCell className="text-right tabular-nums">${(m.baseCost || 0).toFixed(2)}</TableCell>
                         <TableCell className="text-right tabular-nums">${(m.deliveryCost || 0).toFixed(2)}</TableCell>

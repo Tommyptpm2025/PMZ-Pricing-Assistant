@@ -539,7 +539,14 @@ export default function MaterialRateBuilder() {
                           )}
                         >
                           <TableCell className="font-medium">
-                            {mat.description}
+                            <button
+                              type="button"
+                              onClick={() => loadMaterial(mat)}
+                              className="text-left cursor-pointer hover:underline focus-visible:underline outline-none"
+                              title="Load into builder"
+                            >
+                              {mat.description}
+                            </button>
                             {editingId === mat.id && (
                               <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 py-0 align-middle">Editing</Badge>
                             )}

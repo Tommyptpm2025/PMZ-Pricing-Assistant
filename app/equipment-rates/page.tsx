@@ -1002,19 +1002,22 @@ export default function EquipmentRateBuilder() {
                     const isActivelyEditing = editingId === profile.id;
 
                     return (
-                      <TableRow 
-                        key={profile.id} 
-                        onClick={() => {
-                          loadProfile(profile);
-                          setActiveTab('builder');
-                        }}
+                      <TableRow
+                        key={profile.id}
                         className={cn(
-                          "transition-colors cursor-pointer",
+                          "transition-colors",
                           isSelected && "bg-primary/10 border-l-4 border-primary font-medium"
                         )}
                       >
                         <TableCell className="font-medium">
-                          {profile.description}
+                          <button
+                            type="button"
+                            onClick={() => { loadProfile(profile); setActiveTab('builder'); }}
+                            className="text-left cursor-pointer hover:underline focus-visible:underline outline-none"
+                            title="Load into builder"
+                          >
+                            {profile.description}
+                          </button>
                           {isActivelyEditing && (
                             <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 py-0 align-middle">Editing</Badge>
                           )}
