@@ -55,6 +55,7 @@ interface EquipmentBuilderInputs {
   // Operating cost lines (annual)
   operating: CostLine[];
   // Usage for the estimate year
+  budgetedHours: number;   // annual hours the machine must run to recover all costs (from 2-yr P&L review)
   estimatedHours: number;
   actualHours: number;
   // Pricing goal
@@ -88,6 +89,7 @@ const DEFAULT_BUILDER_INPUTS: EquipmentBuilderInputs = {
     { id: "fuel", name: "Fuel / Energy", cost: 5100 },
     { id: "wear", name: "Wear Items", cost: 3500 },
   ],
+  budgetedHours: 1400,
   estimatedHours: 1200,
   actualHours: 980,
   targetMargin: 15,
@@ -119,6 +121,7 @@ const BLANK_BUILDER_INPUTS: EquipmentBuilderInputs = {
     { id: "fuel", name: "Fuel / Energy", cost: 0 },
     { id: "wear", name: "Wear Items", cost: 0 },
   ],
+  budgetedHours: 0,
   estimatedHours: 0,
   actualHours: 0,
   targetMargin: 0,
@@ -184,6 +187,42 @@ function normalizeOperatingLines(operating: CostLine[]): CostLine[] {
   return lines;
 }
 
+// Read-only row for the Cost Summary tab. Shows the annual cost spread across three hour bases:
+// Budgeted (from the P&L review), Estimated (from Pricer quotes), and Actual (foreman-reported).
+// A null per-hour value means that hours field is zero/empty — render "—" instead of dividing by zero.
+function CostSummaryRow({
+  label,
+  annual,
+  budPerHr,
+  estPerHr,
+  actPerHr,
+  isTotal = false,
+}: {
+  label: string;
+  annual: number;
+  budPerHr: number | null;
+  estPerHr: number | null;
+  actPerHr: number | null;
+  isTotal?: boolean;
+}) {
+  const dash = <span className="text-muted-foreground">—</span>;
+  return (
+    <TableRow className={cn(isTotal && "border-t-2 font-semibold text-base bg-muted/40")}>
+      <TableCell className={cn("text-foreground no-underline", isTotal ? "font-semibold" : "font-medium")}>{label}</TableCell>
+      <TableCell className="text-right tabular-nums">{formatCurrency(annual)}</TableCell>
+      <TableCell className="text-right tabular-nums">
+        {budPerHr === null ? dash : formatCurrency(budPerHr)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {estPerHr === null ? dash : formatCurrency(estPerHr)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {actPerHr === null ? dash : formatCurrency(actPerHr)}
+      </TableCell>
+    </TableRow>
+  );
+}
+
 export default function EquipmentRateBuilder() {
   // Current working inputs (rich live calculator)
   const [inputs, setInputs] = React.useState<EquipmentBuilderInputs>(BLANK_BUILDER_INPUTS);
@@ -198,7 +237,7 @@ export default function EquipmentRateBuilder() {
   const [reloadMsg, setReloadMsg] = React.useState('');
 
   // Tab state for the new clean tabbed interface
-  const [activeTab, setActiveTab] = React.useState<'builder' | 'saved'>('builder');
+  const [activeTab, setActiveTab] = React.useState<'builder' | 'saved' | 'cost-summary'>('builder');
 
   // Centralized rate store (single source for labor/equip/material; survives tab switches, Fast Refresh, reloads)
   const {
@@ -221,6 +260,17 @@ export default function EquipmentRateBuilder() {
   // ==================== LIVE CALCULATIONS ====================
   // Single shared source of equipment-rate math (same fn the rate store uses) — no re-implementation.
   const calculations = React.useMemo(() => calculateEquipmentRate(inputs), [inputs]);
+
+  // ==================== HOUR-FIELD LABEL MAPPING ====================
+  // The UI hour labels intentionally differ from the state var names so the break-even calc
+  // (calculateEquipmentRate divides by inputs.estimatedHours) stays untouched. Use these aliases
+  // everywhere a "Budgeted / Estimated / Actual" hour value is displayed or divided by:
+  //   "Budgeted Hours (Annual)" → inputs.estimatedHours  (drives the rate calc; P&L-review hours)
+  //   "Estimated Hours"         → inputs.budgetedHours    (manual; future Project Pricer auto-fill)
+  //   "Actual Hours"            → inputs.actualHours
+  const budgetedHoursValue = inputs.estimatedHours;
+  const estimatedHoursValue = inputs.budgetedHours;
+  const actualHoursValue = inputs.actualHours;
 
   // ==================== UPDATE HELPERS ====================
   function updateField<K extends keyof EquipmentBuilderInputs>(field: K, value: EquipmentBuilderInputs[K]) {
@@ -364,6 +414,17 @@ export default function EquipmentRateBuilder() {
                 {savedProfiles.length}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => setActiveTab('cost-summary')}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-5 py-2 font-medium transition-all",
+              activeTab === 'cost-summary'
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
+          >
+            Cost Summary
           </button>
         </div>
       </div>
@@ -562,6 +623,45 @@ export default function EquipmentRateBuilder() {
                     </select>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground">Total accumulated reading — hours for machines, miles/km for trucks. Not this year&apos;s usage.</p>
+                </div>
+
+                {/* Hours row — Budgeted / Estimated / Actual. See HOUR-FIELD LABEL MAPPING above:
+                    "Budgeted" writes inputs.estimatedHours (calc driver); "Estimated" writes inputs.budgetedHours. */}
+                <div>
+                  <Label htmlFor="budgetedHours" className="text-sm">Budgeted Hours (Annual)</Label>
+                  <Input
+                    id="budgetedHours"
+                    type="number"
+                    value={inputs.estimatedHours || ""}
+                    onChange={(e) => updateField("estimatedHours", parseFloat(e.target.value) || 0)}
+                    className="mt-1.5 h-10 text-center font-medium tabular-nums"
+                    placeholder="0"
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">Based on your 2-year P&amp;L review — the hours this machine needs to run annually to recover all costs.</p>
+                </div>
+                <div>
+                  <Label htmlFor="estimatedHours" className="text-sm">Estimated Hours</Label>
+                  <Input
+                    id="estimatedHours"
+                    type="number"
+                    value={inputs.budgetedHours || ""}
+                    onChange={(e) => updateField("budgetedHours", parseFloat(e.target.value) || 0)}
+                    className="mt-1.5 h-10 text-center font-medium tabular-nums"
+                    placeholder="0"
+                  />
+                  <p className="mt-1 text-[11px] italic text-muted-foreground">Will auto-populate from Project Pricer quotes in a future update.</p>
+                </div>
+                <div>
+                  <Label htmlFor="actualHours" className="text-sm">Actual Hours</Label>
+                  <Input
+                    id="actualHours"
+                    type="number"
+                    value={inputs.actualHours || ""}
+                    onChange={(e) => updateField("actualHours", parseFloat(e.target.value) || 0)}
+                    className="mt-1.5 h-10 text-center font-medium tabular-nums"
+                    placeholder="0"
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">Reported by foreman after jobs are complete.</p>
                 </div>
               </div>
             </CardContent>
@@ -786,29 +886,7 @@ export default function EquipmentRateBuilder() {
             </CardHeader>
 
             <CardContent className="space-y-6 pt-2">
-              {/* Usage inputs (kept for core functionality) */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Estimated Use (hours)</Label>
-                  <Input
-                    type="number"
-                    value={inputs.estimatedHours || ""}
-                    onChange={(e) => updateField("estimatedHours", parseFloat(e.target.value) || 0)}
-                    placeholder="0"
-                    className="mt-1 h-9 text-center font-semibold tabular-nums placeholder:font-normal"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Actual Use (hours)</Label>
-                  <Input
-                    type="number"
-                    value={inputs.actualHours || ""}
-                    onChange={(e) => updateField("actualHours", parseFloat(e.target.value) || 0)}
-                    placeholder="0"
-                    className="mt-1 h-9 text-center font-semibold tabular-nums placeholder:font-normal"
-                  />
-                </div>
-              </div>
+              {/* Hours are entered in the Equipment Identity section; this panel shows live results only. */}
 
               {/* True Cost - prominent focal point like Labor's TRUE COST PER BILLABLE HOUR */}
               <div>
@@ -817,7 +895,7 @@ export default function EquipmentRateBuilder() {
                   {formatCurrency(calculations.totalCostPerHour)}
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground leading-snug">
-                  This is the accurate break-even cost per billable hour based on estimated use.
+                  This is the accurate break-even cost per billable hour based on budgeted hours.
                 </p>
               </div>
 
@@ -867,87 +945,6 @@ export default function EquipmentRateBuilder() {
           </Card>
         </div>
       </div>
-
-      {/* BOTTOM — FULL EQUIPMENT COSTS SUMMARY TABLE */}
-      <Card className="card">
-        <CardHeader>
-          <CardTitle>Equipment Costs Summary</CardTitle>
-          <CardDescription>
-            Roll-up of every cost category for the current estimate. All values update live as you edit.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Cost Category</TableHead>
-                  <TableHead className="text-right">Annual Cost</TableHead>
-                  <TableHead className="text-right">Per Hour (Est. Use)</TableHead>
-                  <TableHead className="text-right">Per Hour (Actual Use)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {/* Depreciation row */}
-                <TableRow>
-                  <TableCell className="font-medium">Depreciation</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(calculations.annualDepreciation)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(calculations.depreciationPerHour)}</TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {formatCurrency(calculations.actualDepreciationPerHour)}
-                  </TableCell>
-                </TableRow>
-
-                {/* All ownership lines */}
-                {inputs.ownership.map((line) => {
-                  const estPerHr = inputs.estimatedHours > 0 ? line.cost / inputs.estimatedHours : 0;
-                  const actPerHr = inputs.actualHours > 0 ? line.cost / inputs.actualHours : 0;
-                  return (
-                    <TableRow key={line.id}>
-                      <TableCell>{line.name}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatCurrency(line.cost)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatCurrency(estPerHr)}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{formatCurrency(actPerHr)}</TableCell>
-                    </TableRow>
-                  );
-                })}
-
-                {/* All operating lines */}
-                {inputs.operating.map((line) => {
-                  const estPerHr = inputs.estimatedHours > 0 ? line.cost / inputs.estimatedHours : 0;
-                  const actPerHr = inputs.actualHours > 0 ? line.cost / inputs.actualHours : 0;
-                  return (
-                    <TableRow key={line.id}>
-                      <TableCell>{line.name}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatCurrency(line.cost)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatCurrency(estPerHr)}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{formatCurrency(actPerHr)}</TableCell>
-                    </TableRow>
-                  );
-                })}
-
-                {/* Grand Total */}
-                <TableRow className="border-t-2 font-semibold text-base bg-muted/40">
-                  <TableCell>TOTAL ALL COSTS</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatCurrency(calculations.totalAnnualCost)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-primary">
-                    {formatCurrency(calculations.totalCostPerHour)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-primary">
-                    {formatCurrency(calculations.actualTotalPerHour)}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-
-          <p className="mt-4 text-xs text-muted-foreground">
-            Per-hour rates on the left use your Estimated Use. Right column shows the same costs spread over Actual hours used this year.
-          </p>
-        </CardContent>
-      </Card>
       </div> {/* End Rate Builder tab content */}
 
       {/* Saved Equipment tab content */}
@@ -1057,6 +1054,104 @@ export default function EquipmentRateBuilder() {
         </CardContent>
       </Card>
       </div> {/* End Saved Equipment tab content */}
+
+      {/* Cost Summary tab content */}
+      <div className={activeTab === 'cost-summary' ? 'space-y-6' : 'hidden'}>
+
+        {/* Section 1 — Equipment Identity */}
+        <Card className="card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Equipment Identity</CardTitle>
+            <CardDescription>Read-only snapshot of the current equipment in the builder.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                { label: "Equipment Name", value: inputs.description || "—" },
+                { label: "Serial Number", value: inputs.serialNumber || "—" },
+                { label: "Unit Number", value: inputs.unitNumber || "—" },
+                { label: "Budgeted Hours", value: budgetedHoursValue > 0 ? budgetedHoursValue.toLocaleString() : "—" },
+                { label: "Estimated Hours", value: estimatedHoursValue > 0 ? estimatedHoursValue.toLocaleString() : "—" },
+                { label: "Actual Hours", value: actualHoursValue > 0 ? actualHoursValue.toLocaleString() : "—" },
+              ].map((f) => (
+                <div key={f.label}>
+                  <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{f.label}</div>
+                  <div className="mt-1 text-base font-semibold tabular-nums truncate">{f.value}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Section 2 — Recovery Tracker */}
+        <div className="px-1">
+          <h2 className="text-xl font-semibold tracking-tight">Equipment Cost Recovery Tracker</h2>
+          <p className="mt-1 max-w-2xl text-muted-foreground">
+            Every hour this machine works, these costs accumulate. Your hourly rate must recover all of them.
+          </p>
+        </div>
+
+        {/* Section 3 — Cost Summary Table */}
+        <Card className="card">
+          <CardContent className="pt-6">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cost Category</TableHead>
+                    <TableHead className="text-right">Annual Cost ($)</TableHead>
+                    <TableHead className="text-right">Per Hour / Budgeted</TableHead>
+                    <TableHead className="text-right">Per Hour / Estimated</TableHead>
+                    <TableHead className="text-right">Per Hour / Actual</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {[
+                    { label: "Depreciation", annual: calculations.annualDepreciation },
+                    ...inputs.ownership.map((l) => ({ label: l.name, annual: l.cost })),
+                    ...inputs.operating.map((l) => ({ label: l.name, annual: l.cost })),
+                  ].map((row, i) => {
+                    const budPerHr = budgetedHoursValue > 0 ? row.annual / budgetedHoursValue : null;
+                    const estPerHr = estimatedHoursValue > 0 ? row.annual / estimatedHoursValue : null;
+                    const actPerHr = actualHoursValue > 0 ? row.annual / actualHoursValue : null;
+                    return (
+                      <CostSummaryRow
+                        key={`${row.label}-${i}`}
+                        label={row.label}
+                        annual={row.annual}
+                        budPerHr={budPerHr}
+                        estPerHr={estPerHr}
+                        actPerHr={actPerHr}
+                      />
+                    );
+                  })}
+
+                  {/* TOTAL ALL COSTS */}
+                  {(() => {
+                    const annual = calculations.totalAnnualCost;
+                    const budPerHr = budgetedHoursValue > 0 ? annual / budgetedHoursValue : null;
+                    const estPerHr = estimatedHoursValue > 0 ? annual / estimatedHoursValue : null;
+                    const actPerHr = actualHoursValue > 0 ? annual / actualHoursValue : null;
+                    return (
+                      <CostSummaryRow
+                        label="TOTAL ALL COSTS"
+                        annual={annual}
+                        budPerHr={budPerHr}
+                        estPerHr={estPerHr}
+                        actPerHr={actPerHr}
+                        isTotal
+                      />
+                    );
+                  })()}
+                </TableBody>
+              </Table>
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Each cost is spread across three hour bases: Budgeted (from your P&amp;L review), Estimated (from Pricer quotes), and Actual (foreman-reported). A “—” means that hours field is still empty.
+            </p>
+          </CardContent>
+        </Card>
+      </div> {/* End Cost Summary tab content */}
 
       <p className="text-center text-xs text-muted-foreground max-w-prose mx-auto">
         All calculations happen in your browser. Nothing is sent anywhere. These profiles feed directly into the Project Pricer.

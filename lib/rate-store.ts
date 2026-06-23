@@ -20,6 +20,7 @@ export interface SavedEquipmentProfile {
   endingValue: number;
   ownership: any[];
   operating: any[];
+  budgetedHours: number;
   estimatedHours: number;
   actualHours: number;
   targetMargin: number;
