@@ -237,6 +237,7 @@ export default function MiscRateBuilder() {
               Miscellaneous Rates
             </h1>
             <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">PILLAR 3</Badge>
+            <Badge variant="outline" className="font-mono text-[10px] tracking-wider">LIVE</Badge>
           </div>
           <p className="text-muted-foreground mt-1">
             Builder for other/miscellaneous items with unit-based landed cost (base + delivery). Data is independent from Material Rates.
@@ -252,26 +253,37 @@ export default function MiscRateBuilder() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b pb-2">
-        <button
-          onClick={() => setActiveTab('builder')}
-          className={cn(
-            "px-4 py-2 text-sm font-medium rounded-t border-b-2",
-            activeTab === 'builder' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Builder
-        </button>
-        <button
-          onClick={() => setActiveTab('saved')}
-          className={cn(
-            "px-4 py-2 text-sm font-medium rounded-t border-b-2",
-            activeTab === 'saved' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Saved Miscellaneous Rates ({savedMisc.length})
-        </button>
+      {/* Tabs — pill/box style, matching the other builders */}
+      <div className="flex items-center">
+        <div className="inline-flex rounded-lg border border-border bg-muted/30 p-1 text-sm">
+          <button
+            onClick={() => setActiveTab('builder')}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-5 py-2 font-medium transition-all",
+              activeTab === 'builder'
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
+          >
+            Builder
+          </button>
+          <button
+            onClick={() => setActiveTab('saved')}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-5 py-2 font-medium transition-all",
+              activeTab === 'saved'
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
+          >
+            Saved Miscellaneous Rates
+            {savedMisc.length > 0 && (
+              <span className="ml-1 rounded-full bg-muted px-1.5 py-0 text-[10px] font-mono text-muted-foreground">
+                {savedMisc.length}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* BUILDER TAB */}

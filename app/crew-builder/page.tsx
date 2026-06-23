@@ -280,7 +280,11 @@ export default function CrewBuilder() {
               <Users className="h-6 w-6" />
             </div>
             <div>
-              <h1 className="text-3xl font-semibold tracking-[-0.02em]">Crew Builder</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-semibold tracking-[-0.02em]">Crew Builder</h1>
+                <Badge variant="outline" className="font-mono text-[10px] tracking-wider border-primary/40 text-primary">PILLAR 3</Badge>
+                <Badge variant="outline" className="font-mono text-[10px] tracking-wider">LIVE</Badge>
+              </div>
               <p className="mt-1 text-muted-foreground max-w-2xl">
                 Build reusable Labor + Equipment crews from your saved rate profiles. Cumulative hourly rate only — apply hours later in Project Pricer.
               </p>
@@ -336,6 +340,113 @@ export default function CrewBuilder() {
 
       {/* Current Crew tab content */}
       <div className={activeTab === 'builder' ? '' : 'hidden'}>
+
+      {/* Crew Manager — left-panel saved crews + name + actions (mirrors Labor Manager) */}
+      <Card className="card mb-6">
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">Crew Manager</CardTitle>
+              <CardDescription className="mt-0.5">
+                Manage multiple crews. Click a crew on the left to load it instantly into the builder below.
+              </CardDescription>
+            </div>
+            <Button onClick={clearCurrent} size="sm" disabled={!isLoaded}>
+              <Plus className="mr-2 h-4 w-4" /> Add New Crew
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left: clean list of saved crews (names only) */}
+            <div className="lg:col-span-4 xl:col-span-3">
+              <div className="text-xs font-semibold tracking-wider text-muted-foreground mb-2 px-1">SAVED PROFILES</div>
+              {crews.length === 0 ? (
+                <div className="rounded-md border border-dashed bg-surface-2 p-4 text-xs text-muted-foreground">
+                  No crews saved yet.<br />Use &ldquo;Add New Crew&rdquo; or build one below then save.
+                </div>
+              ) : (
+                <div className="max-h-[168px] overflow-y-auto space-y-1 pr-1">
+                  {crews.map((crew) => {
+                    const isActive = editingId === crew.id;
+                    return (
+                      <div
+                        key={crew.id}
+                        onClick={() => loadCrewForEdit(crew)}
+                        className={cn(
+                          "group flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm cursor-pointer border transition-colors",
+                          isActive
+                            ? "border-primary/40 bg-primary/5 font-medium"
+                            : "border-transparent hover:bg-muted hover:border-border"
+                        )}
+                      >
+                        <span className="truncate">{crew.name || "Untitled crew"}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 opacity-60 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteCrew(crew.id);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Right: editable Crew name for the current working crew + actions */}
+            <div className="lg:col-span-8 xl:col-span-9 space-y-3">
+              <div>
+                <Label htmlFor="mgrCrewName" className="text-sm font-medium">Crew Name</Label>
+                <Input
+                  id="mgrCrewName"
+                  value={currentCrew.name || ""}
+                  onChange={(e) => updateCurrentName(e.target.value)}
+                  className="mt-1.5 text-base font-semibold placeholder:font-normal"
+                  placeholder="e.g. Paving Crew A"
+                  disabled={!isLoaded}
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Rename the current crew here. The lines below update live.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {editingId ? (
+                  <Button onClick={saveCrew} size="sm" disabled={!currentCrew.name?.trim() || !isLoaded}>
+                    Save Changes to This Profile
+                  </Button>
+                ) : (
+                  <Button onClick={saveCrew} size="sm" variant="default" disabled={!currentCrew.name?.trim() || !isLoaded}>
+                    Save Current Form as New Profile
+                  </Button>
+                )}
+                <Button
+                  onClick={() => {
+                    if (editingId) {
+                      const current = crews.find((c) => c.id === editingId);
+                      if (current) duplicateCrew(current);
+                    } else {
+                      saveCrew();
+                    }
+                  }}
+                  size="sm"
+                  variant="outline"
+                  disabled={!isLoaded}
+                >
+                  Duplicate Current
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Editor Card */}
       <Card className="card">
         <CardHeader>
@@ -345,17 +456,6 @@ export default function CrewBuilder() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div>
-            <Label className="text-xs font-medium tracking-wider text-muted-foreground">CREW NAME</Label>
-            <Input
-              value={currentCrew.name || ""}
-              onChange={(e) => updateCurrentName(e.target.value)}
-              placeholder="e.g. Paving Crew A"
-              className="mt-1.5 text-lg font-medium"
-              disabled={!isLoaded}
-            />
-          </div>
-
           {/* Labor Section */}
           <div>
             <div className="flex items-center gap-2 mb-2">
