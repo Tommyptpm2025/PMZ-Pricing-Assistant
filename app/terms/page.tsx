@@ -179,7 +179,7 @@ export default function TermsPage() {
                     </TableCell>
                     <TableCell>
                       {block.isDefault ? (
-                        <Badge className="bg-emerald-600 text-white border-emerald-700">Default</Badge>
+                        <Badge className="bg-primary/10 text-primary border-primary/30">Default</Badge>
                       ) : (
                         <Button
                           variant="outline"

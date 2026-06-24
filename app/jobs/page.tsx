@@ -371,7 +371,7 @@ export default function JobsForemanPage() {
             </div>
             <div className="flex items-center gap-2">
               {selectedJob.status === "open" ? (
-                <Button onClick={doComplete} variant="default" className="bg-emerald-600 hover:bg-emerald-700">
+                <Button onClick={doComplete} variant="default">
                   <CheckCircle2 className="mr-2 h-4 w-4" /> Mark Job Complete
                 </Button>
               ) : (
