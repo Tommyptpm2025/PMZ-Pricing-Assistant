@@ -705,7 +705,7 @@ export default function QuotesPage() {
   }
 
   return (
-    <div className="w-full space-y-8 pb-12">
+    <div className="max-w-6xl space-y-8 pb-12">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -714,7 +714,7 @@ export default function QuotesPage() {
             <Badge variant="outline" className="text-[10px] tracking-wider">LIBRARY</Badge>
           </div>
           <p className="mt-1 text-muted-foreground max-w-2xl">
-            All saved EPP and Full quotes from the Project Pricer. Use filters, change status, preview or edit, duplicate or delete.
+            All saved EPP quotes from the Project Pricer. Use filters, change status, preview or edit, duplicate or delete.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={refresh} className="shrink-0">
@@ -734,17 +734,9 @@ export default function QuotesPage() {
         {renderTable(filteredEpp, "EPP")}
       </div>
 
-      {/* Full Quotes */}
-      <div className="space-y-2">
-        <div className="flex items-baseline gap-2 px-0.5">
-          <div className="font-semibold tracking-tight text-lg">Full Quotes</div>
-          <div className="text-sm text-muted-foreground">
-            {filteredFull.length} shown / {fullBase.length} total
-          </div>
-        </div>
-        {renderFilters("full")}
-        {renderTable(filteredFull, "Full")}
-      </div>
+      {/* Full Quotes — intentionally removed from the visible page flow (EPP-only).
+          The Full-quote filter state, memos (fullBase / filteredFull / fullWorkTypes) and the
+          "full" branches in renderFilters/renderTable are retained for clean reuse if it returns. */}
 
       {/* Preview centered Dialog (modal) */}
       <Dialog open={!!previewTarget} onOpenChange={(open) => { if (!open) { setPreviewTarget(null); setDecisionNote(""); } }}>
@@ -824,11 +816,11 @@ export default function QuotesPage() {
                                   <table className="w-full text-xs border-collapse">
                                     <thead className="sticky top-0 bg-background z-10">
                                       <tr className="border-b border-muted-foreground/30">
-                                        <th className="text-left py-1 pr-2 text-[10px] font-normal text-muted-foreground">Description</th>
-                                        <th className="text-right py-1 px-1 w-[60px] text-[10px] font-normal text-muted-foreground">Qty/Hrs</th>
-                                        <th className="text-center py-1 px-1 w-[50px] text-[10px] font-normal text-muted-foreground">Unit</th>
-                                        <th className="text-right py-1 px-1 w-[70px] text-[10px] font-normal text-muted-foreground">Unit Rate</th>
-                                        <th className="text-right py-1 pl-2 w-[80px] text-[10px] font-normal text-muted-foreground">Line Total</th>
+                                        <th className="text-left py-1 pr-2 text-xs font-normal text-muted-foreground">Description</th>
+                                        <th className="text-right py-1 px-1 w-[60px] text-xs font-normal text-muted-foreground">Qty/Hrs</th>
+                                        <th className="text-center py-1 px-1 w-[50px] text-xs font-normal text-muted-foreground">Unit</th>
+                                        <th className="text-right py-1 px-1 w-[70px] text-xs font-normal text-muted-foreground">Unit Rate</th>
+                                        <th className="text-right py-1 pl-2 w-[80px] text-xs font-normal text-muted-foreground">Line Total</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-muted-foreground/20">
@@ -885,11 +877,11 @@ export default function QuotesPage() {
                             <table className="w-full text-xs border-collapse">
                               <thead className="sticky top-0 bg-background z-10">
                                 <tr className="border-b border-muted-foreground/30">
-                                  <th className="text-left py-1 pr-2 text-[10px] font-normal text-muted-foreground">Description</th>
-                                  <th className="text-right py-1 px-1 w-[60px] text-[10px] font-normal text-muted-foreground">Qty</th>
-                                  <th className="text-center py-1 px-1 w-[50px] text-[10px] font-normal text-muted-foreground">Unit</th>
-                                  <th className="text-right py-1 px-1 w-[70px] text-[10px] font-normal text-muted-foreground">Unit Price</th>
-                                  <th className="text-right py-1 pl-2 w-[80px] text-[10px] font-normal text-muted-foreground">Line Total</th>
+                                  <th className="text-left py-1 pr-2 text-xs font-normal text-muted-foreground">Description</th>
+                                  <th className="text-right py-1 px-1 w-[60px] text-xs font-normal text-muted-foreground">Qty</th>
+                                  <th className="text-center py-1 px-1 w-[50px] text-xs font-normal text-muted-foreground">Unit</th>
+                                  <th className="text-right py-1 px-1 w-[70px] text-xs font-normal text-muted-foreground">Unit Price</th>
+                                  <th className="text-right py-1 pl-2 w-[80px] text-xs font-normal text-muted-foreground">Line Total</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-muted-foreground/20">

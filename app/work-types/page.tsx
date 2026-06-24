@@ -254,7 +254,7 @@ export default function WorkTypesPage() {
   const [expanded, setExpanded] = React.useState<string[]>(["Residential Paving"]); // start with one open for demo
 
   // Tab
-  const [activeTab, setActiveTab] = React.useState<'builder' | 'overview'>('overview');
+  const [activeTab, setActiveTab] = React.useState<'builder' | 'overview'>('builder');
 
   // Memoized lookup for demo actual performance numbers by work type name.
   // This allows the Overview to always use the live workTypes from Builder for structure/ranges/targets,
@@ -605,17 +605,6 @@ export default function WorkTypesPage() {
       <div className="flex items-center">
         <div className="inline-flex rounded-lg border border-border bg-muted/30 p-1 text-sm">
           <button
-            onClick={() => setActiveTab("overview")}
-            className={cn(
-              "flex items-center gap-2 rounded-md px-5 py-2 font-medium transition-all",
-              activeTab === "overview"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-            )}
-          >
-            Work Type Overview — 2026
-          </button>
-          <button
             onClick={() => setActiveTab("builder")}
             className={cn(
               "flex items-center gap-2 rounded-md px-5 py-2 font-medium transition-all",
@@ -626,6 +615,17 @@ export default function WorkTypesPage() {
           >
             Work Type Builder
           </button>
+          <button
+            onClick={() => setActiveTab("overview")}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-5 py-2 font-medium transition-all",
+              activeTab === "overview"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
+          >
+            Work Type Overview — 2026
+          </button>
         </div>
       </div>
 
@@ -635,7 +635,7 @@ export default function WorkTypesPage() {
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-lg">Work Type Builder</CardTitle>
+                <CardTitle className="text-xl">Work Type Builder</CardTitle>
                 <CardDescription>
                   Create work types and set Target GP% by job size range. These targets power the variance analysis in the Overview tab.
                 </CardDescription>
