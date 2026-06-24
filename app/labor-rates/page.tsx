@@ -752,8 +752,8 @@ export default function LaborRateBuilder() {
 
         <CardContent>
           {savedRates.length === 0 ? (
-            <div className="rounded-lg border border-dashed bg-surface-2 p-10 text-center">
-              <p className="text-muted-foreground">No rates saved yet. Use the form above and click “Add to My Rates”.</p>
+            <div className="rounded-lg border border-dashed bg-surface-2 p-10 text-center text-sm text-muted-foreground">
+              No rates saved yet. Use the form above and click “Add to My Rates”.
             </div>
           ) : (
             <div className="overflow-x-auto">

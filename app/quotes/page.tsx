@@ -725,7 +725,7 @@ export default function QuotesPage() {
       {/* EPP Quotes */}
       <div className="space-y-2">
         <div className="flex items-baseline gap-2 px-0.5">
-          <div className="font-semibold tracking-tight text-lg">EPP Quotes</div>
+          <h2 className="font-semibold tracking-tight text-lg">EPP Quotes</h2>
           <div className="text-sm text-muted-foreground">
             {filteredEpp.length} shown / {eppBase.length} total
           </div>

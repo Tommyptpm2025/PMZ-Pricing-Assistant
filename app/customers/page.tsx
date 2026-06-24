@@ -773,7 +773,7 @@ export default function CustomersPage() {
             {/* §1 WHO ARE WE WORKING WITH? */}
             <div className="border rounded-md overflow-hidden">
               <div className="px-4 py-3 bg-muted/30 border-b">
-                <span className="font-semibold">1. WHO ARE WE WORKING WITH?</span>
+                <h2 className="font-semibold">1. WHO ARE WE WORKING WITH?</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">Know who you&apos;re talking to — and who actually signs. Getting this wrong costs the deal.</p>
               </div>
               <div className="p-4">
@@ -891,7 +891,7 @@ export default function CustomersPage() {
             {/* §2 HOW DO WE REACH THEM? */}
             <div className="border rounded-md overflow-hidden">
               <div className="px-4 py-3 bg-muted/30 border-b">
-                <span className="font-semibold">2. HOW DO WE REACH THEM?</span>
+                <h2 className="font-semibold">2. HOW DO WE REACH THEM?</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">One place for every way to reach them, so nobody&apos;s hunting for a number.</p>
               </div>
               <div className="p-4">
@@ -942,7 +942,7 @@ export default function CustomersPage() {
             <div className="border rounded-md overflow-hidden">
               <div className="px-4 py-3 bg-muted/30 border-b flex items-start justify-between gap-3">
                 <div>
-                  <span className="font-semibold">3. WHERE&apos;S THE WORK? <span className="font-normal text-muted-foreground text-sm">(Job Site / Project Location)</span></span>
+                  <h2 className="font-semibold">3. WHERE&apos;S THE WORK? <span className="font-normal text-muted-foreground text-sm">(Job Site / Project Location)</span></h2>
                   <p className="text-xs text-muted-foreground mt-0.5">Where the crew actually goes. Access details here save a wasted trip.</p>
                 </div>
                 <SectionCompletion
@@ -1003,7 +1003,7 @@ export default function CustomersPage() {
             {/* §4 NOTES — TEAM BRIEFING */}
             <div className="border rounded-md overflow-hidden">
               <div className="px-4 py-3 bg-muted/30 border-b">
-                <span className="font-semibold">4. NOTES — TEAM BRIEFING</span>
+                <h2 className="font-semibold">4. NOTES — TEAM BRIEFING</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">The shared briefing everyone reads — bidder to bookkeeper. Site quirks, who to ask for, relationship history, anything from the call worth remembering.</p>
               </div>
               <div className="p-4">
@@ -1018,7 +1018,7 @@ export default function CustomersPage() {
             <div className="border rounded-md overflow-hidden">
               <div className="px-4 py-3 bg-muted/30 border-b flex items-start justify-between gap-3">
                 <div>
-                  <span className="font-semibold">5. BILLING &amp; TERMS <span className="font-normal text-muted-foreground text-sm">(the back-office handoff)</span></span>
+                  <h2 className="font-semibold">5. BILLING &amp; TERMS <span className="font-normal text-muted-foreground text-sm">(the back-office handoff)</span></h2>
                   <p className="text-xs text-muted-foreground mt-0.5">Bill the right entity on the right terms, so you&apos;re not chasing money in 60 days.</p>
                 </div>
                 <SectionCompletion

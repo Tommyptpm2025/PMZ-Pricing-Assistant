@@ -587,7 +587,7 @@ export default function MiscRateBuilder() {
           </CardHeader>
           <CardContent>
             {savedMisc.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
+              <div className="rounded-lg border border-dashed bg-surface-2 p-10 text-center text-sm text-muted-foreground">
                 No saved miscellaneous rates yet. Use the Builder tab to create and save your first one.
               </div>
             ) : (

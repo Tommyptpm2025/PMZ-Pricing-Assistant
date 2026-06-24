@@ -4,11 +4,11 @@ import { Badge } from "@/components/ui/badge"
 
 export default function MaterialsPage() {
   return (
-    <div className="max-w-5xl space-y-8">
+    <div className="max-w-5xl space-y-8 pb-12">
       <div className="flex items-center gap-3">
         <div className="rounded-xl bg-primary/10 p-3 text-primary"><Package className="h-6 w-6" /></div>
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Materials Library</h1>
+          <h1 className="text-3xl font-semibold tracking-[-0.02em]">Materials Library</h1>
           <p className="text-muted-foreground">Unit costs + consistent markup application.</p>
         </div>
         <Badge variant="outline" className="ml-auto">Phase 1</Badge>
@@ -17,10 +17,10 @@ export default function MaterialsPage() {
       <Card className="card">
         <CardHeader>
           <CardTitle>Quick Add + Table (placeholder)</CardTitle>
+          <CardDescription>A reusable list of materials with unit cost, unit type, and typical markup %.</CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          This page will let you maintain a reusable list of materials with unit cost, unit type, and typical markup %.
-          Global “apply default markup” control will feed the Project Pricer.
+          This page will let you maintain materials and feed a global &ldquo;apply default markup&rdquo; control into the Project Pricer.
         </CardContent>
       </Card>
     </div>

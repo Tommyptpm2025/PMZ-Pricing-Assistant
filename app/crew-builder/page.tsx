@@ -693,7 +693,7 @@ export default function CrewBuilder() {
           {!isLoaded ? (
             <div className="text-sm text-muted-foreground py-8 text-center">Loading saved crews…</div>
           ) : crews.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-8 text-center">
+            <div className="rounded-lg border border-dashed bg-surface-2 p-10 text-center text-sm text-muted-foreground">
               No crews saved yet. Build one above and click Save New Crew.
             </div>
           ) : (

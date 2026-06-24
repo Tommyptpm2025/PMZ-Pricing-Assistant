@@ -134,7 +134,7 @@ export default function OverviewPage() {
           <div className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground mb-2">
             Executive Dashboard • Live from your libraries
           </div>
-          <h1 className="text-4xl font-semibold tracking-[-0.03em]">Boss View / Quick Read</h1>
+          <h1 className="text-3xl font-semibold tracking-[-0.02em]">Boss View / Quick Read</h1>
           <p className="text-muted-foreground mt-1 max-w-2xl">Your true P&amp;L at a glance. Click any card for details.</p>
         </div>
         <Button asChild variant="outline" size="sm">
