@@ -821,7 +821,6 @@ export default function CustomersPage() {
                             <Label htmlFor="dmEmail">Email <OptionalTag /></Label>
                             <Input
                               id="dmEmail"
-                              type="email"
                               value={form.dmEmail}
                               onChange={(e) => {
                                 const v = e.target.value;
@@ -836,7 +835,7 @@ export default function CustomersPage() {
                               placeholder="e.g. pat@acme.com"
                               className={cn("mt-1.5", dmEmailError && "border-destructive focus-visible:ring-destructive")}
                             />
-                            {dmEmailError && <p className="mt-1 text-xs text-destructive">Enter a valid email address.</p>}
+                            {dmEmailError && <p className="mt-1 text-xs" style={{ color: "#EB3300" }}>Please enter a valid email address</p>}
                           </div>
                           <div>
                             <Label htmlFor="dmPreferred">Preferred Contact Method <OptionalTag /></Label>
@@ -884,14 +883,13 @@ export default function CustomersPage() {
                     <Label htmlFor="email">Email <OptionalTag /></Label>
                     <Input
                       id="email"
-                      type="email"
                       value={form.email}
                       onChange={(e) => { setForm({ ...form, email: e.target.value }); if (emailError) setEmailError(false); }}
                       onBlur={() => setEmailError(!!form.email.trim() && !isValidEmail(form.email))}
                       placeholder="e.g. jane@acme.com"
                       className={cn("mt-1.5", reachMissing && "border-destructive focus-visible:ring-destructive")}
                     />
-                    {emailError && <p className="mt-1 text-xs text-destructive">Enter a valid email address.</p>}
+                    {emailError && <p className="mt-1 text-xs" style={{ color: "#EB3300" }}>Please enter a valid email address</p>}
                   </div>
                   {reachMissing && (
                     <div className="sm:col-span-2">
@@ -1123,7 +1121,24 @@ export default function CustomersPage() {
                           <TableCell><CompletenessBadge customer={customer} /></TableCell>
                           <TableCell>{customer.contactName || "—"}</TableCell>
                           <TableCell className="text-sm">{displayCity}</TableCell>
-                          <TableCell className="text-sm">{customer.email || "—"}</TableCell>
+                          <TableCell className="text-sm">
+                            {customer.email ? (
+                              <span className="inline-flex items-center gap-1">
+                                {customer.email}
+                                {!isValidEmail(customer.email) && (
+                                  <span
+                                    className="inline-flex shrink-0 text-amber-500"
+                                    aria-label="Invalid email format"
+                                    title="Invalid email format"
+                                  >
+                                    <AlertTriangle className="h-3.5 w-3.5" />
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                          </TableCell>
                           <TableCell className="text-sm">{customer.phone || "—"}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
