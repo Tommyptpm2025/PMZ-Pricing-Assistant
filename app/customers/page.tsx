@@ -84,6 +84,31 @@ function RequiredHint({ show }: { show: boolean }) {
 function requiredRing(show: boolean): string {
   return show ? "border-[#EB3300] ring-1 ring-[#EB3300] focus-visible:ring-[#EB3300]" : "";
 }
+// Persistent, section-level summary of how many "needed to complete" (soft-required) fields a section
+// still needs. Unlike RequiredHint — which disappears the instant a field is satisfied — this stays
+// visible whether fields are empty or filled, so the record's gaps stay legible at a glance.
+// Display-only: it reads existing form values and never affects validation or what gets saved.
+function SectionCompletion({ flags }: { flags: boolean[] }) {
+  const filled = flags.filter(Boolean).length;
+  const total = flags.length;
+  const complete = filled >= total;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium",
+        complete
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-primary/30 bg-primary/10 text-primary"
+      )}
+    >
+      {complete ? (
+        <><CheckCircle2 className="h-3 w-3" /> All needed-to-complete fields filled</>
+      ) : (
+        <>{filled} of {total} needed-to-complete fields</>
+      )}
+    </span>
+  );
+}
 
 // Render an AP/billing contact value as a mailto: (email) or clickable link (URL), else plain text.
 function renderContactLink(value?: string) {
@@ -915,9 +940,14 @@ export default function CustomersPage() {
 
             {/* §3 WHERE'S THE WORK? (Job Site / Project Location) */}
             <div className="border rounded-md overflow-hidden">
-              <div className="px-4 py-3 bg-muted/30 border-b">
-                <span className="font-semibold">3. WHERE&apos;S THE WORK? <span className="font-normal text-muted-foreground text-sm">(Job Site / Project Location)</span></span>
-                <p className="text-xs text-muted-foreground mt-0.5">Where the crew actually goes. Access details here save a wasted trip.</p>
+              <div className="px-4 py-3 bg-muted/30 border-b flex items-start justify-between gap-3">
+                <div>
+                  <span className="font-semibold">3. WHERE&apos;S THE WORK? <span className="font-normal text-muted-foreground text-sm">(Job Site / Project Location)</span></span>
+                  <p className="text-xs text-muted-foreground mt-0.5">Where the crew actually goes. Access details here save a wasted trip.</p>
+                </div>
+                <SectionCompletion
+                  flags={[!!form.jobStreet.trim(), !!form.jobCity.trim(), !!form.jobStateCode, !!form.jobZip.trim()]}
+                />
               </div>
               <div className="p-4">
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -986,9 +1016,20 @@ export default function CustomersPage() {
 
             {/* §5 BILLING & TERMS */}
             <div className="border rounded-md overflow-hidden">
-              <div className="px-4 py-3 bg-muted/30 border-b">
-                <span className="font-semibold">5. BILLING &amp; TERMS <span className="font-normal text-muted-foreground text-sm">(the back-office handoff)</span></span>
-                <p className="text-xs text-muted-foreground mt-0.5">Bill the right entity on the right terms, so you&apos;re not chasing money in 60 days.</p>
+              <div className="px-4 py-3 bg-muted/30 border-b flex items-start justify-between gap-3">
+                <div>
+                  <span className="font-semibold">5. BILLING &amp; TERMS <span className="font-normal text-muted-foreground text-sm">(the back-office handoff)</span></span>
+                  <p className="text-xs text-muted-foreground mt-0.5">Bill the right entity on the right terms, so you&apos;re not chasing money in 60 days.</p>
+                </div>
+                <SectionCompletion
+                  flags={[
+                    !!(form.billingSameAsJobSite ? form.jobStreet : form.billingStreet).trim(),
+                    !!(form.billingSameAsJobSite ? form.jobCity : form.billingCity).trim(),
+                    !!(form.billingSameAsJobSite ? form.jobStateCode : form.billingStateCode),
+                    !!(form.billingSameAsJobSite ? form.jobZip : form.billingZip).trim(),
+                    !!form.billingCountryCode,
+                  ]}
+                />
               </div>
               <div className="p-4">
                 <div className="flex items-center gap-2 mb-4">
