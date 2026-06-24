@@ -2288,7 +2288,7 @@ export default function ProjectPricerPage() {
   }
 
   return (
-    <div className="max-w-6xl space-y-6 pb-12">
+    <div className="max-w-6xl space-y-8 pb-12">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -2354,7 +2354,7 @@ export default function ProjectPricerPage() {
       {/* 1. Top section — Customer (searchable), Job Name, Work Type (required), Salesperson. Bid total from table now drives margin tier. */}
       <Card className="card">
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-6 md:grid-cols-4">
             <div>
               <Label className="text-xs font-medium tracking-wider text-muted-foreground">CUSTOMER</Label>
               <Select

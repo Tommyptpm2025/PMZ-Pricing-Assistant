@@ -37,7 +37,7 @@ function ToolCard({ href, icon: Icon, title, description, featured }: ToolCardPr
             {featured && <Badge className="bg-primary/10 text-primary border-primary/20">Primary</Badge>}
           </div>
           <CardTitle className="text-lg mt-3 tracking-[-0.01em]">{title}</CardTitle>
-          <CardDescription className="text-[13px] leading-snug">{description}</CardDescription>
+          <CardDescription className="leading-snug">{description}</CardDescription>
         </CardHeader>
         <CardContent className="mt-auto pt-0">
           <div className="flex items-center text-sm font-medium text-primary group-hover:gap-1.5 transition-all">
@@ -230,7 +230,7 @@ export default function OverviewPage() {
               <CardTitle className="text-base flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-600" /> PMZ Money Map — Quick Snapshot
               </CardTitle>
-              <CardDescription className="text-xs">
+              <CardDescription>
                 How your current bid (from Project Pricer) maps to profit reality.
               </CardDescription>
             </div>

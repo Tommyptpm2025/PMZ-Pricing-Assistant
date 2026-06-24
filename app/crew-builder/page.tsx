@@ -272,7 +272,7 @@ export default function CrewBuilder() {
   const equipProfiles = equipmentRates || [];
 
   return (
-    <div className="max-w-5xl space-y-6 pb-12">
+    <div className="max-w-6xl space-y-8 pb-12">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-3">

@@ -231,7 +231,7 @@ export default function MaterialRateBuilder() {
       <div className={activeTab === 'builder' ? '' : 'hidden'}>
 
         {/* Material Manager - modeled exactly after Equipment Manager */}
-        <Card className="card">
+        <Card className="card mb-6">
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <div>
@@ -380,7 +380,7 @@ export default function MaterialRateBuilder() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid gap-5 md:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-3">
               {/* Unit of Measure */}
               <div>
                 <Label htmlFor="unitOfMeasure" className="text-sm">Unit of Measure (UOM)</Label>

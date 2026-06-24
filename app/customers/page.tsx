@@ -733,7 +733,7 @@ export default function CustomersPage() {
                   Cancel Edit
                 </Button>
               ) : (
-                <Button type="button" variant="outline" onClick={resetForm} title="Clear the form for a fresh entry">
+                <Button type="button" variant="outline" size="lg" onClick={resetForm} title="Clear the form for a fresh entry">
                   Start New
                 </Button>
               )}
@@ -1049,7 +1049,7 @@ export default function CustomersPage() {
                   Cancel Edit
                 </Button>
               ) : (
-                <Button type="button" variant="outline" onClick={resetForm} title="Clear the form for a fresh entry">
+                <Button type="button" variant="outline" size="lg" onClick={resetForm} title="Clear the form for a fresh entry">
                   Start New
                 </Button>
               )}

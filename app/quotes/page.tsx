@@ -687,7 +687,7 @@ export default function QuotesPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-7 px-1 text-destructive hover:text-destructive"
+                          className="px-1 text-destructive hover:text-destructive"
                           onClick={(e) => { e.stopPropagation(); setDeleteTarget(quote); }}
                         >
                           <Trash2 className="h-3.5 w-3.5" />

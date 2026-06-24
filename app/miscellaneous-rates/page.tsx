@@ -227,7 +227,7 @@ export default function MiscRateBuilder() {
   // (the hook state is reactive)
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
+    <div className="max-w-6xl mx-auto p-6 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -290,7 +290,7 @@ export default function MiscRateBuilder() {
       {activeTab === 'builder' && (
         <div className="space-y-6">
           {/* Miscellaneous Manager — left-panel Saved Profiles list + name + actions (mirrors Equipment Manager) */}
-          <Card className="card">
+          <Card className="card mb-6">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -434,7 +434,7 @@ export default function MiscRateBuilder() {
                   <CardDescription>Enter details; landed cost updates instantly on the right. Save to persist.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
                       <Label htmlFor="uom">Unit of Measure</Label>
                       <select
@@ -636,7 +636,6 @@ export default function MiscRateBuilder() {
                               variant="ghost"
                               size="icon"
                               onClick={(e) => { e.stopPropagation(); loadIntoBuilder(m); }}
-                              className="h-7 w-7"
                               title="Load"
                             >
                               <Edit2 className="h-3.5 w-3.5" />
@@ -657,7 +656,6 @@ export default function MiscRateBuilder() {
                                   if (fresh) loadIntoBuilder(fresh);
                                 }, 0);
                               }}
-                              className="h-7 w-7"
                               title="Duplicate this rate"
                             >
                               <Copy className="h-3.5 w-3.5" />
@@ -671,7 +669,7 @@ export default function MiscRateBuilder() {
                                   deleteMiscRate(m.id);
                                 }
                               }}
-                              className="h-7 w-7 text-red-400 hover:text-red-500"
+                              className="text-red-400 hover:text-red-500"
                               title="Delete"
                             >
                               <Trash2 className="h-3.5 w-3.5" />

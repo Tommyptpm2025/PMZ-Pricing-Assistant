@@ -329,13 +329,13 @@ export default function OverheadProfitPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, -1)} disabled={index === 0}>
+                            <Button variant="ghost" size="icon" onClick={() => moveItem(index, -1)} disabled={index === 0}>
                               <ArrowUp className="h-3.5 w-3.5" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, 1)} disabled={index === chart.items.length - 1}>
+                            <Button variant="ghost" size="icon" onClick={() => moveItem(index, 1)} disabled={index === chart.items.length - 1}>
                               <ArrowDown className="h-3.5 w-3.5" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => removeCategory(item.id)}>
+                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => removeCategory(item.id)}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>

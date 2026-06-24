@@ -433,7 +433,7 @@ export default function EquipmentRateBuilder() {
       <div className={activeTab === 'builder' ? '' : 'hidden'}>
 
       {/* Equipment Manager */}
-      <Card className="card">
+      <Card className="card mb-6">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div>

@@ -683,7 +683,6 @@ export default function WorkTypesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7"
                               onClick={(e) => { e.stopPropagation(); startEdit(wt); }}
                             >
                               <Edit2 className="h-3.5 w-3.5" />
@@ -691,7 +690,7 @@ export default function WorkTypesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              className="text-destructive hover:text-destructive"
                               onClick={(e) => { e.stopPropagation(); deleteWorkType(wt.id); }}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -839,7 +838,6 @@ export default function WorkTypesPage() {
                                         <Button
                                           variant="ghost"
                                           size="icon"
-                                          className="h-7 w-7"
                                           disabled={isFirst}
                                           onClick={() => moveTier(tier.id, "up")}
                                           title="Move up"
@@ -849,7 +847,6 @@ export default function WorkTypesPage() {
                                         <Button
                                           variant="ghost"
                                           size="icon"
-                                          className="h-7 w-7"
                                           disabled={isLast}
                                           onClick={() => moveTier(tier.id, "down")}
                                           title="Move down"
@@ -859,7 +856,6 @@ export default function WorkTypesPage() {
                                         <Button
                                           variant="ghost"
                                           size="icon"
-                                          className="h-7 w-7"
                                           onClick={() => startEditTier(tier.id)}
                                           title="Edit tier"
                                         >
@@ -868,7 +864,7 @@ export default function WorkTypesPage() {
                                         <Button
                                           variant="ghost"
                                           size="icon"
-                                          className="h-7 w-7 text-destructive hover:text-destructive"
+                                          className="text-destructive hover:text-destructive"
                                           onClick={() => removeTierFromForm(tier.id)}
                                           title="Delete tier"
                                         >
