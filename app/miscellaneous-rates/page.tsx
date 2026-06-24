@@ -430,7 +430,7 @@ export default function MiscRateBuilder() {
             <div className="xl:col-span-7 space-y-6">
               <Card className="card">
                 <CardHeader>
-                  <CardTitle className="text-lg">Cost Inputs</CardTitle>
+                  <CardTitle className="text-xl">Cost Inputs</CardTitle>
                   <CardDescription>Enter details; landed cost updates instantly on the right. Save to persist.</CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -581,7 +581,7 @@ export default function MiscRateBuilder() {
         <Card className="border border-border bg-card dark:border-white/10 dark:bg-[#1a1a1a]">
           <CardHeader>
             <div>
-              <CardTitle className="text-xl">Saved Miscellaneous Rates</CardTitle>
+              <CardTitle>Saved Miscellaneous Rates</CardTitle>
               <CardDescription>Load any saved profile back into the builder for quick edits or reference.</CardDescription>
             </div>
           </CardHeader>

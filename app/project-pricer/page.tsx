@@ -4046,7 +4046,7 @@ export default function ProjectPricerPage() {
             <div className="font-medium text-emerald-900 mb-1">Labor</div>
             {(() => {
               const found = pendingLabor;
-              return found ? <div className="text-[9px] text-emerald-800/90 truncate mb-1">{found.role}</div> : null;
+              return found ? <div className="text-[10px] text-emerald-800/90 truncate mb-1">{found.role}</div> : null;
             })()}
             <div className="flex gap-1 items-end">
               <Select value={pendingLabor?.id || ""} onValueChange={(val) => {
@@ -4118,7 +4118,7 @@ export default function ProjectPricerPage() {
             <div className="font-medium text-emerald-900 mb-1">Equipment</div>
             {(() => {
               const found = equipmentProfiles.find((p: any) => p.id === pendingEquipId);
-              return found ? <div className="text-[9px] text-emerald-800/90 truncate mb-1">{found.description}</div> : null;
+              return found ? <div className="text-[10px] text-emerald-800/90 truncate mb-1">{found.description}</div> : null;
             })()}
             <div className="flex gap-1 items-end">
               <Select value={pendingEquipId} onValueChange={setPendingEquipId}>
@@ -4171,7 +4171,7 @@ export default function ProjectPricerPage() {
             <div className="font-medium text-emerald-900 mb-1">Material</div>
             {(() => {
               const found = materialProfiles.find((p: any) => p.id === pendingMatId);
-              return found ? <div className="text-[9px] text-emerald-800/90 truncate mb-1">{found.description}</div> : null;
+              return found ? <div className="text-[10px] text-emerald-800/90 truncate mb-1">{found.description}</div> : null;
             })()}
             <div className="flex gap-1 items-end">
               <Select value={pendingMatId} onValueChange={setPendingMatId}>
@@ -4374,7 +4374,7 @@ export default function ProjectPricerPage() {
                 <span className="font-semibold tabular-nums">${formatMoney(realTotalLEM)}</span>
               </div>
               <div className="flex justify-between">
-                <span>Gross Profit % {!isNoTarget && <span className="text-[9px] text-muted-foreground/70">(Target: {defaultTargetGP.toFixed(0)}%)</span>}</span>
+                <span>Gross Profit % {!isNoTarget && <span className="text-[10px] text-muted-foreground/70">(Target: {defaultTargetGP.toFixed(0)}%)</span>}</span>
                 <span className="font-semibold tabular-nums">{currentGPPercent.toFixed(1)}%</span>
               </div>
               <div className="flex justify-between">

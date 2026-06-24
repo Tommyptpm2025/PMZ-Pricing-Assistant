@@ -411,7 +411,7 @@ export default function SalesTrackerPage() {
       {/* Bid Acceptance Rates */}
       <Card className="card">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Bid Acceptance Rates</CardTitle>
+          <CardTitle className="text-xl">Bid Acceptance Rates</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">

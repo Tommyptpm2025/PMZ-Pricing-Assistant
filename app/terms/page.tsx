@@ -148,7 +148,7 @@ export default function TermsPage() {
       {/* List */}
       <Card className="border border-border bg-card dark:border-white/10 dark:bg-[#1a1a1a]">
         <CardHeader>
-          <CardTitle className="text-xl">Saved Terms Blocks</CardTitle>
+          <CardTitle>Saved Terms Blocks</CardTitle>
           <CardDescription>
             {terms.length} block{terms.length === 1 ? "" : "s"} — only one can be default.
           </CardDescription>
