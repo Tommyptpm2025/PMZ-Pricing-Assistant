@@ -58,7 +58,7 @@ export default function LaborRateBuilder() {
   const [reloadMsg, setReloadMsg] = React.useState('');
 
   // Tab state for the clean tabbed interface (matching Equipment)
-  const [activeTab, setActiveTab] = React.useState<'builder' | 'saved'>('builder');
+  const [activeTab, setActiveTab] = React.useState<'builder' | 'saved' | 'whatif'>('builder');
 
   // Sensitivity quick scenarios
   const [sensitivityDelta, setSensitivityDelta] = React.useState(3);
@@ -78,6 +78,16 @@ export default function LaborRateBuilder() {
     [inputs, sensitivityDelta]
   );
 
+  // Scenario inputs/result for the What-If tab — full breakdown computed at the adjusted base wage
+  const scenarioInputs = React.useMemo(
+    () => ({ ...inputs, baseWage: inputs.baseWage + sensitivityDelta }),
+    [inputs, sensitivityDelta]
+  );
+  const scenarioResult: LaborRateResult = React.useMemo(
+    () => calculateLaborRate(scenarioInputs),
+    [scenarioInputs]
+  );
+
   // Update a single field (keeps everything reactive)
   function updateField<K extends keyof LaborRateInputs>(field: K, value: LaborRateInputs[K]) {
     setInputs((prev) => ({ ...prev, [field]: value }));
@@ -92,6 +102,18 @@ export default function LaborRateBuilder() {
     setEditingId(null);
     setSelectedId(null);
     setJustSaved(false);
+  }
+
+  // Bake the What-If delta into the working base wage, reset the delta to a clean baseline,
+  // and jump back to the builder so the scenario becomes the live rate you can save.
+  function applyScenarioToBuilder() {
+    setInputs((prev) => ({
+      ...prev,
+      baseWage: Math.round((prev.baseWage + sensitivityDelta) * 100) / 100,
+    }));
+    setSensitivityDelta(0);
+    setActiveTab('builder');
+    window.scrollTo({ top: 120, behavior: "smooth" });
   }
 
   // Add current calculation as a new saved rate (delegates persistence to centralized store)
@@ -252,6 +274,17 @@ export default function LaborRateBuilder() {
                 {savedRates.length}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => setActiveTab('whatif')}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-5 py-2 font-medium transition-all",
+              activeTab === 'whatif'
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
+          >
+            What-If
           </button>
         </div>
       </div>
@@ -597,63 +630,6 @@ export default function LaborRateBuilder() {
 
             </CardContent>
           </Card>
-
-          {/* Sensitivity Analysis */}
-          <Card className="card">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" /> What-if Sensitivity
-              </CardTitle>
-              <CardDescription>
-                See instantly how a wage increase (or decrease) flows through to your recommended rate.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2 mb-4">
-                {quickDeltas.map((d) => (
-                  <Button
-                    key={d}
-                    variant={sensitivityDelta === d ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSensitivityDelta(d)}
-                  >
-                    {d > 0 ? "+" : ""}${d}/hr
-                  </Button>
-                ))}
-                <div className="flex items-center gap-2 ml-2">
-                  <span className="text-sm text-muted-foreground">Custom:</span>
-                  <Input
-                    type="number"
-                    step="0.5"
-                    value={sensitivityDelta}
-                    onChange={(e) => setSensitivityDelta(parseFloat(e.target.value) || 0)}
-                    className="w-20 h-9 text-center"
-                  />
-                  <span className="text-sm text-muted-foreground">$/hr</span>
-                </div>
-              </div>
-
-              <div className="rounded-lg border bg-white p-4 text-sm">
-                <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-                  <div>
-                    <span className="text-muted-foreground">At </span>
-                    <span className="font-semibold tabular-nums">${(inputs.baseWage + sensitivityDelta).toFixed(2)}/hr</span>
-                    <span className="text-muted-foreground"> base wage</span>
-                  </div>
-                  <div className="font-semibold tabular-nums text-lg">
-                    {formatCurrency(sensitivity.newRecommendedRate)}
-                  </div>
-                  <div className={sensitivity.delta >= 0 ? "text-emerald-600" : "text-red-600"}>
-                    {sensitivity.delta >= 0 ? "+" : ""}{formatCurrency(sensitivity.delta)} 
-                    <span className="ml-1 text-xs font-normal">({sensitivity.percentChange > 0 ? "+" : ""}{sensitivity.percentChange}%)</span>
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  This is the new recommended billable rate if base wages moved by ${sensitivityDelta}.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* LIVE RESULTS — THE IMPORTANT PART */}
@@ -869,6 +845,157 @@ export default function LaborRateBuilder() {
         </CardContent>
       </Card>
       </div> {/* End Saved Labor Rates tab content */}
+
+      {/* What-If tab content */}
+      <div className={activeTab === 'whatif' ? '' : 'hidden'}>
+        <div className="grid gap-6 xl:grid-cols-12">
+          {/* LEFT: What-if Sensitivity controls (unchanged) */}
+          <div className="xl:col-span-7 space-y-6">
+        {/* Sensitivity Analysis */}
+        <Card className="card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" /> What-if Sensitivity
+            </CardTitle>
+            <CardDescription>
+              See instantly how a wage increase (or decrease) flows through to your recommended rate.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {quickDeltas.map((d) => (
+                <Button
+                  key={d}
+                  variant={sensitivityDelta === d ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSensitivityDelta(d)}
+                >
+                  {d > 0 ? "+" : ""}${d}/hr
+                </Button>
+              ))}
+              <div className="flex items-center gap-2 ml-2">
+                <span className="text-sm text-muted-foreground">Custom:</span>
+                <Input
+                  type="number"
+                  step="0.5"
+                  value={sensitivityDelta}
+                  onChange={(e) => setSensitivityDelta(parseFloat(e.target.value) || 0)}
+                  className="w-20 h-9 text-center"
+                />
+                <span className="text-sm text-muted-foreground">$/hr</span>
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-white p-4 text-sm">
+              <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+                <div>
+                  <span className="text-muted-foreground">At </span>
+                  <span className="font-semibold tabular-nums">${(inputs.baseWage + sensitivityDelta).toFixed(2)}/hr</span>
+                  <span className="text-muted-foreground"> base wage</span>
+                </div>
+                <div className="font-semibold tabular-nums text-lg">
+                  {formatCurrency(sensitivity.newRecommendedRate)}
+                </div>
+                <div className={sensitivity.delta >= 0 ? "text-emerald-600" : "text-red-600"}>
+                  {sensitivity.delta >= 0 ? "+" : ""}{formatCurrency(sensitivity.delta)}
+                  <span className="ml-1 text-xs font-normal">({sensitivity.percentChange > 0 ? "+" : ""}{sensitivity.percentChange}%)</span>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                This is the new recommended billable rate if base wages moved by ${sensitivityDelta}.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+          </div>
+
+          {/* RIGHT: Scenario Results — mirrors Live Results, driven by the adjusted base wage */}
+          <div className="xl:col-span-5">
+            <Card className="card border-primary/30 sticky top-20 shadow-lg">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-sm tracking-[0.5px] text-muted-foreground">SCENARIO RESULTS</CardTitle>
+                    <div className="text-xl font-semibold tracking-tight mt-0.5">{inputs.role}</div>
+                  </div>
+                  <Badge className="bg-primary/10 text-primary border-primary/30">
+                    {sensitivityDelta >= 0 ? "+" : ""}${sensitivityDelta}/hr
+                  </Badge>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-6 pt-2">
+                {/* True Cost */}
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">TRUE COST PER BILLABLE HOUR</div>
+                  <div className="text-6xl font-semibold tabular-nums tracking-[-0.04em] text-foreground">
+                    {formatCurrency(scenarioResult.trueCostPerBillableHour)}
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground leading-snug">
+                    This is your true cost per billable hour if the base wage moved to {formatCurrency(scenarioInputs.baseWage)} —
+                    every tax, benefit, supervision hour, and non-billable minute included.
+                  </p>
+                </div>
+
+                {/* Quick breakdown — scenario contributions */}
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm pt-2 border-t">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Base wage</span>
+                    <span className="font-mono tabular-nums">{formatCurrency(scenarioInputs.baseWage)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium">
+                    <span className="text-muted-foreground">+ Fixed Fringes</span>
+                    <span className="font-mono tabular-nums text-primary">{formatCurrency(scenarioResult.fixedFringesTotal)}</span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">+ Statutory &amp; Supervision</span>
+                    <span className="font-mono tabular-nums">
+                      {formatCurrency(
+                        scenarioResult.employerCostPerWorkedHour -
+                        scenarioResult.fixedFringesTotal -
+                        scenarioResult.workersCompPerHour -
+                        scenarioResult.generalLiabilityPerHour -
+                        (scenarioInputs.perDiem || 0) -
+                        scenarioInputs.baseWage
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex justify-between font-medium">
+                    <span className="text-muted-foreground">+ Workers' Comp</span>
+                    <span className="font-mono tabular-nums">{formatCurrency(scenarioResult.workersCompPerHour)}</span>
+                  </div>
+
+                  <div className="flex justify-between font-medium">
+                    <span className="text-muted-foreground">+ General Liability</span>
+                    <span className="font-mono tabular-nums">{formatCurrency(scenarioResult.generalLiabilityPerHour)}</span>
+                  </div>
+
+                  <div className="col-span-2 pt-2 border-t flex justify-between text-base font-semibold">
+                    <span>Employer cost per worked hour</span>
+                    <span className="font-mono tabular-nums">{formatCurrency(scenarioResult.employerCostPerWorkedHour)}</span>
+                  </div>
+
+                  <div className="col-span-2 flex justify-between text-sm">
+                    <span className="text-muted-foreground">Billable utilization after downtime</span>
+                    <span className="font-mono tabular-nums">{formatPercent(100 - scenarioInputs.downtime)}</span>
+                  </div>
+                </div>
+
+                {/* Apply scenario to the builder */}
+                <div className="pt-2">
+                  <Button onClick={applyScenarioToBuilder} size="lg" className="w-full text-base">
+                    <Edit2 className="mr-2 h-4 w-4" /> Apply to Builder
+                  </Button>
+                  <p className="mt-2 text-center text-xs text-muted-foreground">
+                    Sets the builder base wage to {formatCurrency(scenarioInputs.baseWage)} so you can save this scenario as a rate.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div> {/* End What-If tab content */}
 
       {/* Footer note */}
       <p className="text-center text-xs text-muted-foreground max-w-prose mx-auto">
