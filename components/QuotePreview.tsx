@@ -53,6 +53,9 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
     : lineItems.reduce((s: number, it: any) => s + ((it.quantity || 0) * (it.unitPrice || 0)), 0);
 
   const termsText = q.termsText || null;
+  // Company logo (from the Update Export dialog). Shown in place of the brand wordmark when set —
+  // matches the PDF header behavior so the on-screen preview is no longer logo-blind.
+  const logoDataUrl = q.logoDataUrl || null;
 
   // Status badge for the document — clean customer-facing label, on-brand colors.
   // Red = action needed, Maroon = in-flight, Charcoal = closed out (Paid).
@@ -149,7 +152,12 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, paddingBottom: 8, borderBottom: '2px solid #111' }}>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 'bold' }}>Profit Margin Zone</div>
+              {logoDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logoDataUrl} alt="Company logo" style={{ height: 32, width: 'auto', display: 'block', marginBottom: 2 }} />
+              ) : (
+                <div style={{ fontSize: 14, fontWeight: 'bold' }}>Profit Margin Zone</div>
+              )}
               <div style={{ fontSize: 8, color: '#555' }}>Total Profit Management</div>
             </div>
             <div style={{ textAlign: 'right', fontSize: 9 }}>

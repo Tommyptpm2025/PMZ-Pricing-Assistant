@@ -834,7 +834,7 @@ export default function QuotesPage() {
           <DialogHeader>
             <DialogTitle>Quote Preview — {previewTarget?.quoteType}</DialogTitle>
             <DialogDescription>
-              Read-only view. Click Edit to load into Project Pricer for changes.
+              Read-only view. Use “Edit in Pricer” below to load this quote into the Project Pricer for changes.
             </DialogDescription>
           </DialogHeader>
           {previewTarget && (
@@ -1077,7 +1077,17 @@ export default function QuotesPage() {
               </div>
             )}
 
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  const q = previewTarget;
+                  setPreviewTarget(null);
+                  if (q) openQuote(q);
+                }}
+              >
+                Edit in Pricer
+              </Button>
               <Button variant="outline" onClick={() => setPreviewTarget(null)}>Close</Button>
             </div>
           </DialogFooter>
