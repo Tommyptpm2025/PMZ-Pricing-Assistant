@@ -59,6 +59,7 @@ import { sendQuoteForAcceptance } from "@/lib/quote-lifecycle";
 import { updateQuote } from "@/lib/quote-storage";
 import { serializeEppLine, eppTotalRevenue } from "@/lib/epp-line";
 import { useRateStore } from "@/lib/rate-store";
+import { useSalespeople } from "@/lib/salespeople";
 import { getAllTerms, type TermsBlock } from "@/lib/terms";
 
 // Stable ID generator (avoids Date.now/Math.random during SSR/hydration for client-only data)
@@ -174,7 +175,7 @@ const COMMON_UNITS = [
   "DAY", "WEEK", "MO", "SQ", "CF", "LB", "PC", "RL", "SH", "PL", "YD"
 ];
 
-const SALESPERSON_OPTIONS = ["Owner", "Scott Sinnott", "Mike Johnson", "Alex Rivera"];
+// Salesperson options now come from the Settings registry (lib/salespeople.ts) — see useSalespeople() below.
 
 // Shared 6-track template for the bid line AND the per-line costing rows. Both the bid header/rows
 // and every costing row render on THIS grid, so qty lands under QUANTITY and rate under UNIT PRICE by
@@ -298,6 +299,13 @@ export default function ProjectPricerPage() {
     getMaterialCostPerUnit,
     getMiscCostPerUnit,
   } = useRateStore();
+
+  // Salesperson registry (Settings → Salespeople). The dropdown reads ACTIVE people, sorted A–Z.
+  const { salespeople } = useSalespeople();
+  const activeSalespeople = React.useMemo(
+    () => salespeople.filter((s) => s.active).map((s) => s.name).sort((a, b) => a.localeCompare(b)),
+    [salespeople]
+  );
 
   // Correct labor burdened hourly rate using the imported calculateLaborRate (fixes broken labor calc in EPP panel)
   const getLaborBurdenedRate = (id: string): number => {
@@ -2452,12 +2460,17 @@ export default function ProjectPricerPage() {
                 <SelectTrigger className={cn(
                   "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]"
                 )}>
-                  <SelectValue placeholder="Select or type name" />
+                  <SelectValue placeholder="Select salesperson" />
                 </SelectTrigger>
                 <SelectContent>
-                  {SALESPERSON_OPTIONS.map((name) => (
+                  {activeSalespeople.map((name) => (
                     <SelectItem key={`sales-${name}`} value={name}>{name}</SelectItem>
                   ))}
+                  {/* Backward-compat: keep a quote's stored salesperson visible even when it's not an
+                      active registry entry (legacy free-text or a since-deactivated person), marked "(unlisted)". */}
+                  {estimate.salesperson && !activeSalespeople.includes(estimate.salesperson) && (
+                    <SelectItem value={estimate.salesperson}>{estimate.salesperson} (unlisted)</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
