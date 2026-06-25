@@ -53,6 +53,8 @@ export interface UpdateExportDialogProps {
   setShowPerUnitPrice: (v: boolean) => void;
   showLineItemPrices: boolean;
   setShowLineItemPrices: (v: boolean) => void;
+  showLemDetail: boolean;
+  setShowLemDetail: (v: boolean) => void;
 }
 
 export default function UpdateExportDialog({
@@ -83,6 +85,8 @@ export default function UpdateExportDialog({
   setShowPerUnitPrice,
   showLineItemPrices,
   setShowLineItemPrices,
+  showLemDetail,
+  setShowLemDetail,
 }: UpdateExportDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -275,6 +279,22 @@ export default function UpdateExportDialog({
                   className="accent-red-600"
                 />
                 <span className="text-sm">Show Line Item Prices</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Detail Level */}
+          <div>
+            <Label className="text-xs font-medium tracking-wider text-muted-foreground mb-1.5 block">Detail Level</Label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showLemDetail}
+                  onChange={(e) => setShowLemDetail(e.target.checked)}
+                  className="accent-red-600"
+                />
+                <span className="text-sm">Show LEM Detail (Labor, Equipment, Material, Misc)</span>
               </label>
             </div>
           </div>

@@ -31,6 +31,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const showPrimaryContact = options.showPrimaryContact !== false;
   const showAccessNotes = !!options.showAccessNotes;
   const showGPS = !!options.showGPS;
+  const showLemDetail = !!options.showLemDetail;
 
   // Support normalized shape from buildQuoteData(source) for EPP (uses customer obj, qty, lineTotal, jobName, total, etc.)
   // Falls back gracefully for legacy shapes.
@@ -46,6 +47,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
       unit: item.unit || "",
       unitPrice,
       lineTotal,
+      lemDetail: item.lemDetail || null,
     };
   });
   const grandTotal = q.total !== undefined
@@ -235,13 +237,28 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             </div>
             {lineItems.length > 0 ? lineItems.map((item: any, idx: number) => {
               const lt = item.lineTotal !== undefined ? item.lineTotal : (item.quantity || 0) * (item.unitPrice || 0);
+              const lemOn = showLemDetail && item.lemDetail && item.lemDetail.hasAny;
               return (
-                <div key={idx} style={{ display: 'flex', borderBottom: '0.5px solid #ccc' }}>
-                  <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '40%' }}>{item.description || '—'}</div>
-                  {showQuantities && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'right' }}>{item.quantity || 0}</div>}
-                  {showUnits && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'center' }}>{item.unit || ''}</div>}
-                  {showPerUnitPrice && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '15%', textAlign: 'right' }}>${formatMoney(item.unitPrice || 0)}</div>}
-                  {showLineItemPrices && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '15%', textAlign: 'right' }}>${formatWhole(lt)}</div>}
+                <div key={idx}>
+                  <div style={{ display: 'flex', borderBottom: lemOn ? 'none' : '0.5px solid #ccc' }}>
+                    <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '40%' }}>{item.description || '—'}</div>
+                    {showQuantities && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'right' }}>{item.quantity || 0}</div>}
+                    {showUnits && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'center' }}>{item.unit || ''}</div>}
+                    {showPerUnitPrice && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '15%', textAlign: 'right' }}>${formatMoney(item.unitPrice || 0)}</div>}
+                    {showLineItemPrices && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '15%', textAlign: 'right' }}>${formatWhole(lt)}</div>}
+                  </div>
+                  {lemOn && (
+                    <div style={{ padding: '4px 6px 6px 14px', borderBottom: '0.5px solid #ccc', backgroundColor: '#fafafa' }}>
+                      {item.lemDetail.sections.map((sec: any, sIdx: number) => (
+                        <div key={sIdx} style={{ marginBottom: 3 }}>
+                          <div style={{ fontSize: 8, fontWeight: 'bold', color: '#444', textTransform: 'uppercase', letterSpacing: 0.3 }}>{sec.title}</div>
+                          {sec.rows.map((row: any, rIdx: number) => (
+                            <div key={rIdx} style={{ fontSize: 8, color: '#555', paddingLeft: 8 }}>{row.text}</div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             }) : (

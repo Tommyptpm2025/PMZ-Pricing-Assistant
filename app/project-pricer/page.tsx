@@ -41,6 +41,7 @@ import {
 import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
 import QuotePreview from "@/components/QuotePreview";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
+import { buildLineLemDetail, type LemRateCatalogs } from "@/lib/lem-detail";
 import {
   TrendingUp,
   Plus,
@@ -395,6 +396,9 @@ export default function ProjectPricerPage() {
   const [showUnits, setShowUnits] = React.useState(true);
   const [showPerUnitPrice, setShowPerUnitPrice] = React.useState(true);
   const [showLineItemPrices, setShowLineItemPrices] = React.useState(true);
+  // Detail Level — when on, the preview renders the per-line LEM (Labor/Equipment/Material/Misc)
+  // breakdown. Default off keeps the customer quote clean.
+  const [showLemDetail, setShowLemDetail] = React.useState(false);
 
   // Customer & Location Information options for Update Export dialog (Phase 1)
   const [showBillTo, setShowBillTo] = React.useState(true);
@@ -1758,6 +1762,7 @@ export default function ProjectPricerPage() {
           showPrimaryContact,
           showAccessNotes,
           showGPS,
+          showLemDetail,
         },
         logoDataUrl,
         exportType,
@@ -1900,6 +1905,11 @@ export default function ProjectPricerPage() {
   const buildQuoteData = (source: any) => {
     const s = source || {};
     const bidItems = s.bidItems || estimate.bidItems || [];
+    // Rate catalogs for resolving the per-line LEM breakdown (names/UOM/rates via rateId).
+    const lemCats: LemRateCatalogs = {
+      laborRates, equipmentRates, materialRates, miscRates,
+      getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
+    };
     const lineItems = bidItems.map((item: any) => {
       const qty = Number(item.quantity || 0);
       // Customer document shows the marked-up recommended bid, not the break-even cost (item.unitPrice).
@@ -1912,6 +1922,7 @@ export default function ProjectPricerPage() {
         unit: item.unit || "",
         unitPrice,
         lineTotal,
+        lemDetail: buildLineLemDetail(item, lemCats),
       };
     });
     // Grand total = sum of the ROUNDED line totals, so the printed document always foots.
@@ -3640,6 +3651,7 @@ export default function ProjectPricerPage() {
                 setShowUnits(true);
                 setShowPerUnitPrice(true);
                 setShowLineItemPrices(true);
+                setShowLemDetail(false);
                 // Stage 2: preselect default terms block (or first, or null)
                 const termsList = getAllTerms();
                 const defaultTerm = termsList.find((t: TermsBlock) => t.isDefault) || termsList[0] || null;
@@ -3775,6 +3787,8 @@ export default function ProjectPricerPage() {
         setShowPerUnitPrice={setShowPerUnitPrice}
         showLineItemPrices={showLineItemPrices}
         setShowLineItemPrices={setShowLineItemPrices}
+        showLemDetail={showLemDetail}
+        setShowLemDetail={setShowLemDetail}
       />
 
       {/* Full Real LEM Breakdown (Pro View) — basic structural placeholder */}

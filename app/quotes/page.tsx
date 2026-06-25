@@ -45,6 +45,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
+import { useRateStore } from "@/lib/rate-store";
+import { buildLineLemDetail, type LemRateCatalogs } from "@/lib/lem-detail";
 import {
   getAllQuotes,
   deleteQuote,
@@ -166,6 +168,17 @@ export default function QuotesPage() {
   const [showUnits, setShowUnits] = React.useState(true);
   const [showPerUnitPrice, setShowPerUnitPrice] = React.useState(true);
   const [showLineItemPrices, setShowLineItemPrices] = React.useState(true);
+  const [showLemDetail, setShowLemDetail] = React.useState(false);
+
+  // Rate catalogs for resolving the per-line LEM breakdown in the preview (names/UOM/rates by id).
+  const {
+    laborRates, equipmentRates, materialRates, miscRates,
+    getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
+  } = useRateStore();
+  const lemCats: LemRateCatalogs = {
+    laborRates, equipmentRates, materialRates, miscRates,
+    getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
+  };
 
   // Load any saved company logo for the export dialog (client-only, mirrors the Pricer).
   React.useEffect(() => {
@@ -189,6 +202,7 @@ export default function QuotesPage() {
     setShowUnits(true);
     setShowPerUnitPrice(true);
     setShowLineItemPrices(true);
+    setShowLemDetail(false);
     setShowUpdateExport(true);
   }
 
@@ -818,6 +832,8 @@ export default function QuotesPage() {
         setShowPerUnitPrice={setShowPerUnitPrice}
         showLineItemPrices={showLineItemPrices}
         setShowLineItemPrices={setShowLineItemPrices}
+        showLemDetail={showLemDetail}
+        setShowLemDetail={setShowLemDetail}
       />
 
       <Dialog open={!!previewTarget} onOpenChange={(open) => { if (!open) { setPreviewTarget(null); setDecisionNote(""); } }}>
@@ -971,14 +987,31 @@ export default function QuotesPage() {
                                   const qty = item.quantity || 0;
                                   const price = item.unitPrice || 0;
                                   const lineTotal = qty * price;
+                                  const lemDetail = showLemDetail ? buildLineLemDetail(item, lemCats) : null;
                                   return (
-                                    <tr key={i}>
-                                      <td className="py-1 pr-2 truncate max-w-[140px]" title={desc}>{desc}</td>
-                                      <td className="py-1 px-1 text-right tabular-nums">{qty}</td>
-                                      <td className="py-1 px-1 text-center">{item.unit || ""}</td>
-                                      <td className="py-1 px-1 text-right tabular-nums">${formatMoney(price)}</td>
-                                      <td className="py-1 pl-2 text-right tabular-nums font-medium">${formatMoney(lineTotal)}</td>
-                                    </tr>
+                                    <React.Fragment key={i}>
+                                      <tr>
+                                        <td className="py-1 pr-2 truncate max-w-[140px]" title={desc}>{desc}</td>
+                                        <td className="py-1 px-1 text-right tabular-nums">{qty}</td>
+                                        <td className="py-1 px-1 text-center">{item.unit || ""}</td>
+                                        <td className="py-1 px-1 text-right tabular-nums">${formatMoney(price)}</td>
+                                        <td className="py-1 pl-2 text-right tabular-nums font-medium">${formatMoney(lineTotal)}</td>
+                                      </tr>
+                                      {lemDetail && lemDetail.hasAny && (
+                                        <tr>
+                                          <td colSpan={5} className="py-1 pl-3 pr-2 bg-muted/30">
+                                            {lemDetail.sections.map((sec, sIdx) => (
+                                              <div key={sIdx} className="mb-1 last:mb-0">
+                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{sec.title}</div>
+                                                {sec.rows.map((row, rIdx) => (
+                                                  <div key={rIdx} className="text-[11px] text-muted-foreground pl-2">{row.text}</div>
+                                                ))}
+                                              </div>
+                                            ))}
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </React.Fragment>
                                   );
                                 })}
                               </tbody>
