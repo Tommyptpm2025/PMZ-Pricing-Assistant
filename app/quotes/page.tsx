@@ -44,6 +44,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import UpdateExportDialog from "@/components/UpdateExportDialog";
 import {
   getAllQuotes,
   deleteQuote,
@@ -147,6 +148,55 @@ export default function QuotesPage() {
   const [decisionNote, setDecisionNote] = React.useState("");
   // Quote pending a forward lifecycle advance (confirm dialog target)
   const [advanceTarget, setAdvanceTarget] = React.useState<SavedQuote | null>(null);
+
+  // Path B preview: the Quotes-page "Preview" now routes through the SHARED Update Export dialog
+  // (same gate as the Pricer's Path A) before showing the internal preview. These mirror the
+  // Pricer's export-option state; the dialog is presentational and reads/writes them.
+  const [showUpdateExport, setShowUpdateExport] = React.useState(false);
+  const [pendingPreviewQuote, setPendingPreviewQuote] = React.useState<SavedQuote | null>(null);
+  const [exportType, setExportType] = React.useState<'quote' | 'estimate'>('quote');
+  const [selectedTermsId, setSelectedTermsId] = React.useState<string | null>(null);
+  const [logoDataUrl, setLogoDataUrl] = React.useState<string | null>(null);
+  const [showBillTo, setShowBillTo] = React.useState(true);
+  const [showJobSite, setShowJobSite] = React.useState(true);
+  const [showPrimaryContact, setShowPrimaryContact] = React.useState(true);
+  const [showAccessNotes, setShowAccessNotes] = React.useState(false);
+  const [showGPS, setShowGPS] = React.useState(false);
+  const [showQuantities, setShowQuantities] = React.useState(true);
+  const [showUnits, setShowUnits] = React.useState(true);
+  const [showPerUnitPrice, setShowPerUnitPrice] = React.useState(true);
+  const [showLineItemPrices, setShowLineItemPrices] = React.useState(true);
+
+  // Load any saved company logo for the export dialog (client-only, mirrors the Pricer).
+  React.useEffect(() => {
+    try {
+      const savedLogo = localStorage.getItem('pmz_quote_logo');
+      if (savedLogo) setLogoDataUrl(savedLogo);
+    } catch {}
+  }, []);
+
+  // "Preview" → open the Update Export dialog first (reset options to defaults), holding the
+  // chosen quote until the user confirms.
+  function openPreviewWithExport(quote: SavedQuote) {
+    setPendingPreviewQuote(quote);
+    setExportType('quote');
+    setShowBillTo(true);
+    setShowJobSite(true);
+    setShowPrimaryContact(true);
+    setShowAccessNotes(false);
+    setShowGPS(false);
+    setShowQuantities(true);
+    setShowUnits(true);
+    setShowPerUnitPrice(true);
+    setShowLineItemPrices(true);
+    setShowUpdateExport(true);
+  }
+
+  // Update Export "Next" → close the dialog and reveal the (now gated) internal preview.
+  function handlePreviewExportNext() {
+    setShowUpdateExport(false);
+    if (pendingPreviewQuote) setPreviewTarget(pendingPreviewQuote);
+  }
 
   // EPP list filters (independent)
   const [eppStatus, setEppStatus] = React.useState<string[]>([]);
@@ -672,7 +722,7 @@ export default function QuotesPage() {
                           aria-label="Quote actions"
                           onChange={(e) => {
                             const v = e.target.value;
-                            if (v === "preview") setPreviewTarget(quote);
+                            if (v === "preview") openPreviewWithExport(quote);
                             else if (v === "edit") openQuote(quote);
                             else if (v === "duplicate") duplicateQuote(quote);
                           }}
@@ -739,6 +789,37 @@ export default function QuotesPage() {
           "full" branches in renderFilters/renderTable are retained for clean reuse if it returns. */}
 
       {/* Preview centered Dialog (modal) */}
+      {/* Update Export gate — shared dialog; on Next we reveal the internal preview below */}
+      <UpdateExportDialog
+        open={showUpdateExport}
+        onOpenChange={setShowUpdateExport}
+        onNext={handlePreviewExportNext}
+        exportType={exportType}
+        setExportType={setExportType}
+        selectedTermsId={selectedTermsId}
+        setSelectedTermsId={setSelectedTermsId}
+        logoDataUrl={logoDataUrl}
+        setLogoDataUrl={setLogoDataUrl}
+        showBillTo={showBillTo}
+        setShowBillTo={setShowBillTo}
+        showJobSite={showJobSite}
+        setShowJobSite={setShowJobSite}
+        showPrimaryContact={showPrimaryContact}
+        setShowPrimaryContact={setShowPrimaryContact}
+        showAccessNotes={showAccessNotes}
+        setShowAccessNotes={setShowAccessNotes}
+        showGPS={showGPS}
+        setShowGPS={setShowGPS}
+        showQuantities={showQuantities}
+        setShowQuantities={setShowQuantities}
+        showUnits={showUnits}
+        setShowUnits={setShowUnits}
+        showPerUnitPrice={showPerUnitPrice}
+        setShowPerUnitPrice={setShowPerUnitPrice}
+        showLineItemPrices={showLineItemPrices}
+        setShowLineItemPrices={setShowLineItemPrices}
+      />
+
       <Dialog open={!!previewTarget} onOpenChange={(open) => { if (!open) { setPreviewTarget(null); setDecisionNote(""); } }}>
         <DialogContent className="w-[92%] sm:w-[85%] md:w-[72%] lg:w-[60%] xl:w-[55%] max-w-[920px] !max-w-none">
           <DialogClose asChild>
