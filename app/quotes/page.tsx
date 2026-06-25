@@ -46,7 +46,7 @@ import {
 import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
 import { useRateStore } from "@/lib/rate-store";
-import { buildLineLemDetail, buildLineRecipe, type LemRateCatalogs } from "@/lib/lem-detail";
+import { buildLineLemDetail, buildLineRecipe, buildLineGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
 import { createJobFromQuote, loadJobs, saveJobs } from "@/lib/jobs";
 import {
   getAllQuotes,
@@ -154,7 +154,7 @@ export default function QuotesPage() {
   const [advanceTarget, setAdvanceTarget] = React.useState<SavedQuote | null>(null);
   // Accepted-handoff gate block: set when an accept attempt is refused because some bid lines
   // lack resolved LEM detail. Carries the quote id + the offending line descriptions.
-  const [lemGateBlock, setLemGateBlock] = React.useState<{ quoteId: string; lines: string[] } | null>(null);
+  const [lemGateBlock, setLemGateBlock] = React.useState<{ quoteId: string; failures: LemGateLineFailure[] } | null>(null);
   // Quote ids that already have a Work Order (Job), so "Create Work Order" stays idempotent.
   const [workOrderQuoteIds, setWorkOrderQuoteIds] = React.useState<Set<string>>(new Set());
 
@@ -455,9 +455,9 @@ export default function QuotesPage() {
     // Accepted (a future Work Order) once every bid line has complete LEM detail. All other
     // jumps (Declined, Work Order Active, Invoiced, Paid, …) stay ungated.
     if (newStatus === "Approved" && quote.quoteType === "EPP") {
-      const missing = linesFailingLemGate(quote);
-      if (missing.length > 0) {
-        setLemGateBlock({ quoteId: quote.id, lines: missing });
+      const failures = gateFailures(quote);
+      if (failures.length > 0) {
+        setLemGateBlock({ quoteId: quote.id, failures });
         setPreviewTarget(quote); // surface the block (the jump fires from the row dropdown)
         return;
       }
@@ -504,28 +504,18 @@ export default function QuotesPage() {
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
   }
 
-  // Accepted-handoff gate: the descriptions of any EPP bid lines whose LEM detail is missing OR
+  // Accepted-handoff gate: per-line detail of any EPP bid lines whose LEM detail is missing OR
   // incomplete — a line fails if it has no entries at all, or any entry has a zero / blank /
-  // missing quantity or hours (which would yield a $0 recipe line). Empty => every line is ready.
-  function linesFailingLemGate(quote: SavedQuote): string[] {
-    const pos = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
-    const failing: string[] = [];
+  // missing quantity or hours (which would yield a $0 recipe line). Each failure names the exact
+  // offending entries (via the shared catalog resolver). Empty => every line is ready.
+  function gateFailures(quote: SavedQuote): LemGateLineFailure[] {
+    const out: LemGateLineFailure[] = [];
     (quote.eppLineItems || []).forEach((it, i) => {
-      const labor = it.laborEntries || [];
-      const equipment = it.equipmentEntries || [];
-      const material = it.materialEntries || [];
-      const misc = it.miscellaneousEntries || [];
-      const hasAnyEntry = labor.length + equipment.length + material.length + misc.length > 0;
-      const incomplete =
-        labor.some((e) => !pos(e.hours)) ||
-        equipment.some((e) => !pos(e.hours)) ||
-        material.some((e) => !pos(e.quantity)) ||
-        misc.some((e) => !pos(e.quantity));
-      if (!hasAnyEntry || incomplete) {
-        failing.push(it.description?.trim() || `Line ${i + 1}`);
-      }
+      const desc = it.description?.trim() || `Line ${i + 1}`;
+      const f = buildLineGateFailures(it, lemCats, desc);
+      if (f) out.push(f);
     });
-    return failing;
+    return out;
   }
 
   // PART B — record the customer's decision on a quote that is out for acceptance.
@@ -536,9 +526,9 @@ export default function QuotesPage() {
     // Accepted handoff rule: an EPP quote can only become Accepted (a future Work Order) once
     // every bid line has complete LEM detail. Block + surface the gaps in the preview dialog.
     if (accepted && quote.quoteType === "EPP") {
-      const missing = linesFailingLemGate(quote);
-      if (missing.length > 0) {
-        setLemGateBlock({ quoteId: quote.id, lines: missing });
+      const failures = gateFailures(quote);
+      if (failures.length > 0) {
+        setLemGateBlock({ quoteId: quote.id, failures });
         setPreviewTarget(quote); // open/keep the dialog so the block is visible (row-dropdown path too)
         return;
       }
@@ -860,6 +850,10 @@ export default function QuotesPage() {
     );
   }
 
+  // The Accepted gate is currently blocking the quote shown in the preview dialog — drives the
+  // entry-level callout and the "Edit in Pricer (primary) / Send muted" emphasis swap below.
+  const gateBlockActive = !!(lemGateBlock && previewTarget && lemGateBlock.quoteId === previewTarget.id);
+
   return (
     <div className="max-w-6xl space-y-8 pb-12">
       {/* Header */}
@@ -1136,31 +1130,43 @@ export default function QuotesPage() {
             </>
           )}
           <DialogFooter className="flex-col sm:flex-col items-stretch gap-3">
-            {/* Accepted-handoff gate: bid lines missing LEM detail block the Accept transition */}
-            {previewTarget && lemGateBlock && lemGateBlock.quoteId === previewTarget.id && (
+            {/* Accepted-handoff gate: name the exact incomplete entries blocking the transition */}
+            {gateBlockActive && lemGateBlock && (
               <div
                 className="rounded-lg border p-3 text-left text-xs"
                 style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
               >
-                <div className="font-medium mb-1" style={{ color: "#EB3300" }}>
-                  Can’t accept yet — fix these lines before this quote can become a Work Order:
+                <div className="font-medium mb-1.5" style={{ color: "#EB3300" }}>
+                  Can’t accept yet — fix these entries before this quote can become a Work Order:
                 </div>
-                <ul className="list-disc pl-5 space-y-1">
-                  {lemGateBlock.lines.map((l, i) => (
-                    <li key={i}>
-                      Line “{l}” has incomplete LEM detail — check for zero or missing quantities/hours.
-                    </li>
+                <div className="space-y-1.5">
+                  {lemGateBlock.failures.map((f, i) => (
+                    <div key={i}>
+                      <div className="font-medium">
+                        Line “{f.description}” — {f.noEntries ? "no LEM detail entered" : "incomplete entries:"}
+                      </div>
+                      {!f.noEntries && (
+                        <ul className="list-disc pl-5 space-y-0.5 mt-0.5">
+                          {f.issues.map((is, j) => (
+                            <li key={j}>{is.category}: {is.name} ({is.issue})</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   ))}
-                </ul>
+                </div>
+                <div className="mt-2 italic text-muted-foreground">Use “Edit in Pricer” below to fix these entries.</div>
               </div>
             )}
 
-            {/* PART A — Send a Draft bid out for acceptance */}
+            {/* PART A — Send a Draft bid out for acceptance (muted while a gate block is active,
+                so "Edit in Pricer" reads as the obvious next step) */}
             {previewTarget?.status === "Draft" && (
               <div className="flex items-center justify-end gap-2">
                 <Button
                   className="text-white"
-                  style={{ backgroundColor: "#EB3300" }}
+                  style={{ backgroundColor: gateBlockActive ? "#D1A6A0" : "#EB3300" }}
+                  disabled={gateBlockActive}
                   onClick={() => previewTarget && sendForAcceptance(previewTarget)}
                 >
                   <Send className="h-4 w-4 mr-1.5" />
@@ -1240,10 +1246,13 @@ export default function QuotesPage() {
 
             <div className="flex items-center justify-between">
               <Button
-                variant="secondary"
+                variant={gateBlockActive ? "default" : "secondary"}
+                className={gateBlockActive ? "text-white" : undefined}
+                style={gateBlockActive ? { backgroundColor: "#EB3300" } : undefined}
                 onClick={() => {
                   const q = previewTarget;
                   setPreviewTarget(null);
+                  setLemGateBlock(null);
                   if (q) openQuote(q);
                 }}
               >

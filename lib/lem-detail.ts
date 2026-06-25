@@ -225,3 +225,67 @@ export function buildLineRecipe(item: any, cats: LemRateCatalogs): RecipeLine[] 
 
   return lines;
 }
+
+// One incomplete LEM entry flagged by the Accepted gate — category, the entry's resolved name,
+// and what's wrong (so the dialog can point the user at the exact thing to fix).
+export interface LemGateEntryIssue {
+  category: "Labor" | "Equipment" | "Material" | "Miscellaneous";
+  name: string;  // role / asset / material / misc item — resolved from the catalogs
+  issue: string; // "hours is 0" | "qty is 0" | "hours missing" | "qty missing"
+}
+export interface LemGateLineFailure {
+  description: string;          // the bid line description
+  noEntries: boolean;          // true when the line has no LEM entries at all
+  issues: LemGateEntryIssue[]; // the specific incomplete entries (empty when noEntries)
+}
+
+/**
+ * Per-line Accepted-gate detail: which LEM entries on a bid line are incomplete (zero or missing
+ * quantity/hours), with names resolved from the SAME catalogs the display resolver uses. Returns
+ * null when the line passes (has entries and every one carries a positive quantity/hours).
+ */
+export function buildLineGateFailures(
+  item: any,
+  cats: LemRateCatalogs,
+  description: string
+): LemGateLineFailure | null {
+  const ok = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
+  const why = (v: unknown, word: "hours" | "qty") =>
+    typeof v === "number" && v === 0 ? `${word} is 0` : `${word} missing`;
+
+  const labor: any[] = item?.laborEntries || [];
+  const equipment: any[] = item?.equipmentEntries || [];
+  const material: any[] = item?.materialEntries || [];
+  const misc: any[] = item?.miscellaneousEntries || [];
+  const hasAnyEntry = labor.length + equipment.length + material.length + misc.length > 0;
+
+  const issues: LemGateEntryIssue[] = [];
+  labor.forEach((e) => {
+    if (!ok(e.hours)) {
+      const name = cats.laborRates.find((r) => r.id === e.rateId)?.role || e.labor?.role || "Labor";
+      issues.push({ category: "Labor", name, issue: why(e.hours, "hours") });
+    }
+  });
+  equipment.forEach((e) => {
+    if (!ok(e.hours)) {
+      const name = cats.equipmentRates.find((r) => r.id === e.rateId)?.description || "Equipment";
+      issues.push({ category: "Equipment", name, issue: why(e.hours, "hours") });
+    }
+  });
+  material.forEach((e) => {
+    if (!ok(e.quantity)) {
+      const name = cats.materialRates.find((r) => r.id === e.rateId)?.description || "Material";
+      issues.push({ category: "Material", name, issue: why(e.quantity, "qty") });
+    }
+  });
+  misc.forEach((e) => {
+    if (!ok(e.quantity)) {
+      const name = e.description || cats.miscRates.find((r) => r.id === e.rateId)?.description || "Miscellaneous";
+      issues.push({ category: "Miscellaneous", name, issue: why(e.quantity, "qty") });
+    }
+  });
+
+  if (!hasAnyEntry) return { description, noEntries: true, issues: [] };
+  if (issues.length > 0) return { description, noEntries: false, issues };
+  return null;
+}
