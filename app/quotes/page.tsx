@@ -445,16 +445,23 @@ export default function QuotesPage() {
     return updated;
   }
 
-  function changeStatus(quote: SavedQuote, newStatus: SavedQuote["status"]) {
-    applyStatusChange(quote, newStatus as QuoteStatus);
-  }
-
   // ---- Super-user status override (dev/test tool — PART A & B) ----
 
   // PART A — jump to ANY status (backward, forward, any). Reuses the shared transition
   // transform for the statusHistory append, then sets `locked` to match the CHOSEN status
   // (a super-user can move backward, so the normal forward-only latch doesn't apply here).
   function superUserSetStatus(quote: SavedQuote, newStatus: QuoteStatus) {
+    // The Accepted handoff gate applies even to a super-user jump: an EPP quote can only become
+    // Accepted (a future Work Order) once every bid line has complete LEM detail. All other
+    // jumps (Declined, Work Order Active, Invoiced, Paid, …) stay ungated.
+    if (newStatus === "Approved" && quote.quoteType === "EPP") {
+      const missing = linesFailingLemGate(quote);
+      if (missing.length > 0) {
+        setLemGateBlock({ quoteId: quote.id, lines: missing });
+        setPreviewTarget(quote); // surface the block (the jump fires from the row dropdown)
+        return;
+      }
+    }
     const transformed = libApplyStatusChange(quote, newStatus);
     const updated: SavedQuote = { ...transformed, locked: isStatusLocked(newStatus) };
     updateQuote(updated);
