@@ -49,6 +49,10 @@ export interface Job {
   completedAt?: string;
   status: "open" | "completed";
 
+  // The accepted quote this work order was created from. Optional (demo jobs have none);
+  // used to keep "Create Work Order" idempotent — one job per accepted quote.
+  quoteId?: string;
+
   // Quote snapshot (what was sold / bid)
   jobName: string;
   workTypeName: string;
@@ -133,6 +137,7 @@ export function jobSiteFromCustomer(
 }
 
 export interface CreateJobInput {
+  quoteId?: string;
   jobName: string;
   workTypeName: string;
   salesperson: string;
@@ -174,6 +179,7 @@ export function createJobFromQuote(input: CreateJobInput): Job {
     id: createId(),
     createdAt: now,
     status: "open",
+    quoteId: input.quoteId,
     jobName: input.jobName.trim() || "Untitled Job",
     workTypeName: input.workTypeName,
     salesperson: input.salesperson,

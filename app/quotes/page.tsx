@@ -46,7 +46,8 @@ import {
 import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
 import { useRateStore } from "@/lib/rate-store";
-import { buildLineLemDetail, type LemRateCatalogs } from "@/lib/lem-detail";
+import { buildLineLemDetail, buildLineRecipe, type LemRateCatalogs } from "@/lib/lem-detail";
+import { createJobFromQuote, loadJobs, saveJobs } from "@/lib/jobs";
 import {
   getAllQuotes,
   deleteQuote,
@@ -151,6 +152,11 @@ export default function QuotesPage() {
   const [decisionNote, setDecisionNote] = React.useState("");
   // Quote pending a forward lifecycle advance (confirm dialog target)
   const [advanceTarget, setAdvanceTarget] = React.useState<SavedQuote | null>(null);
+  // Accepted-handoff gate block: set when an accept attempt is refused because some bid lines
+  // lack resolved LEM detail. Carries the quote id + the offending line descriptions.
+  const [lemGateBlock, setLemGateBlock] = React.useState<{ quoteId: string; lines: string[] } | null>(null);
+  // Quote ids that already have a Work Order (Job), so "Create Work Order" stays idempotent.
+  const [workOrderQuoteIds, setWorkOrderQuoteIds] = React.useState<Set<string>>(new Set());
 
   // Path B preview: the Quotes-page "Preview" now routes through the SHARED Update Export dialog
   // (same gate as the Pricer's Path A) before showing the internal preview. These mirror the
@@ -231,6 +237,10 @@ export default function QuotesPage() {
 
   React.useEffect(() => {
     setAllQuotes(getAllQuotes());
+    try {
+      const ids = loadJobs().map((j) => j.quoteId).filter((id): id is string => !!id);
+      setWorkOrderQuoteIds(new Set(ids));
+    } catch {}
   }, []);
 
   function refresh() {
@@ -487,18 +497,70 @@ export default function QuotesPage() {
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
   }
 
+  // Accepted-handoff gate: the descriptions of any EPP bid lines that have NO resolved LEM
+  // detail (so they couldn't produce a real work-order recipe). Empty => every line is ready.
+  function linesMissingLem(quote: SavedQuote): string[] {
+    const items = quote.eppLineItems || [];
+    const missing: string[] = [];
+    items.forEach((it, i) => {
+      if (!buildLineLemDetail(it, lemCats).hasAny) {
+        missing.push(it.description?.trim() || `Line ${i + 1}`);
+      }
+    });
+    return missing;
+  }
+
   // PART B — record the customer's decision on a quote that is out for acceptance.
   function recordDecision(quote: SavedQuote, accepted: boolean, note: string) {
     if (quote.status !== "Ready for Approval") return;
     const next: QuoteStatus = accepted ? "Approved" : "Declined";
     if (!canTransition("Ready for Approval", next)) return;
+    // Accepted handoff rule: an EPP quote can only become Accepted (a future Work Order) once
+    // every bid line has resolved LEM detail. Block + surface the gaps in the preview dialog.
+    if (accepted && quote.quoteType === "EPP") {
+      const missing = linesMissingLem(quote);
+      if (missing.length > 0) {
+        setLemGateBlock({ quoteId: quote.id, lines: missing });
+        setPreviewTarget(quote); // open/keep the dialog so the block is visible (row-dropdown path too)
+        return;
+      }
+    }
     const now = new Date().toISOString();
     const updated = applyStatusChange(quote, next, {
       decidedAt: now,
       decisionNote: note.trim() || undefined,
     });
     setDecisionNote("");
+    setLemGateBlock(null);
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
+  }
+
+  // Create a Work Order (Job) from an Accepted EPP quote: snapshot the bid items + aggregate the
+  // per-line LEM into a numeric recipe, persist via the jobs store, then route to the Jobs tab.
+  // Idempotent — one job per accepted quote (guarded by workOrderQuoteIds / the stored quoteId).
+  function createWorkOrder(quote: SavedQuote) {
+    if (quote.status !== "Approved" || quote.quoteType !== "EPP") return;
+    if (workOrderQuoteIds.has(quote.id)) return;
+    const items = quote.eppLineItems || [];
+    const job = createJobFromQuote({
+      quoteId: quote.id,
+      jobName: quote.jobName,
+      workTypeName: quote.workType || "",
+      salesperson: quote.salesperson || "",
+      contractValue: quote.grandTotal ?? quote.totalRevenue ?? 0,
+      bidItems: items.map((it) => ({
+        id: it.id,
+        description: it.description,
+        quantity: it.quantity,
+        unit: it.unit,
+        unitPrice: it.unitPrice,
+      })),
+      recipe: items.flatMap((it) => buildLineRecipe(it, lemCats)),
+      quoteJobSiteAddress: quote.jobSiteAddress || quote.customerDetails?.jobSiteAddress,
+    });
+    saveJobs([...loadJobs(), job]);
+    setWorkOrderQuoteIds((prev) => new Set(prev).add(quote.id));
+    router.push("/jobs");
   }
 
   // PART A — advance a quote forward through the back half of the lifecycle
@@ -848,7 +910,7 @@ export default function QuotesPage() {
         setShowLemDetail={setShowLemDetail}
       />
 
-      <Dialog open={!!previewTarget} onOpenChange={(open) => { if (!open) { setPreviewTarget(null); setDecisionNote(""); } }}>
+      <Dialog open={!!previewTarget} onOpenChange={(open) => { if (!open) { setPreviewTarget(null); setDecisionNote(""); setLemGateBlock(null); } }}>
         <DialogContent className="w-[92%] sm:w-[85%] md:w-[72%] lg:w-[60%] xl:w-[55%] max-w-[920px] !max-w-none">
           <DialogClose asChild>
             <button
@@ -1056,6 +1118,23 @@ export default function QuotesPage() {
             </>
           )}
           <DialogFooter className="flex-col sm:flex-col items-stretch gap-3">
+            {/* Accepted-handoff gate: bid lines missing LEM detail block the Accept transition */}
+            {previewTarget && lemGateBlock && lemGateBlock.quoteId === previewTarget.id && (
+              <div
+                className="rounded-lg border p-3 text-left text-xs"
+                style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
+              >
+                <div className="font-medium mb-1" style={{ color: "#EB3300" }}>
+                  Can’t accept yet — these lines need LEM detail before this quote can become a Work Order:
+                </div>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  {lemGateBlock.lines.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {/* PART A — Send a Draft bid out for acceptance */}
             {previewTarget?.status === "Draft" && (
               <div className="flex items-center justify-end gap-2">
@@ -1107,6 +1186,23 @@ export default function QuotesPage() {
               </div>
             )}
 
+            {/* Accepted handoff — turn an Accepted EPP quote into a Work Order (Job) */}
+            {previewTarget?.status === "Approved" && previewTarget.quoteType === "EPP" && (
+              <div className="flex items-center justify-end gap-2">
+                {workOrderQuoteIds.has(previewTarget.id) ? (
+                  <span className="text-xs text-muted-foreground">Work Order created ✓</span>
+                ) : (
+                  <Button
+                    className="text-white"
+                    style={{ backgroundColor: "#7D1424" }}
+                    onClick={() => previewTarget && createWorkOrder(previewTarget)}
+                  >
+                    Create Work Order
+                  </Button>
+                )}
+              </div>
+            )}
+
             {/* PART A — advance forward through the back half of the lifecycle */}
             {previewTarget && advanceNext(previewTarget.status) && (
               <div className="flex items-center justify-end gap-2">
@@ -1133,7 +1229,7 @@ export default function QuotesPage() {
               >
                 Edit in Pricer
               </Button>
-              <Button variant="outline" onClick={() => setPreviewTarget(null)}>Close</Button>
+              <Button variant="outline" onClick={() => { setPreviewTarget(null); setLemGateBlock(null); }}>Close</Button>
             </div>
           </DialogFooter>
         </DialogContent>

@@ -166,3 +166,62 @@ export function buildLineLemDetail(item: any, cats: LemRateCatalogs): LineLemDet
 
   return { sections, hasAny: sections.length > 0 };
 }
+
+// One numeric work-order recipe line (planned quantity + unit cost), aggregated from a bid
+// line's LEM entries. Distinct from LemRow (which is display-formatted strings) because the
+// Job recipe / variance report needs real numbers. Misc entries are intentionally excluded —
+// the Job recipe type is Labor / Equipment / Material only.
+export interface RecipeLine {
+  type: "labor" | "equipment" | "material";
+  description: string;
+  quantity: number;
+  unitCost: number;
+}
+
+/**
+ * Resolve one EPP line's labor/equipment/material entries into numeric recipe lines for the
+ * work-order handoff. Same rate resolution as the display resolver (stored rate where present,
+ * else the live catalog). Crew-grouped entries are flattened and prefixed with the crew name so
+ * the recipe mirrors what the Pricer shows. Misc is omitted (no recipe type).
+ */
+export function buildLineRecipe(item: any, cats: LemRateCatalogs): RecipeLine[] {
+  const lines: RecipeLine[] = [];
+  const labor: any[] = item?.laborEntries || [];
+  const equipment: any[] = item?.equipmentEntries || [];
+  const material: any[] = item?.materialEntries || [];
+
+  labor.forEach((e) => {
+    const name = cats.laborRates.find((r) => r.id === e.rateId)?.role || e.labor?.role || "Labor";
+    const rate =
+      e.rate != null
+        ? e.rate
+        : typeof e.labor?.burdenedHourlyRate === "number"
+        ? e.labor.burdenedHourlyRate
+        : cats.getLaborCostPerHour(e.rateId || "");
+    lines.push({
+      type: "labor",
+      description: e.group ? `${e.group.name} — ${name}` : name,
+      quantity: e.hours || 0,
+      unitCost: rate || 0,
+    });
+  });
+
+  equipment.forEach((e) => {
+    const name = cats.equipmentRates.find((r) => r.id === e.rateId)?.description || "Equipment";
+    const rate = e.rate != null ? e.rate : cats.getEquipmentCostPerHour(e.rateId || "");
+    lines.push({
+      type: "equipment",
+      description: e.group ? `${e.group.name} — ${name}` : name,
+      quantity: e.hours || 0,
+      unitCost: rate || 0,
+    });
+  });
+
+  material.forEach((e) => {
+    const name = cats.materialRates.find((r) => r.id === e.rateId)?.description || "Material";
+    const rate = e.rate != null ? e.rate : cats.getMaterialCostPerUnit(e.rateId || "");
+    lines.push({ type: "material", description: name, quantity: e.quantity || 0, unitCost: rate || 0 });
+  });
+
+  return lines;
+}
