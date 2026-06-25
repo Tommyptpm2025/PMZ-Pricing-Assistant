@@ -8,7 +8,24 @@
  * Data feeds learning loop for future bids.
  */
 
+import type { Customer } from "./pmz-types";
+
 export type LEMType = "labor" | "equipment" | "material";
+
+/**
+ * Intake context for the crew, snapshotted onto the Job at creation time so later edits to the
+ * Customer don't silently change a job already in the field.
+ *
+ * Single-site for now (a Customer has one jobSiteAddress). A later step moves Customers to
+ * many-sites-per-customer — but a Job is always at ONE site, so that change swaps how the site
+ * is chosen at create time, not this snapshot shape. Keep it that way.
+ */
+export interface JobSite {
+  address?: string;     // formatted single-line site address (distinct from billing)
+  latitude?: number;
+  longitude?: number;
+  accessNotes?: string; // access / delivery instructions for the crew
+}
 
 export interface JobLEMItem {
   id: string;
@@ -45,7 +62,11 @@ export interface Job {
   // Actuals entered by foreman: map of recipe item id -> actual quantity used
   actuals: Record<string, number>;
 
-  // Optional free text
+  // Intake context snapshotted from the quote's customer at create time (see JobSite).
+  jobSite?: JobSite;
+  intakeNotes?: string; // job-level intake notes from the customer record (≠ foreman `notes` below)
+
+  // Optional free text — foreman's post-job notes (entered in the Foreman View)
   notes?: string;
 }
 
@@ -74,6 +95,43 @@ export function saveJobs(jobs: Job[]): void {
   }
 }
 
+// Single-line site address from a structured address-ish object. Mirrors the Pricer/PDF address
+// formatting (street, city, state, zip) but collapsed to one line for the work order.
+function formatSiteAddressLine(
+  a:
+    | { street?: string; street2?: string; city?: string; state?: string; stateCode?: string; zip?: string }
+    | null
+    | undefined
+): string | undefined {
+  if (!a) return undefined;
+  const line1 = [a.street, a.street2].filter((s) => s && s.trim()).join(", ");
+  const region = [a.city, a.state || a.stateCode].filter((s) => s && String(s).trim()).join(", ");
+  const tail = [region, a.zip].filter((s) => s && String(s).trim()).join(" ").trim();
+  const full = [line1, tail].filter((s) => s && s.trim()).join(", ").trim();
+  return full || undefined;
+}
+
+/**
+ * Build a JobSite snapshot from the linked Customer's jobSiteAddress (preferred — it carries GPS +
+ * access notes), falling back to the quote's denormalized site string for the address only.
+ * Returns undefined when there's nothing usable, so callers can store `jobSite` only when real.
+ *
+ * This is the one place that "pulls" site context from a Customer — the many-sites rework later
+ * only has to change what gets passed in here, not the Job shape or the Foreman View.
+ */
+export function jobSiteFromCustomer(
+  customer: Pick<Customer, "jobSiteAddress"> | null | undefined,
+  fallbackAddress?: string
+): JobSite | undefined {
+  const site = customer?.jobSiteAddress;
+  const address = formatSiteAddressLine(site) || (fallbackAddress?.trim() || undefined);
+  const latitude = site?.latitude;
+  const longitude = site?.longitude;
+  const accessNotes = site?.accessNotes?.trim() || undefined;
+  if (!address && latitude == null && longitude == null && !accessNotes) return undefined;
+  return { address, latitude, longitude, accessNotes };
+}
+
 export interface CreateJobInput {
   jobName: string;
   workTypeName: string;
@@ -86,6 +144,11 @@ export interface CreateJobInput {
     quantity: number;
     unitCost: number;
   }>;
+  // Intake context source — snapshotted onto the job at create time. Pass the linked Customer
+  // record (preferred: carries GPS + access notes + free-text notes) and/or the quote's
+  // denormalized site string (quote.customerDetails?.jobSiteAddress / quote.jobSiteAddress).
+  customer?: Pick<Customer, "jobSiteAddress" | "notes"> | null;
+  quoteJobSiteAddress?: string;
 }
 
 export function createJobFromQuote(input: CreateJobInput): Job {
@@ -103,6 +166,10 @@ export function createJobFromQuote(input: CreateJobInput): Job {
     actuals[item.id] = 0;
   });
 
+  // Snapshot intake context from the customer/quote at the moment the job is created.
+  const jobSite = jobSiteFromCustomer(input.customer, input.quoteJobSiteAddress);
+  const intakeNotes = input.customer?.notes?.trim() || undefined;
+
   return {
     id: createId(),
     createdAt: now,
@@ -114,6 +181,8 @@ export function createJobFromQuote(input: CreateJobInput): Job {
     bidItems: input.bidItems.map((b) => ({ ...b })),
     recipe,
     actuals,
+    jobSite,
+    intakeNotes,
     notes: "",
   };
 }

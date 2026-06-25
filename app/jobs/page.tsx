@@ -28,6 +28,8 @@ import {
   Save,
   AlertTriangle,
   ArrowLeft,
+  MapPin,
+  Navigation,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -175,6 +177,15 @@ export default function JobsForemanPage() {
       ],
       recipe,
       actuals,
+      jobSite: {
+        address: "1420 Elm Street, Springfield, IL 62704",
+        latitude: 39.78172,
+        longitude: -89.65014,
+        accessNotes:
+          "Gate code #4821. Stage trailers on the north lot — do not block the loading dock. Owner on-site after 7:00 AM.",
+      },
+      intakeNotes:
+        "Customer flagged soft soil near the east edge after spring rain — verify base compaction before paving.",
       notes: "Demo job seeded with slightly over/under actuals for variance preview.",
     };
     setJobs((prev) => [...prev, demo]);
@@ -422,6 +433,86 @@ export default function JobsForemanPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Job Site / Intake Context — what the crew needs to see before they start */}
+          {(() => {
+            const site = selectedJob.jobSite;
+            const intake = selectedJob.intakeNotes?.trim();
+            const lat = site?.latitude;
+            const lng = site?.longitude;
+            const hasGps = lat != null && lng != null;
+            const hasAny = !!(site?.address || hasGps || site?.accessNotes || intake);
+            const mapsHref = hasGps
+              ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+              : site?.address
+              ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(site.address)}`
+              : null;
+            return (
+              <Card className="card">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <MapPin className="h-4 w-4" /> JOB SITE
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {!hasAny ? (
+                    <div className="text-sm text-muted-foreground">No site details on file.</div>
+                  ) : (
+                    <div className="space-y-3 text-sm">
+                      {site?.address && (
+                        <div>
+                          <div className="text-xs uppercase tracking-wider text-muted-foreground">Site Address</div>
+                          <div className="mt-0.5 font-medium">
+                            {mapsHref ? (
+                              <a
+                                href={mapsHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline"
+                              >
+                                {site.address}
+                              </a>
+                            ) : (
+                              site.address
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {lat != null && lng != null && (
+                        <div>
+                          <div className="text-xs uppercase tracking-wider text-muted-foreground">GPS Coordinates</div>
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-0.5 inline-flex items-center gap-1 font-medium tabular-nums text-primary hover:underline"
+                          >
+                            <Navigation className="h-3.5 w-3.5" />
+                            {lat.toFixed(5)}, {lng.toFixed(5)}
+                            <span className="text-xs font-normal text-muted-foreground">(open in Maps)</span>
+                          </a>
+                        </div>
+                      )}
+                      {site?.accessNotes && (
+                        <div>
+                          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                            Access / Delivery Instructions
+                          </div>
+                          <div className="mt-0.5 whitespace-pre-wrap">{site.accessNotes}</div>
+                        </div>
+                      )}
+                      {intake && (
+                        <div>
+                          <div className="text-xs uppercase tracking-wider text-muted-foreground">Intake Notes</div>
+                          <div className="mt-0.5 whitespace-pre-wrap">{intake}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* Original Bid / Quote Lines (snapshot) */}
           {selectedJob.bidItems.length > 0 && (
