@@ -1713,45 +1713,6 @@ export default function ProjectPricerPage() {
     handleExportNext();
   }
 
-  function handlePrintQuote() {
-    const previewEl = document.getElementById('quote-preview');
-    if (!previewEl) {
-      window.print();
-      return;
-    }
-    const printWindow = window.open('', '', 'width=900,height=700');
-    if (printWindow) {
-      const styles = `
-        body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; color: #111; background: #fff; line-height: 1.4; }
-        .quote-container { max-width: 800px; margin: 0 auto; font-size: 13px; }
-        .brand { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
-        .quote-title { font-size: 32px; font-weight: 700; text-align: center; margin: 12px 0 20px; letter-spacing: 2px; border-bottom: 3px solid #000; padding-bottom: 8px; }
-        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 20px; }
-        .info-block h4 { font-size: 11px; font-weight: 600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-        th, td { border: 1px solid #666; padding: 6px 8px; text-align: left; }
-        th { background: #f0f0f0; font-weight: 600; }
-        .text-right { text-align: right; }
-        .total-row td { font-weight: 700; background: #f8f8f8; }
-        .summary { margin-top: 16px; padding-top: 12px; border-top: 1px solid #ccc; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: 12px; }
-        .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 32px; }
-        .sig-line { border-bottom: 1px solid #000; height: 24px; margin-bottom: 2px; }
-        .footer { margin-top: 24px; font-size: 10px; text-align: center; color: #555; }
-        @media print { body { margin: 0; } .no-print { display: none !important; } }
-      `;
-      printWindow.document.write(`<!doctype html><html><head><title>Quote - ${estimate.jobName || 'PMZ'}</title><style>${styles}</style></head><body>`);
-      printWindow.document.write(previewEl.innerHTML);
-      printWindow.document.write('</body></html>');
-      printWindow.document.close();
-      setTimeout(() => {
-        printWindow.focus();
-        printWindow.print();
-      }, 250);
-    } else {
-      window.print();
-    }
-  }
-
   function handleExportNext() {
     const options = {
       exportType,
@@ -1807,35 +1768,6 @@ export default function ProjectPricerPage() {
     }
     const printUrl = `${window.location.origin}${window.location.pathname}?print=quote`;
     window.open(printUrl, '_blank');
-  }
-
-  function handlePreviewExportPDF() {
-    const opts = {
-      exportType,
-      showQuantities,
-      showUnits,
-      showPerUnitPrice,
-      showLineItemPrices,
-      logoDataUrl,
-      showBillTo,
-      showJobSite,
-      showPrimaryContact,
-      showAccessNotes,
-      showGPS,
-    };
-    // Customer PDF shows the marked-up recommended bid: feed QuotePDF bid items whose unitPrice is
-    // the customer price (its internal qty × unitPrice then yields the bid, not the break-even cost).
-    const pdfEstimate = { ...estimate, bidItems: (estimate.bidItems || []).map((it: any) => ({ ...it, unitPrice: customerUnitPrice(it) })) };
-    pdf(<QuotePDF estimate={pdfEstimate} {...opts} />).toBlob().then((blob) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${exportType}-${estimate.jobName || 'quote'}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    });
   }
 
   function toggleBidItemsCollapsed() {
