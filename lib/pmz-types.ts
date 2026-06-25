@@ -331,6 +331,27 @@ export function isStatusLocked(status: QuoteStatus): boolean {
   return LOCKED_STATUSES.includes(status);
 }
 
+// Human-facing labels for the lifecycle. The STORED QuoteStatus values (persisted in
+// pmz_saved_quotes — `status` and every statusHistory entry) are STABLE and must never be
+// renamed; only these display labels change. Render badges, dropdowns, and dialogs through
+// this map so the lifecycle vocabulary lives in one place.
+export const STATUS_LABELS: Record<QuoteStatus, string> = {
+  "Draft": "Draft",
+  "Ready for Approval": "Sent for Acceptance",
+  "Approved": "Accepted",
+  "In Progress": "Work Order Active",
+  "Declined": "Declined",
+  "Completed": "Completed",
+  "Ready to Invoice": "Ready to Invoice",
+  "Invoiced": "Invoiced",
+  "Paid": "Paid",
+};
+
+/** Human-facing label for a stored lifecycle status (falls back to the raw value). */
+export function statusLabel(status: QuoteStatus): string {
+  return STATUS_LABELS[status] ?? status;
+}
+
 /** Whole days elapsed since the most recent statusHistory entry's `at`. */
 export function getDaysInCurrentStatus(quote: SavedQuote): number {
   const history = quote.statusHistory;

@@ -53,7 +53,7 @@ import {
   updateQuote,
   saveQuote,
 } from "@/lib/quote-storage";
-import { STATUS_FLOW, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
+import { STATUS_FLOW, STATUS_LABELS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
 import { canTransition, applyStatusChange as libApplyStatusChange } from "@/lib/quote-lifecycle";
 
 const STATUS_OPTIONS = ["Draft", "Ready for Approval", "Approved", "Declined"] as const;
@@ -130,13 +130,14 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
 
 function StatusBadge({ status }: { status: string }) {
   const c = STATUS_COLORS[status] || STATUS_COLORS["Draft"];
+  const label = STATUS_LABELS[status as QuoteStatus] || status;
   return (
     <Badge
       variant="outline"
       className="font-medium text-xs"
       style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.fg }}
     >
-      {status}
+      {label}
     </Badge>
   );
 }
@@ -552,7 +553,7 @@ export default function QuotesPage() {
                       active ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted border-border"
                     )}
                   >
-                    {st}
+                    {STATUS_LABELS[st]}
                   </button>
                 );
               })}
@@ -708,7 +709,7 @@ export default function QuotesPage() {
                         >
                           <option value="" disabled>Change…</option>
                           {quote.status === "Draft" && (
-                            <option value="act:send">Mark Ready for Approval</option>
+                            <option value="act:send">Send for Acceptance</option>
                           )}
                           {quote.status === "Ready for Approval" && (
                             <>
@@ -717,15 +718,15 @@ export default function QuotesPage() {
                             </>
                           )}
                           {advanceNext(quote.status) && (
-                            <option value="act:advance">Advance to {advanceNext(quote.status)}</option>
+                            <option value="act:advance">Advance to {STATUS_LABELS[advanceNext(quote.status)!]}</option>
                           )}
                           {isSuperUser && (
                             <optgroup label="──  SUPER USER  ──">
                               {ALL_STATUSES.filter((s) => s !== quote.status).map((s) => (
-                                <option key={`jump-${s}`} value={`jump:${s}`}>Jump → {s}</option>
+                                <option key={`jump-${s}`} value={`jump:${s}`}>Jump → {STATUS_LABELS[s]}</option>
                               ))}
                               {statusBack(quote.status) && (
-                                <option value="su-back">◄ Back to {statusBack(quote.status)}</option>
+                                <option value="su-back">◄ Back to {STATUS_LABELS[statusBack(quote.status)!]}</option>
                               )}
                               <option value="su-reset">↺ Reset to Draft</option>
                             </optgroup>
@@ -1116,7 +1117,7 @@ export default function QuotesPage() {
                 >
                   Advance
                   <ChevronRight className="h-4 w-4 mx-0.5" />
-                  {advanceNext(previewTarget.status)}
+                  {STATUS_LABELS[advanceNext(previewTarget.status)!]}
                 </Button>
               </div>
             )}
@@ -1144,8 +1145,8 @@ export default function QuotesPage() {
           <DialogHeader>
             <DialogTitle>Advance status?</DialogTitle>
             <DialogDescription>
-              Move “{advanceTarget?.jobName || "Untitled"}” from {advanceTarget?.status} to{" "}
-              {advanceTarget ? advanceNext(advanceTarget.status) : ""}? This moves the job
+              Move “{advanceTarget?.jobName || "Untitled"}” from {advanceTarget ? STATUS_LABELS[advanceTarget.status] : ""} to{" "}
+              {advanceTarget ? STATUS_LABELS[advanceNext(advanceTarget.status)!] : ""}? This moves the job
               forward and can’t be undone.
             </DialogDescription>
           </DialogHeader>
@@ -1158,7 +1159,7 @@ export default function QuotesPage() {
               style={{ backgroundColor: "#7D1424" }}
               onClick={confirmAdvance}
             >
-              Advance to {advanceTarget ? advanceNext(advanceTarget.status) : ""}
+              Advance to {advanceTarget ? STATUS_LABELS[advanceNext(advanceTarget.status)!] : ""}
             </Button>
           </DialogFooter>
         </DialogContent>

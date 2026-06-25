@@ -1710,9 +1710,9 @@ export default function ProjectPricerPage() {
     const sent = sendQuoteForAcceptance(saved) || saved;
     updateQuote(sent);
     setCurrentQuoteStatus("Ready for Approval");
-    // 4) Confirm; the quote now shows in the Quotes tab as "Awaiting acceptance".
+    // 4) Confirm; the quote now shows in the Quotes tab as "Sent for Acceptance".
     setShowSendDialog(false);
-    setSentMessage(`Quote sent to ${sendEmail.trim()} — status is now Awaiting acceptance.`);
+    setSentMessage(`Quote sent to ${sendEmail.trim()} — status is now Sent for Acceptance.`);
     setTimeout(() => setSentMessage(null), 6000);
     // 5) Hand off to the existing Print / Export PDF view for manual delivery.
     handleExportNext();
@@ -2299,7 +2299,7 @@ export default function ProjectPricerPage() {
       {/* Read-only banner when viewing a locked quote loaded from Quotes tab */}
       {isReadOnly && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-200 px-4 py-2 text-sm text-amber-800 dark:text-amber-200 flex items-center justify-between">
-          <span>Read-only mode — this quote is locked (Approved or later in the lifecycle). Edit fields are disabled. Use “Duplicate” from Quotes to create an editable copy.</span>
+          <span>Read-only mode — this quote is locked (Accepted or later in the lifecycle). Edit fields are disabled. Use “Duplicate” from Quotes to create an editable copy.</span>
         </div>
       )}
 
