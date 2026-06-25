@@ -104,6 +104,23 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
 
   return (
     <div className="bg-white text-black w-full max-w-full box-border">
+      {/* Print rules: full letter page, 0.5in margins, sheet fills the printable width
+          (drop the on-screen fixed width / scale / shadow / gray backdrop when printing). */}
+      <style>{`
+        @media print {
+          @page { size: letter; margin: 0.5in; }
+          html, body { background: #fff !important; }
+          .pmz-print-wrap { background: #fff !important; padding: 0 !important; overflow: visible !important; }
+          .pmz-print-center { display: block !important; }
+          .pmz-print-sheet {
+            width: 100% !important;
+            transform: none !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+        }
+      `}</style>
       {/* Top control bar - kept for buttons */}
       <div className="flex items-center justify-between p-3 sm:p-4 md:p-6 border-b print:hidden bg-white sticky top-0 z-10 text-sm sm:text-base">
         <div className="font-medium text-gray-700 pr-2 truncate flex-1 min-w-0">
@@ -133,9 +150,10 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
 
       {/* Full-page document preview, matching the PDF layout exactly.
           White sheet, letter width, centered on wide screens, scaled on narrow. */}
-      <div style={{ width: '100%', overflow: 'hidden', background: '#f3f3f3', padding: '8px 0' }}>
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <div className="pmz-print-wrap" style={{ width: '100%', overflow: 'hidden', background: '#f3f3f3', padding: '8px 0' }}>
+        <div className="pmz-print-center" style={{ display: 'flex', justifyContent: 'center' }}>
           <div
+            className="pmz-print-sheet"
             style={{
               width: `${PAGE_WIDTH}px`,
               transform: `scale(${scale})`,
