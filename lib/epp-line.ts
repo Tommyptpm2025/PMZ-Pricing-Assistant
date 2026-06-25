@@ -6,12 +6,27 @@
  * — silently zeroed manually-priced lines on Save).
  */
 
+import type {
+  LaborEntry,
+  EquipmentEntry,
+  MaterialEntry,
+  MiscEntry,
+  CrewUsage,
+} from "./pmz-types";
+
 export interface EppBidLine {
   id: string;
   description: string;
   quantity: number;
   unit: string;
   unitPrice: number;
+  // Per-line LEM detail — carried through save so the costed line survives reload (no longer stripped).
+  priceOverridden?: boolean;
+  laborEntries?: LaborEntry[];
+  equipmentEntries?: EquipmentEntry[];
+  materialEntries?: MaterialEntry[];
+  miscellaneousEntries?: MiscEntry[];
+  crewUsages?: CrewUsage[];
 }
 
 /**
@@ -25,6 +40,12 @@ export function serializeEppLine(item: {
   quantity?: number;
   unit?: string;
   unitPrice?: number;
+  priceOverridden?: boolean;
+  laborEntries?: LaborEntry[];
+  equipmentEntries?: EquipmentEntry[];
+  materialEntries?: MaterialEntry[];
+  miscellaneousEntries?: MiscEntry[];
+  crewUsages?: CrewUsage[];
 }): EppBidLine {
   return {
     id: item.id,
@@ -32,6 +53,14 @@ export function serializeEppLine(item: {
     quantity: item.quantity || 0,
     unit: item.unit || "",
     unitPrice: item.unitPrice || 0,
+    // Carry the per-line LEM detail through save (shallow-copy each array so we never alias
+    // live estimate state). Omit a key entirely when absent so scope-only lines stay clean.
+    ...(item.priceOverridden !== undefined ? { priceOverridden: item.priceOverridden } : {}),
+    ...(item.laborEntries ? { laborEntries: item.laborEntries.map((e) => ({ ...e })) } : {}),
+    ...(item.equipmentEntries ? { equipmentEntries: item.equipmentEntries.map((e) => ({ ...e })) } : {}),
+    ...(item.materialEntries ? { materialEntries: item.materialEntries.map((e) => ({ ...e })) } : {}),
+    ...(item.miscellaneousEntries ? { miscellaneousEntries: item.miscellaneousEntries.map((e) => ({ ...e })) } : {}),
+    ...(item.crewUsages ? { crewUsages: item.crewUsages.map((e) => ({ ...e })) } : {}),
   };
 }
 

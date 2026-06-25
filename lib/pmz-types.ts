@@ -168,12 +168,49 @@ export interface WorkType {
   description?: string;
 }
 
+// Per-line LEM detail carried by an EPP bid line (the unified line model's costing detail).
+// Field names mirror the Project Pricer's BidItem so a line round-trips through save without remapping.
+export interface LaborEntry {
+  rateId?: string;
+  labor?: { id: string; role: string; burdenedHourlyRate: number };
+  hours?: number;
+  rate?: number;
+  group?: { id: string; crewId: string; name: string };
+}
+export interface EquipmentEntry {
+  rateId?: string;
+  hours?: number;
+  rate?: number;
+  group?: { id: string; crewId: string; name: string };
+}
+export interface MaterialEntry {
+  rateId?: string;
+  quantity?: number;
+}
+export interface MiscEntry {
+  rateId?: string;
+  description?: string;
+  quantity?: number;
+  rate?: number;
+}
+export interface CrewUsage {
+  crewId: string;
+  hours?: number;
+}
+
 export interface LineItem {
   id: string;
   description: string;
   quantity: number;
   unit: string;
   unitPrice: number;
+  // Per-line LEM detail (EPP). Optional: a scope-only line may have none yet.
+  priceOverridden?: boolean;
+  laborEntries?: LaborEntry[];
+  equipmentEntries?: EquipmentEntry[];
+  materialEntries?: MaterialEntry[];
+  miscellaneousEntries?: MiscEntry[];
+  crewUsages?: CrewUsage[];
 }
 
 export interface LemItem {
