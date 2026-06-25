@@ -491,6 +491,11 @@ export default function ProjectPricerPage() {
   // Per-LEM-entry "touched" flags (key `${itemId}:${category}:${idx}`) — set on blur so the
   // inline "quantity/hours required" warning only appears after the user leaves an empty field.
   const [costingFieldsTouched, setCostingFieldsTouched] = React.useState<Record<string, boolean>>({});
+  // LEM entry fields the gate flagged on hand-off from the Quotes tab (key `${itemId}:${category}:${idx}`).
+  // Each draws a TPM-red border until a positive value is entered (same condition as the blur warning).
+  const [gateHighlights, setGateHighlights] = React.useState<Set<string>>(new Set());
+  // Bid line to scroll into view once its costing panel is expanded (set on the gate hand-off).
+  const [gateScrollLineId, setGateScrollLineId] = React.useState<string | null>(null);
   // Collapsed state for crew group cards in the Per-Line Real Costing panel, keyed by group id (default expanded)
   const [collapsedCrewGroups, setCollapsedCrewGroups] = React.useState<Record<string, boolean>>({});
   // For auto-focusing newly added costing entry inputs
@@ -806,6 +811,45 @@ export default function ProjectPricerPage() {
     // Hydration complete — allow the persist + customer-sync effects to write from here on.
     setHydrated(true);
   }, []);
+
+  // Gate hand-off: when opened from the Quotes-tab gate block, expand each failing line's costing
+  // panel, mark the failing fields for the red highlight, and queue the first line to scroll to.
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem("pmz_pricer_focus");
+      if (!raw) return;
+      localStorage.removeItem("pmz_pricer_focus");
+      const focus = JSON.parse(raw) as {
+        lineIds?: string[];
+        fields?: Array<{ lineId: string; category: string; idx: number }>;
+        scrollTo?: string;
+      };
+      const lineIds = focus.lineIds || [];
+      if (lineIds.length > 0) {
+        setEppCostingOpen((prev) => {
+          const next = { ...prev };
+          lineIds.forEach((id) => { next[id] = true; });
+          return next;
+        });
+      }
+      const fields = focus.fields || [];
+      if (fields.length > 0) {
+        setGateHighlights(new Set(fields.map((f) => `${f.lineId}:${f.category}:${f.idx}`)));
+      }
+      if (focus.scrollTo) setGateScrollLineId(focus.scrollTo);
+    } catch {}
+  }, []);
+
+  // Scroll the first failing bid line into view once its panel has expanded.
+  React.useEffect(() => {
+    if (!gateScrollLineId) return;
+    const t = setTimeout(() => {
+      const el = document.querySelector(`[data-bid-line="${gateScrollLineId}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setGateScrollLineId(null);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [gateScrollLineId]);
 
   // Persist
   React.useEffect(() => {
@@ -1370,6 +1414,8 @@ export default function ProjectPricerPage() {
     setSelectedCustomerId(null);
     setRealLEMItems([]);
     setCostingFieldsTouched({});
+    setGateHighlights(new Set());
+    setGateScrollLineId(null);
     setIsReadOnly(false);
     setPendingLabor(null);
     setPendingLaborQty(0);
@@ -2551,7 +2597,7 @@ export default function ProjectPricerPage() {
                     }
                     return (
                       <React.Fragment key={item.id || `row-${index}`}>
-                      <div className={`${BID_GRID} ${BID_ROW_MINW} border-b last:border-0 hover:bg-muted/20`}>
+                      <div data-bid-line={item.id} className={`${BID_GRID} ${BID_ROW_MINW} border-b last:border-0 hover:bg-muted/20`}>
                         <div className="min-w-0">
                           <Input
                             value={item.description}
@@ -2857,6 +2903,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={entry.hours || ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:labor:${idx}`]: true }))}
+                                          style={gateHighlights.has(`${item.id}:labor:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { borderColor: "#EB3300", borderWidth: 2 } : undefined}
                                           onChange={(e) => {
                                             const h = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.laborEntries || [])];
@@ -3091,6 +3138,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={entry.hours || ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:equipment:${idx}`]: true }))}
+                                          style={gateHighlights.has(`${item.id}:equipment:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { borderColor: "#EB3300", borderWidth: 2 } : undefined}
                                           onChange={(e) => {
                                             const h = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.equipmentEntries || [])];
@@ -3266,6 +3314,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={entry.quantity || ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:material:${idx}`]: true }))}
+                                          style={gateHighlights.has(`${item.id}:material:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { borderColor: "#EB3300", borderWidth: 2 } : undefined}
                                           onChange={(e) => {
                                             const q = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.materialEntries || [])];
@@ -3462,6 +3511,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={entry.quantity || ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:misc:${idx}`]: true }))}
+                                          style={gateHighlights.has(`${item.id}:misc:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { borderColor: "#EB3300", borderWidth: 2 } : undefined}
                                           onChange={(e) => {
                                             const q = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.miscellaneousEntries || [])];

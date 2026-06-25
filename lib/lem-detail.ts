@@ -227,13 +227,17 @@ export function buildLineRecipe(item: any, cats: LemRateCatalogs): RecipeLine[] 
 }
 
 // One incomplete LEM entry flagged by the Accepted gate — category, the entry's resolved name,
-// and what's wrong (so the dialog can point the user at the exact thing to fix).
+// and what's wrong (so the dialog can point the user at the exact thing to fix). `catKey` + `idx`
+// are the costing-panel coordinates the Pricer uses to scroll to / highlight the exact field.
 export interface LemGateEntryIssue {
   category: "Labor" | "Equipment" | "Material" | "Miscellaneous";
   name: string;  // role / asset / material / misc item — resolved from the catalogs
   issue: string; // "hours is 0" | "qty is 0" | "hours missing" | "qty missing"
+  catKey: "labor" | "equipment" | "material" | "misc"; // matches the Pricer's entry-array category
+  idx: number;   // the entry's index within its category array on the bid line
 }
 export interface LemGateLineFailure {
+  lineId: string;              // the bid line id (BidItem.id) — used to scroll/expand in the Pricer
   description: string;          // the bid line description
   noEntries: boolean;          // true when the line has no LEM entries at all
   issues: LemGateEntryIssue[]; // the specific incomplete entries (empty when noEntries)
@@ -260,32 +264,33 @@ export function buildLineGateFailures(
   const hasAnyEntry = labor.length + equipment.length + material.length + misc.length > 0;
 
   const issues: LemGateEntryIssue[] = [];
-  labor.forEach((e) => {
+  labor.forEach((e, idx) => {
     if (!ok(e.hours)) {
       const name = cats.laborRates.find((r) => r.id === e.rateId)?.role || e.labor?.role || "Labor";
-      issues.push({ category: "Labor", name, issue: why(e.hours, "hours") });
+      issues.push({ category: "Labor", name, issue: why(e.hours, "hours"), catKey: "labor", idx });
     }
   });
-  equipment.forEach((e) => {
+  equipment.forEach((e, idx) => {
     if (!ok(e.hours)) {
       const name = cats.equipmentRates.find((r) => r.id === e.rateId)?.description || "Equipment";
-      issues.push({ category: "Equipment", name, issue: why(e.hours, "hours") });
+      issues.push({ category: "Equipment", name, issue: why(e.hours, "hours"), catKey: "equipment", idx });
     }
   });
-  material.forEach((e) => {
+  material.forEach((e, idx) => {
     if (!ok(e.quantity)) {
       const name = cats.materialRates.find((r) => r.id === e.rateId)?.description || "Material";
-      issues.push({ category: "Material", name, issue: why(e.quantity, "qty") });
+      issues.push({ category: "Material", name, issue: why(e.quantity, "qty"), catKey: "material", idx });
     }
   });
-  misc.forEach((e) => {
+  misc.forEach((e, idx) => {
     if (!ok(e.quantity)) {
       const name = e.description || cats.miscRates.find((r) => r.id === e.rateId)?.description || "Miscellaneous";
-      issues.push({ category: "Miscellaneous", name, issue: why(e.quantity, "qty") });
+      issues.push({ category: "Miscellaneous", name, issue: why(e.quantity, "qty"), catKey: "misc", idx });
     }
   });
 
-  if (!hasAnyEntry) return { description, noEntries: true, issues: [] };
-  if (issues.length > 0) return { description, noEntries: false, issues };
+  const lineId = item?.id || "";
+  if (!hasAnyEntry) return { lineId, description, noEntries: true, issues: [] };
+  if (issues.length > 0) return { lineId, description, noEntries: false, issues };
   return null;
 }

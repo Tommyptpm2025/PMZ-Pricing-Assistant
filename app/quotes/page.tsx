@@ -367,7 +367,10 @@ export default function QuotesPage() {
     fullDateTo,
   ]);
 
-  function openQuote(quote: SavedQuote) {
+  function openQuote(
+    quote: SavedQuote,
+    focusTargets?: { lineIds: string[]; fields: { lineId: string; category: string; idx: number }[]; scrollTo?: string }
+  ) {
     try {
       const estimateData = {
         jobName: quote.jobName || "",
@@ -395,6 +398,13 @@ export default function QuotesPage() {
         localStorage.setItem("pmz_current_quote_readonly", "true");
       } else {
         localStorage.removeItem("pmz_current_quote_readonly");
+      }
+      // Deep-link the Pricer to the failing LEM entries (only set from the gate-block Edit path);
+      // a normal Edit clears it so it never lands on a stale target.
+      if (focusTargets && (focusTargets.fields.length > 0 || focusTargets.lineIds.length > 0)) {
+        localStorage.setItem("pmz_pricer_focus", JSON.stringify(focusTargets));
+      } else {
+        localStorage.removeItem("pmz_pricer_focus");
       }
     } catch {
       // ignore storage errors
@@ -1251,9 +1261,21 @@ export default function QuotesPage() {
                 style={gateBlockActive ? { backgroundColor: "#EB3300" } : undefined}
                 onClick={() => {
                   const q = previewTarget;
+                  // From a gate block, deep-link the Pricer to every failing entry: expand each
+                  // failing line, highlight each incomplete field, and scroll to the first line.
+                  const targets =
+                    gateBlockActive && lemGateBlock
+                      ? {
+                          lineIds: Array.from(new Set(lemGateBlock.failures.map((f) => f.lineId).filter(Boolean))),
+                          fields: lemGateBlock.failures.flatMap((f) =>
+                            f.issues.map((is) => ({ lineId: f.lineId, category: is.catKey, idx: is.idx }))
+                          ),
+                          scrollTo: lemGateBlock.failures[0]?.lineId,
+                        }
+                      : undefined;
                   setPreviewTarget(null);
                   setLemGateBlock(null);
-                  if (q) openQuote(q);
+                  if (q) openQuote(q, targets);
                 }}
               >
                 Edit in Pricer
