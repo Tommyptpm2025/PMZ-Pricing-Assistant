@@ -2115,7 +2115,7 @@ export default function ProjectPricerPage() {
               {logoDataUrl ? (
                 <Image src={logoDataUrl} style={styles.logo} />
               ) : (
-                <Text style={styles.companyName}>Performance Margin Zone</Text>
+                <Text style={styles.companyName}>Profit Margin Zone</Text>
               )}
               <Text style={{ fontSize: 8, color: '#555' }}>Total Profit Management</Text>
             </View>
