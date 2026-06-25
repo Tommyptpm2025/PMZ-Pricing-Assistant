@@ -253,9 +253,15 @@ export function buildLineGateFailures(
   cats: LemRateCatalogs,
   description: string
 ): LemGateLineFailure | null {
-  const ok = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
-  const why = (v: unknown, word: "hours" | "qty") =>
-    typeof v === "number" && v === 0 ? `${word} is 0` : `${word} missing`;
+  // A field is complete only when it resolves to a finite number > 0. undefined, null, an empty or
+  // whitespace string, and 0 are ALL incomplete (blank inputs may serialize as undefined or "");
+  // numeric strings are coerced so a stored "5" still passes.
+  const toNum = (v: unknown): number => {
+    const n = typeof v === "string" ? parseFloat(v) : (v as number);
+    return typeof n === "number" && Number.isFinite(n) ? n : NaN;
+  };
+  const ok = (v: unknown) => toNum(v) > 0;
+  const why = (v: unknown, word: "hours" | "qty") => (toNum(v) === 0 ? `${word} is 0` : `${word} missing`);
 
   const labor: any[] = item?.laborEntries || [];
   const equipment: any[] = item?.equipmentEntries || [];

@@ -2903,7 +2903,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={entry.hours || ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:labor:${idx}`]: true }))}
-                                          style={gateHighlights.has(`${item.id}:labor:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { borderColor: "#EB3300", borderWidth: 2 } : undefined}
+                                          style={gateHighlights.has(`${item.id}:labor:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                           onChange={(e) => {
                                             const h = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.laborEntries || [])];
@@ -3138,7 +3138,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={entry.hours || ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:equipment:${idx}`]: true }))}
-                                          style={gateHighlights.has(`${item.id}:equipment:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { borderColor: "#EB3300", borderWidth: 2 } : undefined}
+                                          style={gateHighlights.has(`${item.id}:equipment:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                           onChange={(e) => {
                                             const h = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.equipmentEntries || [])];
@@ -3314,7 +3314,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={entry.quantity || ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:material:${idx}`]: true }))}
-                                          style={gateHighlights.has(`${item.id}:material:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { borderColor: "#EB3300", borderWidth: 2 } : undefined}
+                                          style={gateHighlights.has(`${item.id}:material:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                           onChange={(e) => {
                                             const q = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.materialEntries || [])];
@@ -3511,7 +3511,7 @@ export default function ProjectPricerPage() {
                                           type="number"
                                           value={entry.quantity || ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:misc:${idx}`]: true }))}
-                                          style={gateHighlights.has(`${item.id}:misc:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { borderColor: "#EB3300", borderWidth: 2 } : undefined}
+                                          style={gateHighlights.has(`${item.id}:misc:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                           onChange={(e) => {
                                             const q = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.miscellaneousEntries || [])];
