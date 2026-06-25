@@ -642,8 +642,8 @@ export default function QuotesPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead className="min-w-[160px]">Job Name</TableHead>
-                <TableHead>Customer</TableHead>
+                <TableHead className="min-w-[160px]">Customer</TableHead>
+                <TableHead>Job Name</TableHead>
                 <TableHead>Work Type</TableHead>
                 <TableHead>Salesperson</TableHead>
                 <TableHead className="text-right">Total Revenue</TableHead>
@@ -663,8 +663,19 @@ export default function QuotesPage() {
               ) : (
                 quotes.map((quote) => (
                   <TableRow key={quote.id} className="hover:bg-muted/20">
-                    <TableCell className="font-medium">{quote.jobName || "Untitled"}</TableCell>
-                    <TableCell className="text-sm">{quote.customerName || quote.customer || "—"}</TableCell>
+                    <TableCell className="font-medium">
+                      {/* Poka-yoke: clickable customer opens this quote in the Pricer (edit mode),
+                          same as the Actions → Edit (openQuote). Underlined + TPM red on hover. */}
+                      <button
+                        type="button"
+                        onClick={() => openQuote(quote)}
+                        title="Open in Project Pricer"
+                        className="text-left underline underline-offset-2 cursor-pointer outline-none hover:text-[#EB3300] focus-visible:text-[#EB3300]"
+                      >
+                        {quote.customerName || quote.customer || "—"}
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm">{quote.jobName || "—"}</TableCell>
                     <TableCell className="text-sm">{quote.workType || "—"}</TableCell>
                     <TableCell className="text-sm">{quote.salesperson || "—"}</TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
