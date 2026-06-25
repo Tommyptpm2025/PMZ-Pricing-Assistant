@@ -119,6 +119,21 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             margin: 0 !important;
             padding: 0 !important;
           }
+          /* Logo never oversized in print */
+          .pmz-logo { max-height: 42px !important; height: auto !important; width: auto !important; }
+          /* Table header: drop the gray fill for print */
+          .pmz-thead { background: #fff !important; }
+          /* Keep each bid line and its LEM detail together on one page */
+          .pmz-line { page-break-inside: avoid; break-inside: avoid; }
+          /* Level 1 — bid line typography */
+          .pmz-bid-row > div { font-size: 10pt !important; font-weight: 600 !important; color: #212322 !important; }
+          /* Document blocks — TO / PROJECT / Terms at 9pt */
+          .pmz-doc div, .pmz-terms div { font-size: 9pt !important; }
+          /* TOTAL row */
+          .pmz-total > div { font-size: 11pt !important; font-weight: 700 !important; color: #212322 !important; }
+          /* LEM detail: swap the on-screen text block for the aligned columnar block */
+          .pmz-lem-screen { display: none !important; }
+          .pmz-lem-print { display: block !important; }
         }
       `}</style>
       {/* Top control bar - kept for buttons */}
@@ -174,7 +189,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             <div>
               {logoDataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={logoDataUrl} alt="Company logo" style={{ height: 32, width: 'auto', display: 'block', marginBottom: 2 }} />
+                <img className="pmz-logo" src={logoDataUrl} alt="Company logo" style={{ height: 32, width: 'auto', display: 'block', marginBottom: 2 }} />
               ) : (
                 <div style={{ fontSize: 14, fontWeight: 'bold' }}>Profit Margin Zone</div>
               )}
@@ -211,7 +226,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           </div>
 
           {/* TO / PROJECT columns */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div className="pmz-doc" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
             <div style={{ width: '48%' }}>
               <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>TO:</div>
               {customer.name && <div style={{ fontSize: 10, marginBottom: 1 }}>{customer.name}</div>}
@@ -246,7 +261,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
 
           {/* Line Items Table - full columns, matching PDF */}
           <div style={{ width: '100%', marginBottom: 12 }}>
-            <div style={{ display: 'flex', backgroundColor: '#f5f5f5', borderBottom: '1px solid #111' }}>
+            <div className="pmz-thead" style={{ display: 'flex', backgroundColor: '#f5f5f5', borderBottom: '1px solid #111' }}>
               <div style={{ padding: 6, fontSize: 9, fontWeight: 'bold', borderRight: '0.5px solid #999', flexBasis: '40%' }}>Description</div>
               {showQuantities && <div style={{ padding: 6, fontSize: 9, fontWeight: 'bold', borderRight: '0.5px solid #999', flexBasis: '10%', textAlign: 'right' }}>Qty</div>}
               {showUnits && <div style={{ padding: 6, fontSize: 9, fontWeight: 'bold', borderRight: '0.5px solid #999', flexBasis: '10%', textAlign: 'center' }}>Unit</div>}
@@ -257,8 +272,8 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               const lt = item.lineTotal !== undefined ? item.lineTotal : (item.quantity || 0) * (item.unitPrice || 0);
               const lemOn = showLemDetail && item.lemDetail && item.lemDetail.hasAny;
               return (
-                <div key={idx}>
-                  <div style={{ display: 'flex', borderBottom: lemOn ? 'none' : '0.5px solid #ccc' }}>
+                <div className="pmz-line" key={idx}>
+                  <div className="pmz-bid-row" style={{ display: 'flex', borderBottom: lemOn ? 'none' : '0.5px solid #ccc' }}>
                     <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '40%' }}>{item.description || '—'}</div>
                     {showQuantities && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'right' }}>{item.quantity || 0}</div>}
                     {showUnits && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'center' }}>{item.unit || ''}</div>}
@@ -266,16 +281,42 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
                     {showLineItemPrices && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '15%', textAlign: 'right' }}>${formatWhole(lt)}</div>}
                   </div>
                   {lemOn && (
-                    <div style={{ padding: '4px 6px 6px 14px', borderBottom: '0.5px solid #ccc', backgroundColor: '#fafafa' }}>
-                      {item.lemDetail.sections.map((sec: any, sIdx: number) => (
-                        <div key={sIdx} style={{ marginBottom: 3 }}>
-                          <div style={{ fontSize: 8, fontWeight: 'bold', color: '#444', textTransform: 'uppercase', letterSpacing: 0.3 }}>{sec.title}</div>
-                          {sec.rows.map((row: any, rIdx: number) => (
-                            <div key={rIdx} style={{ fontSize: 8, color: '#555', paddingLeft: 8 }}>{row.text}</div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
+                    <>
+                      {/* On-screen: the existing plain-text breakdown (unchanged) */}
+                      <div className="pmz-lem-screen" style={{ padding: '4px 6px 6px 14px', borderBottom: '0.5px solid #ccc', backgroundColor: '#fafafa' }}>
+                        {item.lemDetail.sections.map((sec: any, sIdx: number) => (
+                          <div key={sIdx} style={{ marginBottom: 3 }}>
+                            <div style={{ fontSize: 8, fontWeight: 'bold', color: '#444', textTransform: 'uppercase', letterSpacing: 0.3 }}>{sec.title}</div>
+                            {sec.rows.map((row: any, rIdx: number) => (
+                              <div key={rIdx} style={{ fontSize: 8, color: '#555', paddingLeft: 8 }}>{row.text}</div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                      {/* Print-only: aligned 4-column table (Type/Name 50% | Qty 15% | Rate 20% | Cost 15%) */}
+                      <div className="pmz-lem-print" style={{ display: 'none', padding: '3px 6px 6px 14px', borderBottom: '0.5px solid #ccc' }}>
+                        {item.lemDetail.sections.map((sec: any, sIdx: number) => (
+                          <div key={sIdx} style={{ marginBottom: 4 }}>
+                            {sec.isCrew ? (
+                              // Level 2 — crew subheader: maroon, bold, small caps, separator line above
+                              <div style={{ fontSize: '8.5pt', fontWeight: 700, color: '#7D1424', textTransform: 'uppercase', letterSpacing: '0.5px', borderTop: '0.5px solid #ccc', paddingTop: 2, marginTop: 2 }}>{sec.title}</div>
+                            ) : (
+                              // Section label: small caps, muted, no bold
+                              <div style={{ fontSize: '8pt', fontWeight: 400, color: '#777', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{sec.title}</div>
+                            )}
+                            {sec.rows.map((row: any, rIdx: number) => (
+                              // Level 3 — LEM rows: lighter, smaller, aligned columns
+                              <div key={rIdx} style={{ display: 'flex', fontSize: '8pt', fontWeight: 400, color: '#555555', lineHeight: 1.4 }}>
+                                <div style={{ flexBasis: '50%', paddingLeft: 8 }}>{row.name}</div>
+                                <div style={{ flexBasis: '15%', textAlign: 'right' }}>{row.qty}</div>
+                                <div style={{ flexBasis: '20%', textAlign: 'right' }}>{row.rate}</div>
+                                <div style={{ flexBasis: '15%', textAlign: 'right' }}>{row.cost}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </div>
               );
@@ -287,13 +328,13 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           </div>
 
           {/* TOTAL row */}
-          <div style={{ display: 'flex', marginTop: 4, borderTop: '1px solid #111', paddingTop: 4 }}>
+          <div className="pmz-total" style={{ display: 'flex', marginTop: 4, borderTop: '1px solid #111', paddingTop: 4 }}>
             <div style={{ fontSize: 11, fontWeight: 'bold', flexBasis: '70%' }}>TOTAL</div>
             <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'right', flexBasis: '30%' }}>${formatWhole(grandTotal)}</div>
           </div>
 
           {termsText && (
-            <div style={{ marginTop: 16, fontSize: 9, color: '#555' }}>
+            <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#555' }}>
               <div style={{ fontWeight: 'bold', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Terms &amp; Conditions</div>
               <div style={{ whiteSpace: 'pre-wrap' }}>{termsText}</div>
             </div>

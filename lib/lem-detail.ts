@@ -29,10 +29,17 @@ export interface LemRateCatalogs {
 }
 
 export interface LemRow {
-  text: string; // pre-formatted "name — qty unit @ $rate = $cost" line; both surfaces just render it
+  // Structured columns for the aligned PDF table (Type/Name | Qty/Hours | Rate | Cost).
+  name: string; // role / asset / material / misc item (for crew rows, prefixed with the kind)
+  qty: string;  // "6 hrs" | "150 Ton" | "1"
+  rate: string; // "$88.67/hr" | "$35.00/Ton" | "$350.00"
+  cost: string; // "$532.02"
+  // Pre-formatted single-line "name — qty @ rate = cost" — the on-screen surfaces render this as-is.
+  text: string;
 }
 export interface LemSection {
-  title: string; // "Labor" | "Equipment" | "Material" | "Miscellaneous" | "Crew: <name>"
+  title: string;   // "Labor" | "Equipment" | "Material" | "Miscellaneous" | "Crew: <name>"
+  isCrew: boolean; // crew sections render their title as a maroon subheader (print typography)
   rows: LemRow[];
 }
 export interface LineLemDetail {
@@ -51,9 +58,15 @@ function num(n: number): string {
   return (Number.isFinite(n) ? n : 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-// --- Per-entry row builders (each returns a formatted line string) ---
+// --- Per-entry row builders (each returns a structured row + an on-screen `text` line) ---
 
-function laborText(entry: any, cats: LemRateCatalogs): string {
+// Assemble the on-screen single-line string from the structured parts (kept identical to the
+// previous output so the on-screen surfaces are unchanged).
+function makeRow(name: string, qty: string, rate: string, cost: string): LemRow {
+  return { name, qty, rate, cost, text: `${name} — ${qty} @ ${rate} = ${cost}` };
+}
+
+function laborRow(entry: any, cats: LemRateCatalogs): LemRow {
   const name = cats.laborRates.find((r) => r.id === entry.rateId)?.role || entry.labor?.role || "Labor";
   const rate =
     entry.rate != null
@@ -62,33 +75,38 @@ function laborText(entry: any, cats: LemRateCatalogs): string {
       ? entry.labor.burdenedHourlyRate
       : cats.getLaborCostPerHour(entry.rateId || "");
   const hours = entry.hours || 0;
-  return `${name} — ${num(hours)} hrs @ $${money(rate)}/hr = $${money(rate * hours)}`;
+  return makeRow(name, `${num(hours)} hrs`, `$${money(rate)}/hr`, `$${money(rate * hours)}`);
 }
 
-function equipmentText(entry: any, cats: LemRateCatalogs): string {
+function equipmentRow(entry: any, cats: LemRateCatalogs): LemRow {
   const name = cats.equipmentRates.find((r) => r.id === entry.rateId)?.description || "Equipment";
   const rate = entry.rate != null ? entry.rate : cats.getEquipmentCostPerHour(entry.rateId || "");
   const hours = entry.hours || 0;
-  return `${name} — ${num(hours)} hrs @ $${money(rate)}/hr = $${money(rate * hours)}`;
+  return makeRow(name, `${num(hours)} hrs`, `$${money(rate)}/hr`, `$${money(rate * hours)}`);
 }
 
-function materialText(entry: any, cats: LemRateCatalogs): string {
+function materialRow(entry: any, cats: LemRateCatalogs): LemRow {
   const profile = cats.materialRates.find((r) => r.id === entry.rateId);
   const name = profile?.description || "Material";
   const uom = profile?.unitOfMeasure || "unit";
   const rate = entry.rate != null ? entry.rate : cats.getMaterialCostPerUnit(entry.rateId || "");
   const qty = entry.quantity || 0;
-  return `${name} — ${num(qty)} ${uom} @ $${money(rate)}/${uom} = $${money(rate * qty)}`;
+  return makeRow(name, `${num(qty)} ${uom}`, `$${money(rate)}/${uom}`, `$${money(rate * qty)}`);
 }
 
-function miscText(entry: any, cats: LemRateCatalogs): string {
+function miscRow(entry: any, cats: LemRateCatalogs): LemRow {
   const profile = cats.miscRates.find((r) => r.id === entry.rateId);
   const name = entry.description || profile?.description || "Miscellaneous";
   const uom = profile?.unitOfMeasure || "";
   const rate = entry.rate != null ? entry.rate : cats.getMiscCostPerUnit(entry.rateId || "");
   const qty = entry.quantity || 0;
-  const qtyUom = uom ? `${num(qty)} ${uom}` : num(qty);
-  return `${name} — ${qtyUom} @ $${money(rate)} = $${money(rate * qty)}`;
+  return makeRow(name, uom ? `${num(qty)} ${uom}` : num(qty), `$${money(rate)}`, `$${money(rate * qty)}`);
+}
+
+// Re-tag a crew member row with its kind in the Type/Name column (and the on-screen text),
+// preserving the exact previous on-screen string ("Labor — <base text>").
+function crewRow(base: LemRow, kind: string): LemRow {
+  return { ...base, name: `${kind} — ${base.name}`, text: `${kind} — ${base.text}` };
 }
 
 /**
@@ -105,17 +123,17 @@ export function buildLineLemDetail(item: any, cats: LemRateCatalogs): LineLemDet
   const sections: LemSection[] = [];
 
   // Ungrouped (non-crew) entries first, in spec order.
-  const laborRows = labor.filter((e) => !e?.group).map((e) => ({ text: laborText(e, cats) }));
-  if (laborRows.length) sections.push({ title: "Labor", rows: laborRows });
+  const laborRows = labor.filter((e) => !e?.group).map((e) => laborRow(e, cats));
+  if (laborRows.length) sections.push({ title: "Labor", isCrew: false, rows: laborRows });
 
-  const equipRows = equipment.filter((e) => !e?.group).map((e) => ({ text: equipmentText(e, cats) }));
-  if (equipRows.length) sections.push({ title: "Equipment", rows: equipRows });
+  const equipRows = equipment.filter((e) => !e?.group).map((e) => equipmentRow(e, cats));
+  if (equipRows.length) sections.push({ title: "Equipment", isCrew: false, rows: equipRows });
 
-  const matRows = material.map((e) => ({ text: materialText(e, cats) }));
-  if (matRows.length) sections.push({ title: "Material", rows: matRows });
+  const matRows = material.map((e) => materialRow(e, cats));
+  if (matRows.length) sections.push({ title: "Material", isCrew: false, rows: matRows });
 
-  const miscRows = misc.map((e) => ({ text: miscText(e, cats) }));
-  if (miscRows.length) sections.push({ title: "Miscellaneous", rows: miscRows });
+  const miscRows = misc.map((e) => miscRow(e, cats));
+  if (miscRows.length) sections.push({ title: "Miscellaneous", isCrew: false, rows: miscRows });
 
   // Crew groups: gather grouped labor + equipment entries by group id, preserving first-seen order.
   const groupOrder: string[] = [];
@@ -140,10 +158,10 @@ export function buildLineLemDetail(item: any, cats: LemRateCatalogs): LineLemDet
   });
   groupOrder.forEach((gid) => {
     const rows: LemRow[] = [
-      ...groupLabor[gid].map((e) => ({ text: `Labor — ${laborText(e, cats)}` })),
-      ...groupEquip[gid].map((e) => ({ text: `Equipment — ${equipmentText(e, cats)}` })),
+      ...groupLabor[gid].map((e) => crewRow(laborRow(e, cats), "Labor")),
+      ...groupEquip[gid].map((e) => crewRow(equipmentRow(e, cats), "Equipment")),
     ];
-    if (rows.length) sections.push({ title: `Crew: ${groupName[gid]}`, rows });
+    if (rows.length) sections.push({ title: `Crew: ${groupName[gid]}`, isCrew: true, rows });
   });
 
   return { sections, hasAny: sections.length > 0 };
