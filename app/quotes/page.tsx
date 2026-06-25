@@ -497,17 +497,28 @@ export default function QuotesPage() {
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
   }
 
-  // Accepted-handoff gate: the descriptions of any EPP bid lines that have NO resolved LEM
-  // detail (so they couldn't produce a real work-order recipe). Empty => every line is ready.
-  function linesMissingLem(quote: SavedQuote): string[] {
-    const items = quote.eppLineItems || [];
-    const missing: string[] = [];
-    items.forEach((it, i) => {
-      if (!buildLineLemDetail(it, lemCats).hasAny) {
-        missing.push(it.description?.trim() || `Line ${i + 1}`);
+  // Accepted-handoff gate: the descriptions of any EPP bid lines whose LEM detail is missing OR
+  // incomplete — a line fails if it has no entries at all, or any entry has a zero / blank /
+  // missing quantity or hours (which would yield a $0 recipe line). Empty => every line is ready.
+  function linesFailingLemGate(quote: SavedQuote): string[] {
+    const pos = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
+    const failing: string[] = [];
+    (quote.eppLineItems || []).forEach((it, i) => {
+      const labor = it.laborEntries || [];
+      const equipment = it.equipmentEntries || [];
+      const material = it.materialEntries || [];
+      const misc = it.miscellaneousEntries || [];
+      const hasAnyEntry = labor.length + equipment.length + material.length + misc.length > 0;
+      const incomplete =
+        labor.some((e) => !pos(e.hours)) ||
+        equipment.some((e) => !pos(e.hours)) ||
+        material.some((e) => !pos(e.quantity)) ||
+        misc.some((e) => !pos(e.quantity));
+      if (!hasAnyEntry || incomplete) {
+        failing.push(it.description?.trim() || `Line ${i + 1}`);
       }
     });
-    return missing;
+    return failing;
   }
 
   // PART B — record the customer's decision on a quote that is out for acceptance.
@@ -516,9 +527,9 @@ export default function QuotesPage() {
     const next: QuoteStatus = accepted ? "Approved" : "Declined";
     if (!canTransition("Ready for Approval", next)) return;
     // Accepted handoff rule: an EPP quote can only become Accepted (a future Work Order) once
-    // every bid line has resolved LEM detail. Block + surface the gaps in the preview dialog.
+    // every bid line has complete LEM detail. Block + surface the gaps in the preview dialog.
     if (accepted && quote.quoteType === "EPP") {
-      const missing = linesMissingLem(quote);
+      const missing = linesFailingLemGate(quote);
       if (missing.length > 0) {
         setLemGateBlock({ quoteId: quote.id, lines: missing });
         setPreviewTarget(quote); // open/keep the dialog so the block is visible (row-dropdown path too)
@@ -1125,11 +1136,13 @@ export default function QuotesPage() {
                 style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
               >
                 <div className="font-medium mb-1" style={{ color: "#EB3300" }}>
-                  Can’t accept yet — these lines need LEM detail before this quote can become a Work Order:
+                  Can’t accept yet — fix these lines before this quote can become a Work Order:
                 </div>
-                <ul className="list-disc pl-5 space-y-0.5">
+                <ul className="list-disc pl-5 space-y-1">
                   {lemGateBlock.lines.map((l, i) => (
-                    <li key={i}>{l}</li>
+                    <li key={i}>
+                      Line “{l}” has incomplete LEM detail — check for zero or missing quantities/hours.
+                    </li>
                   ))}
                 </ul>
               </div>

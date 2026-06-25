@@ -488,6 +488,9 @@ export default function ProjectPricerPage() {
   const [lineTotalEdits, setLineTotalEdits] = React.useState<Record<string, string>>({});
   // Which EPP bid items have their costing details panel open
   const [eppCostingOpen, setEppCostingOpen] = React.useState<Record<string, boolean>>({});
+  // Per-LEM-entry "touched" flags (key `${itemId}:${category}:${idx}`) — set on blur so the
+  // inline "quantity/hours required" warning only appears after the user leaves an empty field.
+  const [costingFieldsTouched, setCostingFieldsTouched] = React.useState<Record<string, boolean>>({});
   // Collapsed state for crew group cards in the Per-Line Real Costing panel, keyed by group id (default expanded)
   const [collapsedCrewGroups, setCollapsedCrewGroups] = React.useState<Record<string, boolean>>({});
   // For auto-focusing newly added costing entry inputs
@@ -1366,6 +1369,7 @@ export default function ProjectPricerPage() {
     setSelectedCustomerName(null);
     setSelectedCustomerId(null);
     setRealLEMItems([]);
+    setCostingFieldsTouched({});
     setIsReadOnly(false);
     setPendingLabor(null);
     setPendingLaborQty(0);
@@ -2847,10 +2851,12 @@ export default function ProjectPricerPage() {
                                           <option value="no-labor" disabled>No saved labor profiles</option>
                                         )}
                                       </select>
+                                        <div className="flex flex-col gap-0.5">
                                         <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
                                           value={entry.hours || ""}
+                                          onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:labor:${idx}`]: true }))}
                                           onChange={(e) => {
                                             const h = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.laborEntries || [])];
@@ -2904,6 +2910,12 @@ export default function ProjectPricerPage() {
                                           disabled={isReadOnly}
                                         />
                                         <span className="text-sm text-muted-foreground">hrs</span>
+                                        </div>
+                                        {costingFieldsTouched[`${item.id}:labor:${idx}`] && !(typeof entry.hours === "number" && entry.hours > 0) && (
+                                          <p className="text-[10px] leading-tight text-right" style={{ color: "#EB3300" }}>
+                                            Hours required — enter hours to include this role in the LEM cost.
+                                          </p>
+                                        )}
                                         </div>
                                         <div></div>
                                         {hasRate ? (
@@ -3073,10 +3085,12 @@ export default function ProjectPricerPage() {
                                           <option value="no-equip" disabled>No saved equipment profiles</option>
                                         )}
                                       </select>
+                                        <div className="flex flex-col gap-0.5">
                                         <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
                                           value={entry.hours || ""}
+                                          onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:equipment:${idx}`]: true }))}
                                           onChange={(e) => {
                                             const h = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.equipmentEntries || [])];
@@ -3130,6 +3144,12 @@ export default function ProjectPricerPage() {
                                           disabled={isReadOnly}
                                         />
                                         <span className="text-sm text-muted-foreground">hrs</span>
+                                        </div>
+                                        {costingFieldsTouched[`${item.id}:equipment:${idx}`] && !(typeof entry.hours === "number" && entry.hours > 0) && (
+                                          <p className="text-[10px] leading-tight text-right" style={{ color: "#EB3300" }}>
+                                            Hours required — enter hours to include this equipment in the LEM cost.
+                                          </p>
+                                        )}
                                         </div>
                                         <div></div>
                                         {hasRate ? (
@@ -3240,10 +3260,12 @@ export default function ProjectPricerPage() {
                                           <option value="no-mat" disabled>No saved material profiles</option>
                                         )}
                                       </select>
+                                        <div className="flex flex-col gap-0.5">
                                         <div className="flex items-center justify-end gap-1">
                                         <Input
                                           type="number"
                                           value={entry.quantity || ""}
+                                          onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:material:${idx}`]: true }))}
                                           onChange={(e) => {
                                             const q = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.materialEntries || [])];
@@ -3297,6 +3319,12 @@ export default function ProjectPricerPage() {
                                           disabled={isReadOnly}
                                         />
                                         <span className="text-sm text-muted-foreground">{unitLabel}</span>
+                                        </div>
+                                        {costingFieldsTouched[`${item.id}:material:${idx}`] && !(typeof entry.quantity === "number" && entry.quantity > 0) && (
+                                          <p className="text-[10px] leading-tight text-right" style={{ color: "#EB3300" }}>
+                                            Quantity required — enter amount to include this material in the LEM cost.
+                                          </p>
+                                        )}
                                         </div>
                                         <div></div>
                                         {hasRate ? (
@@ -3428,10 +3456,12 @@ export default function ProjectPricerPage() {
                                           />
                                         )}
                                       </div>
+                                      <div className="flex flex-col gap-0.5">
                                       <div className="flex items-center justify-end gap-1">
                                         <Input
                                           type="number"
                                           value={entry.quantity || ""}
+                                          onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:misc:${idx}`]: true }))}
                                           onChange={(e) => {
                                             const q = Math.max(0, parseFloat(e.target.value) || 0);
                                             const current = [...(item.miscellaneousEntries || [])];
@@ -3489,6 +3519,12 @@ export default function ProjectPricerPage() {
                                           disabled={isReadOnly}
                                         />
                                         <span className="text-sm text-muted-foreground">{unitLabel}</span>
+                                      </div>
+                                      {costingFieldsTouched[`${item.id}:misc:${idx}`] && !(typeof entry.quantity === "number" && entry.quantity > 0) && (
+                                        <p className="text-[10px] leading-tight text-right" style={{ color: "#EB3300" }}>
+                                          Quantity required — enter amount to include this item in the LEM cost.
+                                        </p>
+                                      )}
                                       </div>
                                       <div></div>
                                       {hasRate ? (
