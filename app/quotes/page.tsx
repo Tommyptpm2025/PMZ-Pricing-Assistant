@@ -129,16 +129,19 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   "Declined": { bg: "#FFE4E6", fg: "#9F1239" },           // deep rose (≠ brand red #EB3300)
 };
 
-function StatusBadge({ status }: { status: string }) {
+// Status pill. In `trigger` mode it gains an inline chevron + hover affordance so the colored
+// pill itself reads as a dropdown trigger (locked UI standard: the chevron IS the affordance).
+function StatusBadge({ status, trigger = false }: { status: string; trigger?: boolean }) {
   const c = STATUS_COLORS[status] || STATUS_COLORS["Draft"];
   const label = STATUS_LABELS[status as QuoteStatus] || status;
   return (
     <Badge
       variant="outline"
-      className="font-medium text-xs"
+      className={cn("font-medium text-xs", trigger && "gap-1 cursor-pointer transition-[filter] group-hover:brightness-95")}
       style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.fg }}
     >
       {label}
+      {trigger && <span aria-hidden className="leading-none" style={{ fontSize: 10 }}>▾</span>}
     </Badge>
   );
 }
@@ -729,8 +732,8 @@ export default function QuotesPage() {
                 <TableHead>Salesperson</TableHead>
                 <TableHead className="text-right">Total Revenue</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Last Updated</TableHead>
                 <TableHead className="text-right pr-4">Actions</TableHead>
+                <TableHead>Last Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -763,13 +766,12 @@ export default function QuotesPage() {
                       ${formatMoney(quote.totalRevenue)}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <StatusBadge status={quote.status} />
-                        {/* Single status control — native <select>. Options are the forward ACTIONS
-                            for the current status (reusing the exact same handlers the old row buttons
-                            called): Draft → Send for Acceptance; Ready for Approval → Mark Accepted /
-                            Declined; mid-stages → Advance to [next] (with its confirm). Then the
-                            SUPER USER optgroup. Auto-resets to the placeholder. */}
+                      {/* Status pill IS the dropdown trigger (locked UI standard: colored pill +
+                          inline chevron, no separate "Change…" button). An invisible native <select>
+                          overlays the pill and carries the exact same action options + handlers as
+                          before — UI only, no behavior change. */}
+                      <div className="relative inline-flex items-center group">
+                        <StatusBadge status={quote.status} trigger />
                         <select
                           value=""
                           aria-label="Change status"
@@ -784,8 +786,7 @@ export default function QuotesPage() {
                             else if (v === "su-back") superUserBack(quote);
                             else if (v === "su-reset") superUserResetToDraft(quote);
                           }}
-                          className="h-6 w-24 rounded border px-1 text-[10px] bg-white"
-                          style={{ borderColor: "#7D1424", color: "#333333" }}
+                          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                         >
                           <option value="" disabled>Change…</option>
                           {quote.status === "Draft" && (
@@ -813,9 +814,6 @@ export default function QuotesPage() {
                           )}
                         </select>
                       </div>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground tabular-nums">
-                      {formatDate(quote.updatedAt || quote.createdAt)}
                     </TableCell>
                     <TableCell className="text-right pr-3">
                       <div className="flex items-center justify-end gap-1">
@@ -849,6 +847,9 @@ export default function QuotesPage() {
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground tabular-nums">
+                      {formatDate(quote.updatedAt || quote.createdAt)}
                     </TableCell>
                   </TableRow>
                 ))
