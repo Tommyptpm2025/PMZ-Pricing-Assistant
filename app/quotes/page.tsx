@@ -718,17 +718,19 @@ export default function QuotesPage() {
                     onClick={() => toggleStatus(list, st)}
                     className={cn(
                       "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border transition-[filter,background-color]",
-                      "hover:brightness-95"
+                      "hover:brightness-95",
+                      active && "shadow-sm"
                     )}
-                    // Active: solid zone fill, exactly matching the status pill. Inactive: a muted
-                    // tint of the SAME zone color — faint fill (~12%) + mid-strength border (~35%) +
-                    // full-strength text — so each chip mirrors its pill color, Draft's charcoal included.
+                    // Both states are SOLID fills of the same zone color, white zone text, border
+                    // matched to the fill (never an outline) — so chips read as the SAME color
+                    // system as the status pills. Inactive is the full color only slightly muted
+                    // (~88%); active is the full solid fill, identical to the pill.
                     style={active
                       ? { backgroundColor: c.bg, color: c.fg, borderColor: c.bg }
-                      : { backgroundColor: `${c.bg}1F`, color: c.bg, borderColor: `${c.bg}59` }}
+                      : { backgroundColor: `${c.bg}E0`, color: c.fg, borderColor: `${c.bg}E0` }}
                   >
                     {STATUS_LABELS[st]}
-                    <span className={cn("tabular-nums", active ? "opacity-80" : "opacity-60")}>{count}</span>
+                    <span className={cn("tabular-nums", active ? "opacity-80" : "opacity-90")}>{count}</span>
                   </button>
                 );
               })}
