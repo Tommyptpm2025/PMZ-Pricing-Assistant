@@ -705,13 +705,20 @@ export default function QuotesPage() {
                     key={st}
                     onClick={() => toggleStatus(list, st)}
                     className={cn(
-                      "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border transition-colors",
-                      !active && "hover:bg-muted border-border"
+                      "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border transition-[filter,background-color]",
+                      "hover:brightness-95"
                     )}
-                    style={active ? { backgroundColor: c.bg, color: c.fg, borderColor: c.bg } : undefined}
+                    // Active: solid zone fill (matches the status pill). Inactive: zone-color
+                    // outline + dot on white, so every chip carries its locked zone color at a glance.
+                    style={active
+                      ? { backgroundColor: c.bg, color: c.fg, borderColor: c.bg }
+                      : { backgroundColor: "#fff", color: c.bg, borderColor: c.bg }}
                   >
+                    {!active && (
+                      <span aria-hidden className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.bg }} />
+                    )}
                     {STATUS_LABELS[st]}
-                    <span className={cn("tabular-nums", active ? "opacity-80" : "text-muted-foreground")}>{count}</span>
+                    <span className={cn("tabular-nums", active ? "opacity-80" : "opacity-70")}>{count}</span>
                   </button>
                 );
               })}
