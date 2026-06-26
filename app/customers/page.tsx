@@ -28,6 +28,7 @@ import type { Customer } from "@/lib/pmz-types";
 import { StateProvinceSelect, CountrySelect } from "@/components/customer/GeoSelects";
 import { stateNameByCode, countryNameByCode, stateCodeByName, countryCodeByName, stateValidForCountry, DEFAULT_COUNTRY_CODE, US_CA_COUNTRIES } from "@/lib/geo-data";
 import { customerCompleteness } from "@/lib/customer-utils";
+import { formatPhone, PHONE_PLACEHOLDER } from "@/lib/phone";
 
 const STORAGE_KEY = "pmz_customers";
 
@@ -36,13 +37,7 @@ function createId() {
 }
 
 // --- Format enforcement helpers (the field enforces format) ---
-function formatPhone(value: string): string {
-  const d = value.replace(/\D/g, "").slice(0, 10);
-  if (d.length === 0) return "";
-  if (d.length < 4) return `(${d}`;
-  if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
-  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-}
+// Phone formatting is the shared app-wide xxx-xxx-xxxx formatter (lib/phone).
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, "");
 }
@@ -829,7 +824,7 @@ export default function CustomersPage() {
                                 if (prev.isDecisionMaker === "no" && (prev.phone === "" || prev.phone === prev.dmPhone)) next.phone = v;
                                 return next;
                               });
-                            }} placeholder="(555) 123-4567" className="mt-1.5" />
+                            }} placeholder="555-123-4567" className="mt-1.5" />
                           </div>
                           <div>
                             <Label htmlFor="dmMobile">Mobile <OptionalTag /></Label>
@@ -840,7 +835,7 @@ export default function CustomersPage() {
                                 if (prev.isDecisionMaker === "no" && (prev.mobile === "" || prev.mobile === prev.dmMobile)) next.mobile = v;
                                 return next;
                               });
-                            }} placeholder="(555) 987-6543" className="mt-1.5" />
+                            }} placeholder="555-987-6543" className="mt-1.5" />
                           </div>
                           <div>
                             <Label htmlFor="dmEmail">Email <OptionalTag /></Label>
@@ -898,11 +893,11 @@ export default function CustomersPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="phone">Phone <OptionalTag /></Label>
-                    <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatPhone(e.target.value) })} placeholder="(555) 123-4567" className={cn("mt-1.5", reachMissing && "border-destructive focus-visible:ring-destructive")} />
+                    <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatPhone(e.target.value) })} placeholder="555-123-4567" className={cn("mt-1.5", reachMissing && "border-destructive focus-visible:ring-destructive")} />
                   </div>
                   <div>
                     <Label htmlFor="mobile">Mobile <OptionalTag /></Label>
-                    <Input id="mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: formatPhone(e.target.value) })} placeholder="(555) 987-6543" className={cn("mt-1.5", reachMissing && "border-destructive focus-visible:ring-destructive")} />
+                    <Input id="mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: formatPhone(e.target.value) })} placeholder="555-987-6543" className={cn("mt-1.5", reachMissing && "border-destructive focus-visible:ring-destructive")} />
                   </div>
                   <div>
                     <Label htmlFor="email">Email <OptionalTag /></Label>
