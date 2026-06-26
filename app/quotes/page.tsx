@@ -720,17 +720,15 @@ export default function QuotesPage() {
                       "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border transition-[filter,background-color]",
                       "hover:brightness-95"
                     )}
-                    // Active: solid zone fill (matches the status pill). Inactive: zone-color
-                    // outline + dot on white, so every chip carries its locked zone color at a glance.
+                    // Active: solid zone fill, exactly matching the status pill. Inactive: a muted
+                    // tint of the SAME zone color — faint fill (~12%) + mid-strength border (~35%) +
+                    // full-strength text — so each chip mirrors its pill color, Draft's charcoal included.
                     style={active
                       ? { backgroundColor: c.bg, color: c.fg, borderColor: c.bg }
-                      : { backgroundColor: "#fff", color: c.bg, borderColor: c.bg }}
+                      : { backgroundColor: `${c.bg}1F`, color: c.bg, borderColor: `${c.bg}59` }}
                   >
-                    {!active && (
-                      <span aria-hidden className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.bg }} />
-                    )}
                     {STATUS_LABELS[st]}
-                    <span className={cn("tabular-nums", active ? "opacity-80" : "opacity-70")}>{count}</span>
+                    <span className={cn("tabular-nums", active ? "opacity-80" : "opacity-60")}>{count}</span>
                   </button>
                 );
               })}
