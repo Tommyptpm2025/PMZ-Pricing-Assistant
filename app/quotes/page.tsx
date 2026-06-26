@@ -723,17 +723,30 @@ export default function QuotesPage() {
     return (
       <Card className="overflow-hidden border">
         <div className="overflow-x-auto">
-          <Table>
+          <Table className="w-full table-fixed">
+            {/* Fixed column widths so all 8 columns fit a 1280px+ viewport without horizontal
+                scroll. Customer/Job Name get the most room; Status/Actions stay wide enough that
+                their pills never truncate. */}
+            <colgroup>
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "12%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "14%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "10%" }} />
+            </colgroup>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead className="min-w-[160px]">Customer</TableHead>
-                <TableHead>Job Name</TableHead>
-                <TableHead>Work Type</TableHead>
-                <TableHead>Salesperson</TableHead>
-                <TableHead className="text-right">Total Revenue</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right pr-4">Actions</TableHead>
-                <TableHead>Last Updated</TableHead>
+                <TableHead className="whitespace-nowrap">Customer</TableHead>
+                <TableHead className="whitespace-nowrap">Job Name</TableHead>
+                <TableHead className="whitespace-nowrap">Work Type</TableHead>
+                <TableHead className="whitespace-nowrap">Salesperson</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Total Revenue</TableHead>
+                <TableHead className="whitespace-nowrap">Status</TableHead>
+                <TableHead className="text-right pr-4 whitespace-nowrap">Actions</TableHead>
+                <TableHead className="whitespace-nowrap">Last Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -754,18 +767,18 @@ export default function QuotesPage() {
                         type="button"
                         onClick={() => openQuote(quote)}
                         title="Open in Project Pricer"
-                        className="text-left underline underline-offset-2 cursor-pointer outline-none hover:text-[#EB3300] focus-visible:text-[#EB3300]"
+                        className="block w-full truncate text-left underline underline-offset-2 cursor-pointer outline-none hover:text-[#EB3300] focus-visible:text-[#EB3300]"
                       >
                         {quote.customerName || quote.customer || "—"}
                       </button>
                     </TableCell>
-                    <TableCell className="text-sm">{quote.jobName || "—"}</TableCell>
-                    <TableCell className="text-sm">{quote.workType || "—"}</TableCell>
-                    <TableCell className="text-sm">{quote.salesperson || "—"}</TableCell>
-                    <TableCell className="text-right font-medium tabular-nums">
+                    <TableCell className="text-sm truncate">{quote.jobName || "—"}</TableCell>
+                    <TableCell className="text-sm truncate">{quote.workType || "—"}</TableCell>
+                    <TableCell className="text-sm truncate">{quote.salesperson || "—"}</TableCell>
+                    <TableCell className="text-right font-medium tabular-nums whitespace-nowrap">
                       ${formatMoney(quote.totalRevenue)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">
                       {/* Status pill IS the dropdown trigger (locked UI standard: colored pill +
                           inline chevron, no separate "Change…" button). An invisible native <select>
                           overlays the pill and carries the exact same action options + handlers as
@@ -815,7 +828,7 @@ export default function QuotesPage() {
                         </select>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right pr-3">
+                    <TableCell className="text-right pr-3 whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
                         {/* Status actions now live in the Change dropdown (status column). */}
                         {/* Secondary actions — custom pill trigger matching the status pill:
@@ -859,7 +872,7 @@ export default function QuotesPage() {
                         </Button>
                       </div>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground tabular-nums">
+                    <TableCell className="text-xs text-muted-foreground tabular-nums truncate">
                       {formatDate(quote.updatedAt || quote.createdAt)}
                     </TableCell>
                   </TableRow>
