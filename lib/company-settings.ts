@@ -28,12 +28,6 @@ export interface CompanySettings {
     years_experience: string;
     payment_methods: string;
   };
-  estimator: {
-    name: string;
-    title: string;
-    email: string;
-    phone: string;
-  };
   terms: {
     deposit_pct: string;
     balance_due_days: string;
@@ -71,7 +65,6 @@ export const EMPTY_COMPANY_SETTINGS: CompanySettings = {
     years_experience: '',
     payment_methods: '',
   },
-  estimator: { name: '', title: '', email: '', phone: '' },
   terms: {
     deposit_pct: '',
     balance_due_days: '',

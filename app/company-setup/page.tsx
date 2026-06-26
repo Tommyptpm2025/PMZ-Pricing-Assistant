@@ -11,6 +11,9 @@ import {
   computeAnnualInterest,
   type CompanySettings,
 } from "@/lib/company-settings"
+import { useEstimators } from "@/lib/estimators"
+import RegistryManager, { type RegistryItem } from "@/components/RegistryManager"
+import { formatPhone, PHONE_PLACEHOLDER } from "@/lib/phone"
 
 // Local draft type alias for readability
 type Group = keyof CompanySettings
@@ -64,7 +67,7 @@ export default function CompanySetupPage() {
         <Field label="Legal Name" value={form.company.legal_name} onChange={(v) => setField("company", "legal_name", v)} placeholder="e.g. Total Profit Management LLC" />
         <Field label="Short Name" value={form.company.short_name} onChange={(v) => setField("company", "short_name", v)} placeholder="e.g. TPM" />
         <Field label="Website" value={form.company.website} onChange={(v) => setField("company", "website", v)} placeholder="e.g. totalprofitmanagement.com" />
-        <Field label="Phone" value={form.company.phone} onChange={(v) => setField("company", "phone", v)} placeholder="e.g. (555) 123-4567" />
+        <Field label="Phone" value={form.company.phone} onChange={(v) => setField("company", "phone", formatPhone(v))} placeholder={`e.g. ${PHONE_PLACEHOLDER}`} />
         <Field label="Email" value={form.company.email} onChange={(v) => setField("company", "email", v)} placeholder="e.g. office@company.com" />
         <Field label="Address" value={form.company.address} onChange={(v) => setField("company", "address", v)} placeholder="e.g. 123 Main St" />
         <Field label="City, State ZIP" value={form.company.city_state_zip} onChange={(v) => setField("company", "city_state_zip", v)} placeholder="e.g. Springfield, IL 62701" />
@@ -73,13 +76,8 @@ export default function CompanySetupPage() {
         <Field label="Payment Methods" value={form.company.payment_methods} onChange={(v) => setField("company", "payment_methods", v)} placeholder="e.g. Check, ACH, all major cards" multiline />
       </Section>
 
-      {/* Estimator */}
-      <Section title="Estimator" description="The default estimator credited on documents.">
-        <Field label="Name" value={form.estimator.name} onChange={(v) => setField("estimator", "name", v)} placeholder="e.g. Tom Peterson" />
-        <Field label="Title" value={form.estimator.title} onChange={(v) => setField("estimator", "title", v)} placeholder="e.g. Founder / Estimator" />
-        <Field label="Email" value={form.estimator.email} onChange={(v) => setField("estimator", "email", v)} placeholder="e.g. tom@company.com" />
-        <Field label="Phone" value={form.estimator.phone} onChange={(v) => setField("estimator", "phone", v)} placeholder="e.g. (555) 123-4567" />
-      </Section>
+      {/* Estimators — registry (mirrors the Salesperson Registry pattern, one pattern everywhere) */}
+      <EstimatorRegistry />
 
       {/* Terms */}
       <Section title="Default Terms" description="Drive the auto-composed Payment Terms block. Enter numbers only (no % sign).">
@@ -157,6 +155,46 @@ function Section({
         <div className="grid gap-4 sm:grid-cols-2">{children}</div>
       </CardContent>
     </Card>
+  )
+}
+
+// Estimator Registry — thin adapter over the shared RegistryManager (the same component the
+// Salesperson Registry uses, so the two stay one pattern). Maps the estimator hook to the
+// generic add/update/delete + normalized item shape.
+function EstimatorRegistry() {
+  const { estimators, addEstimator, updateEstimator, deleteEstimator } = useEstimators()
+
+  const items: RegistryItem[] = estimators.map((e) => ({
+    id: e.id,
+    name: e.name,
+    active: e.active,
+    values: { name: e.name, title: e.title || "", email: e.email || "", phone: e.phone || "" },
+  }))
+
+  return (
+    <RegistryManager
+      title="Estimators"
+      itemNoun="Estimator"
+      description="The registry the Project Pricer’s estimator dropdown reads from. Inactive people stay on record but are hidden from the dropdown."
+      fields={[
+        { key: "name", label: "Name", required: true, placeholder: "e.g. Tom Peterson" },
+        { key: "title", label: "Title", placeholder: "e.g. Founder / Estimator" },
+        { key: "email", label: "Email", placeholder: "e.g. tom@company.com" },
+        { key: "phone", label: "Phone", placeholder: PHONE_PLACEHOLDER, format: "phone" },
+      ]}
+      items={items}
+      onAdd={(v, active) => addEstimator({ name: v.name, title: v.title, email: v.email, phone: v.phone, active })}
+      onUpdate={(id, v, active) =>
+        updateEstimator(id, {
+          name: v.name.trim(),
+          title: v.title.trim() || undefined,
+          email: v.email.trim() || undefined,
+          phone: v.phone.trim() || undefined,
+          active,
+        })
+      }
+      onDelete={(id) => deleteEstimator(id)}
+    />
   )
 }
 

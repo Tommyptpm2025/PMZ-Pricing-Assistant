@@ -47,11 +47,6 @@ export const TOKEN_REGISTRY: TokenDef[] = [
   { path: 'company.year_founded', group: 'company', key: 'year_founded', label: 'Year Founded', tier: 'A' },
   { path: 'company.years_experience', group: 'company', key: 'years_experience', label: 'Years Experience', tier: 'A' },
   { path: 'company.payment_methods', group: 'company', key: 'payment_methods', label: 'Payment Methods', tier: 'A' },
-  // Tier A — estimator
-  { path: 'estimator.name', group: 'estimator', key: 'name', label: 'Estimator Name', tier: 'A' },
-  { path: 'estimator.title', group: 'estimator', key: 'title', label: 'Estimator Title', tier: 'A' },
-  { path: 'estimator.email', group: 'estimator', key: 'email', label: 'Estimator Email', tier: 'A' },
-  { path: 'estimator.phone', group: 'estimator', key: 'phone', label: 'Estimator Phone', tier: 'A' },
   // Tier A — terms
   { path: 'terms.deposit_pct', group: 'terms', key: 'deposit_pct', label: 'Deposit %', tier: 'A' },
   { path: 'terms.balance_due_days', group: 'terms', key: 'balance_due_days', label: 'Balance Due (days)', tier: 'A' },
@@ -73,6 +68,11 @@ export const TOKEN_REGISTRY: TokenDef[] = [
   { path: 'quote.date', group: 'quote', key: 'date', label: 'Quote Date', tier: 'B' },
   { path: 'quote.number', group: 'quote', key: 'number', label: 'Quote Number', tier: 'B' },
   { path: 'quote.total', group: 'quote', key: 'total', label: 'Quote Total', tier: 'B' },
+  // Tier B — estimator (the estimator SELECTED on the quote, from the Estimator Registry)
+  { path: 'estimator.name', group: 'estimator', key: 'name', label: 'Estimator Name', tier: 'B' },
+  { path: 'estimator.title', group: 'estimator', key: 'title', label: 'Estimator Title', tier: 'B' },
+  { path: 'estimator.email', group: 'estimator', key: 'email', label: 'Estimator Email', tier: 'B' },
+  { path: 'estimator.phone', group: 'estimator', key: 'phone', label: 'Estimator Phone', tier: 'B' },
   // Tier B — customer
   { path: 'customer.name', group: 'customer', key: 'name', label: 'Customer Name', tier: 'B' },
   { path: 'customer.address', group: 'customer', key: 'address', label: 'Customer Address', tier: 'B' },
@@ -109,6 +109,7 @@ export function tokensByGroup(): Record<string, TokenDef[]> {
  */
 export interface QuoteTokenContext {
   quote?: { date?: string; number?: string; total?: string };
+  estimator?: { name?: string; title?: string; email?: string; phone?: string };
   customer?: { name?: string; address?: string; city_state_zip?: string; email?: string; phone?: string };
   project?: { name?: string; address?: string; city_state_zip?: string };
   acceptance?: { signed_by?: string; date?: string };
@@ -141,6 +142,7 @@ export function buildTokenValues(
     });
   };
   assign('quote', q.quote);
+  assign('estimator', q.estimator);
   assign('customer', q.customer);
   assign('project', q.project);
   assign('acceptance', q.acceptance);
