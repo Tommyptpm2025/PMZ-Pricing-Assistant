@@ -21,6 +21,7 @@ import {
   ChevronDown,
   ChevronRight,
   Box,
+  Building2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -62,7 +63,14 @@ const navItems: NavItem[] = [
   { href: "/jobs", label: "Jobs / Foreman", icon: ClipboardList },
   { href: "/sales-tracker", label: "Sales Tracker", icon: BarChart3 },
   { href: "/reports", label: "Reports", icon: FileText, disabled: true },
-  { href: "/settings", label: "Settings", icon: Settings },
+  {
+    label: "Settings",
+    icon: Settings,
+    children: [
+      { href: "/settings", label: "Settings & Defaults", icon: Settings },
+      { href: "/company-setup", label: "Company Setup", icon: Building2 },
+    ],
+  },
 ]
 
 interface SidebarContentProps {
@@ -76,6 +84,7 @@ function SidebarContent({ onNavigate }: SidebarContentProps) {
   const [expandedGroups, setExpandedGroups] = React.useState<Record<string, boolean>>({
     Quotes: true, // default expanded
     Resources: true, // default expanded
+    Settings: true, // default expanded
   })
 
   const toggleGroup = (label: string) => {
