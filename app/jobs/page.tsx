@@ -32,6 +32,7 @@ import {
   Printer,
   Paperclip,
   Users,
+  Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -45,7 +46,8 @@ import {
   createId,
   type Job,
 } from "@/lib/jobs";
-import { STATUS_COLORS } from "@/lib/pmz-types";
+import { STATUS_COLORS, STATUS_ORDER, type QuoteStatus } from "@/lib/pmz-types";
+import { getQuoteById } from "@/lib/quote-storage";
 
 // Quantity formatter — up to 2 decimals, no trailing-zero noise. NO currency anywhere here:
 // the Foreman Work Order is field-execution only (cost lives in the Pricer, never on this view).
@@ -261,6 +263,26 @@ export default function JobsForemanPage() {
 
   const hasJobs = jobs.length > 0;
   const isLocked = selectedJob?.status === "completed";
+
+  // Actuals also freeze once the associated quote reaches Ready to Invoice (or later) — the
+  // foreman's numbers feed the invoice at that point. The Job only tracks open/completed, so read
+  // the quote's lifecycle status from the quote store by quoteId.
+  const linkedQuoteStatus = React.useMemo<QuoteStatus | null>(() => {
+    if (!selectedJob?.quoteId) return null;
+    try {
+      return getQuoteById(selectedJob.quoteId)?.status ?? null;
+    } catch {
+      return null;
+    }
+  }, [selectedJob]);
+  const actualsFrozenByInvoice = React.useMemo(() => {
+    if (!linkedQuoteStatus) return false;
+    const rti = STATUS_ORDER.indexOf("Ready to Invoice");
+    const cur = STATUS_ORDER.indexOf(linkedQuoteStatus);
+    return rti >= 0 && cur >= rti;
+  }, [linkedQuoteStatus]);
+  // Actual-qty inputs are read-only when the job is complete OR the quote has hit Ready to Invoice.
+  const actualsLocked = isLocked || actualsFrozenByInvoice;
 
   return (
     <div className="max-w-6xl space-y-6 pb-12">
@@ -562,11 +584,22 @@ export default function JobsForemanPage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Recipe &amp; Actuals</CardTitle>
                 <span className="text-xs text-muted-foreground wo-noprint">
-                  {isLocked ? "Job complete — actuals locked." : "Enter actual quantities. Saves automatically."}
+                  {actualsFrozenByInvoice
+                    ? "Actuals locked — Ready to Invoice."
+                    : isLocked
+                    ? "Job complete — actuals locked."
+                    : "Enter actual quantities. Saves automatically."}
                 </span>
               </div>
             </CardHeader>
             <CardContent>
+              {/* Actuals frozen once the quote is invoiced-ready — small banner, not printed. */}
+              {actualsFrozenByInvoice && (
+                <div className="wo-noprint mb-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                  <Lock className="h-3.5 w-3.5" />
+                  Actuals locked — job moved to Ready to Invoice
+                </div>
+              )}
               {(!selectedJob.recipeLines || selectedJob.recipeLines.length === 0) ? (
                 <div className="rounded border border-dashed p-6 text-center text-sm text-muted-foreground">
                   This work order has no detailed recipe.
@@ -624,7 +657,7 @@ export default function JobsForemanPage() {
                                             inputMode="decimal"
                                             value={draftVal}
                                             onChange={(e) => handleActualChange(row.id, e.target.value)}
-                                            disabled={isLocked}
+                                            disabled={actualsLocked}
                                             placeholder="—"
                                             className="wo-noprint h-9 w-24 text-right tabular-nums border border-input rounded px-2 text-sm font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:opacity-60"
                                           />
@@ -649,6 +682,47 @@ export default function JobsForemanPage() {
                           </div>
                         ))}
                       </div>
+
+                      {/* Variance roll-up for this bid line — hours (Labor/Equipment + crew) and
+                          qty (Material/Misc) kept in separate buckets so units never mix. */}
+                      {(() => {
+                        const allRows = (line.sections || []).flatMap((s) => s.rows || []);
+                        const hoursRows = allRows.filter((r) => r.unit === "hrs");
+                        const qtyRows = allRows.filter((r) => r.unit !== "hrs");
+                        const qtyUnits = Array.from(new Set(qtyRows.map((r) => r.unit).filter(Boolean)));
+                        const groups: { key: string; label: string; unit: string; planned: number; actual: number }[] = [];
+                        if (hoursRows.length) groups.push({
+                          key: "hrs", label: "Labor + Equipment", unit: "hrs",
+                          planned: hoursRows.reduce((a, r) => a + (r.plannedQty || 0), 0),
+                          actual: hoursRows.reduce((a, r) => a + (r.actualQty || 0), 0),
+                        });
+                        if (qtyRows.length) groups.push({
+                          key: "qty", label: "Material", unit: qtyUnits.length === 1 ? qtyUnits[0] : "units",
+                          planned: qtyRows.reduce((a, r) => a + (r.plannedQty || 0), 0),
+                          actual: qtyRows.reduce((a, r) => a + (r.actualQty || 0), 0),
+                        });
+                        if (!groups.length) return null;
+                        return (
+                          <div className="mt-2 rounded-md border bg-muted/20 px-3 py-2 space-y-1.5">
+                            {groups.map((g) => {
+                              const v = g.actual - g.planned;
+                              const over = v > 0;
+                              return (
+                                <div key={g.key} className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 text-xs">
+                                  <span className="font-medium">{g.label} <span className="text-muted-foreground font-normal">({g.unit})</span></span>
+                                  <div className="flex items-center gap-x-5 tabular-nums">
+                                    <span className="text-muted-foreground">Total Planned: <span className="text-foreground font-medium">{fmtQty(g.planned)}</span></span>
+                                    <span className="text-muted-foreground">Total Actual: <span className="text-foreground font-medium">{fmtQty(g.actual)}</span></span>
+                                    <span className={cn("font-medium", over ? "text-red-600" : "text-emerald-600")}>
+                                      Variance: {v > 0 ? "+" : ""}{fmtQty(v)}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
