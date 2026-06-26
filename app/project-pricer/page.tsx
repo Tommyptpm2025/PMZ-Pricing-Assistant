@@ -50,6 +50,7 @@ import {
   Calculator,
   ChevronDown,
   ChevronRight,
+  Paperclip,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -3783,6 +3784,15 @@ export default function ProjectPricerPage() {
           )}
         </Card>
         )}
+      </div>
+
+      {/* Attachments — non-clickable placeholder reserved for Build G (mirrors the Foreman view). */}
+      <div
+        className="flex items-center gap-2 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground/70 select-none cursor-not-allowed"
+        aria-disabled="true"
+      >
+        <Paperclip className="h-4 w-4" />
+        Attachments (coming soon)
       </div>
 
       {/* Send Quote — recipient capture */}
