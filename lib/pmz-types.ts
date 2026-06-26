@@ -223,17 +223,21 @@ export interface LemItem {
   bucket: Bucket;
 }
 
-// Full lifecycle a quote/job can move through, in forward order.
+// Full lifecycle a quote/job can move through, in forward order. STORED values are stable: the
+// display labels live in STATUS_LABELS. "Scheduled" sits between Accepted (Approved) and Work
+// Order Active (In Progress). "Completed" is RETIRED from the active flow but kept in the union so
+// any quote persisted under the old lifecycle still type-checks and renders.
 export type QuoteStatus =
   | "Draft"
   | "Ready for Approval"
   | "Approved"
   | "Declined"
+  | "Scheduled"
   | "In Progress"
-  | "Completed"
   | "Ready to Invoice"
   | "Invoiced"
-  | "Paid";
+  | "Paid"
+  | "Completed"; // legacy — no longer part of the forward flow
 
 // One entry per status change, appended in order. `at` is an ISO timestamp string.
 export interface StatusHistoryEntry {
@@ -300,25 +304,45 @@ export interface SavedQuote {
   updatedAt: string;            // ISO timestamp (persisted format)
 }
 
-// Legal forward transitions. The UI may only advance a quote to one of the
-// statuses listed for its current status. "Declined" and "Paid" are terminal.
+// Legal transitions. The UI may only move a quote to one of the statuses listed for its current
+// status. The happy path is Draft → Sent for Acceptance → Accepted → Scheduled → Work Order
+// Active → Ready to Invoice → Invoiced → Paid. "Declined" branches off Sent for Acceptance and
+// back-routes to Draft (revise & resubmit) or Sent for Acceptance (re-send). "Paid" is terminal.
+// "Completed" is a retired legacy status (terminal here); use the super-user jump to move one.
 export const STATUS_FLOW: Record<QuoteStatus, QuoteStatus[]> = {
   "Draft": ["Ready for Approval"],
   "Ready for Approval": ["Approved", "Declined"],
-  "Approved": ["In Progress"],
-  "In Progress": ["Completed"],
-  "Completed": ["Ready to Invoice"],
+  "Approved": ["Scheduled"],
+  "Declined": ["Draft", "Ready for Approval"],
+  "Scheduled": ["In Progress"],
+  "In Progress": ["Ready to Invoice"],
   "Ready to Invoice": ["Invoiced"],
   "Invoiced": ["Paid"],
-  "Declined": [],
   "Paid": [],
+  "Completed": [], // legacy/terminal — out of the active flow
 };
+
+// The lifecycle statuses in canonical display order — the single source of truth for ordering
+// status UI (filter chips, super-user jump menu, predecessor lookup). Excludes the retired
+// "Completed" so it never appears in pickers; a legacy quote still renders via STATUS_LABELS.
+export const STATUS_ORDER: QuoteStatus[] = [
+  "Draft",
+  "Ready for Approval",
+  "Approved",
+  "Declined",
+  "Scheduled",
+  "In Progress",
+  "Ready to Invoice",
+  "Invoiced",
+  "Paid",
+];
 
 // Statuses at which the bid snapshot is frozen. `locked` becomes true when a
 // quote reaches "Approved" and stays true for every status after it, through
 // "Paid". "Declined" does not lock.
 export const LOCKED_STATUSES: QuoteStatus[] = [
   "Approved",
+  "Scheduled",
   "In Progress",
   "Completed",
   "Ready to Invoice",
@@ -339,12 +363,13 @@ export const STATUS_LABELS: Record<QuoteStatus, string> = {
   "Draft": "Draft",
   "Ready for Approval": "Sent for Acceptance",
   "Approved": "Accepted",
-  "In Progress": "Work Order Active",
   "Declined": "Declined",
-  "Completed": "Completed",
+  "Scheduled": "Scheduled",
+  "In Progress": "Work Order Active",
   "Ready to Invoice": "Ready to Invoice",
   "Invoiced": "Invoiced",
   "Paid": "Paid",
+  "Completed": "Completed", // legacy
 };
 
 /** Human-facing label for a stored lifecycle status (falls back to the raw value). */

@@ -12,9 +12,13 @@ import { STATUS_FLOW, isStatusLocked } from "../lib/pmz-types.ts";
 
 const ALL = Object.keys(STATUS_FLOW);
 
-// Mirror of the Back button's predecessor logic (reverse of STATUS_FLOW).
+// Mirror of the Back button's predecessor logic (reverse of STATUS_FLOW). Skips Declined's
+// recovery back-routes so Back follows only the linear spine (matches the Quotes-page statusBack).
 function statusBack(status) {
-  for (const s of ALL) if ((STATUS_FLOW[s] || []).includes(status)) return s;
+  for (const s of ALL) {
+    if (s === "Declined") continue;
+    if ((STATUS_FLOW[s] || []).includes(status)) return s;
+  }
   return null;
 }
 
@@ -50,12 +54,14 @@ const toDraft = jump(jumped, "Draft");
 assert.equal(toDraft.status, "Draft");
 assert.equal(toDraft.locked, false, "lock follows the chosen status, even jumping backward");
 
-// --- Back predecessor chain matches the spec exactly ---
+// --- Back predecessor chain matches the corrected lifecycle exactly ---
+// Draft → Sent for Acceptance → Accepted → Scheduled → Work Order Active → Ready to Invoice →
+// Invoiced → Paid, with Declined branching off Sent for Acceptance.
 assert.equal(statusBack("Paid"), "Invoiced");
 assert.equal(statusBack("Invoiced"), "Ready to Invoice");
-assert.equal(statusBack("Ready to Invoice"), "Completed");
-assert.equal(statusBack("Completed"), "In Progress");
-assert.equal(statusBack("In Progress"), "Approved");
+assert.equal(statusBack("Ready to Invoice"), "In Progress");
+assert.equal(statusBack("In Progress"), "Scheduled");
+assert.equal(statusBack("Scheduled"), "Approved");
 assert.equal(statusBack("Approved"), "Ready for Approval");
 assert.equal(statusBack("Ready for Approval"), "Draft");
 assert.equal(statusBack("Declined"), "Ready for Approval");

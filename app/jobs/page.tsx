@@ -52,6 +52,18 @@ function fmtQty(n: number): string {
   return (Number.isFinite(n) ? n : 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+// Work-order status badge presentation, keyed by Job.status string so a future "scheduled" state
+// renders without a model change. Mirrors the quote lifecycle: Scheduled + Work Order Active are
+// blue; Completed is green. Falls back to the active (blue) treatment for any unknown status.
+const JOB_STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  open: { label: "Work Order Active", className: "border-blue-600 text-blue-700 bg-blue-50" },
+  scheduled: { label: "Scheduled", className: "border-blue-600 text-blue-700 bg-blue-50" },
+  completed: { label: "Completed", className: "border-emerald-600 text-emerald-700 bg-emerald-50" },
+};
+function jobStatusBadge(status: string) {
+  return JOB_STATUS_BADGE[status] ?? JOB_STATUS_BADGE.open;
+}
+
 export default function JobsForemanPage() {
   const [jobs, setJobs] = React.useState<Job[]>(() => {
     try {
@@ -347,18 +359,16 @@ export default function JobsForemanPage() {
                           <TableCell className="text-sm text-muted-foreground">{job.customerName || "—"}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">{job.workTypeName || "—"}</TableCell>
                           <TableCell>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                job.status === "completed"
-                                  ? "border-emerald-600 text-emerald-700 bg-emerald-50"
-                                  : "border-blue-600 text-blue-700 bg-blue-50"
-                              )}
-                            >
-                              {job.status === "completed" ? (
-                                <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Completed</span>
-                              ) : "Work Order Active"}
-                            </Badge>
+                            {(() => {
+                              const p = jobStatusBadge(job.status);
+                              return (
+                                <Badge variant="outline" className={cn(p.className)}>
+                                  {job.status === "completed" ? (
+                                    <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> {p.label}</span>
+                                  ) : p.label}
+                                </Badge>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">{created}</TableCell>
                           <TableCell>
@@ -433,17 +443,14 @@ export default function JobsForemanPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "text-sm",
-                      selectedJob.status === "completed"
-                        ? "border-emerald-600 text-emerald-700 bg-emerald-50"
-                        : "border-blue-600 text-blue-700 bg-blue-50"
-                    )}
-                  >
-                    {selectedJob.status === "completed" ? "Completed" : "Work Order Active"}
-                  </Badge>
+                  {(() => {
+                    const p = jobStatusBadge(selectedJob.status);
+                    return (
+                      <Badge variant="outline" className={cn("text-sm", p.className)}>
+                        {p.label}
+                      </Badge>
+                    );
+                  })()}
                   {selectedJob.completedAt && (
                     <div className="text-[10px] text-muted-foreground mt-1">
                       Completed {new Date(selectedJob.completedAt).toLocaleDateString()}

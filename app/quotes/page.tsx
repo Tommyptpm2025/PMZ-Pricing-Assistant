@@ -54,13 +54,16 @@ import {
   updateQuote,
   saveQuote,
 } from "@/lib/quote-storage";
-import { STATUS_FLOW, STATUS_LABELS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
+import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
 import { canTransition, applyStatusChange as libApplyStatusChange } from "@/lib/quote-lifecycle";
 
-const STATUS_OPTIONS = ["Draft", "Ready for Approval", "Approved", "Declined"] as const;
+// Status filter chips — the full lifecycle in canonical order (Declined sits right after
+// Accepted, not at the end). Shared single source of truth with the jump menu below.
+const STATUS_OPTIONS: QuoteStatus[] = STATUS_ORDER;
 
-// All nine lifecycle statuses, in forward order — for the super-user direct-jump control.
-const ALL_STATUSES = Object.keys(STATUS_FLOW) as QuoteStatus[];
+// All lifecycle statuses, in forward order — for the super-user direct-jump control and the
+// predecessor (Back) lookup. Excludes the retired "Completed".
+const ALL_STATUSES: QuoteStatus[] = STATUS_ORDER;
 
 // Super-user gate (PART C). Hard-coded for now; when the role hierarchy arrives, flip this
 // single switch to a real permission check — nothing else needs to change.
@@ -71,8 +74,8 @@ const isSuperUser = true;
 // handled separately; Paid/Declined are terminal.)
 const ADVANCE_STATUSES: QuoteStatus[] = [
   "Approved",
+  "Scheduled",
   "In Progress",
-  "Completed",
   "Ready to Invoice",
   "Invoiced",
 ];
@@ -83,12 +86,14 @@ function advanceNext(status: QuoteStatus): QuoteStatus | null {
   return STATUS_FLOW[status]?.[0] ?? null;
 }
 
-// The immediately prior status — the reverse of STATUS_FLOW (each status is a forward
-// target of exactly one other, so this is unambiguous). Null for Draft (nothing before it).
-// Yields: Paid->Invoiced->Ready to Invoice->Completed->In Progress->Approved->Ready for
+// The immediately prior status — the reverse of STATUS_FLOW. Null for Draft (nothing before it).
+// Yields: Paid->Invoiced->Ready to Invoice->In Progress->Scheduled->Approved->Ready for
 // Approval->Draft, and Declined->Ready for Approval.
 function statusBack(status: QuoteStatus): QuoteStatus | null {
   for (const s of ALL_STATUSES) {
+    // Skip Declined's recovery back-routes (Declined → Draft / → Sent for Acceptance) so Back
+    // follows only the linear spine — otherwise Draft would resolve "Declined" as its predecessor.
+    if (s === "Declined") continue;
     if ((STATUS_FLOW[s] || []).includes(status)) return s;
   }
   return null;
@@ -121,6 +126,7 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   "Draft": { bg: "#F1F1F1", fg: "#555555" },              // grey
   "Ready for Approval": { bg: "#FEF3C7", fg: "#92600E" }, // amber
   "Approved": { bg: "#DBEAFE", fg: "#1E40AF" },           // blue
+  "Scheduled": { bg: "#BFDBFE", fg: "#1D4ED8" },          // blue (deeper tint; ≠ indigo Work Order)
   "In Progress": { bg: "#E0E7FF", fg: "#3730A3" },        // indigo
   "Completed": { bg: "#CCFBF1", fg: "#115E59" },          // teal
   "Ready to Invoice": { bg: "#FFEDD5", fg: "#9A3412" },   // orange
@@ -557,6 +563,29 @@ export default function QuotesPage() {
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
   }
 
+  // Back-route a Declined quote to Draft to revise & resubmit. Appends history (so the trail keeps
+  // Draft→Sent→Declined→Draft) and clears the stale sent/decision stamps for a clean slate.
+  function reviseDeclined(quote: SavedQuote) {
+    if (quote.status !== "Declined" || !canTransition("Declined", "Draft")) return;
+    const transformed = libApplyStatusChange(quote, "Draft");
+    const updated: SavedQuote = { ...transformed, sentAt: undefined, decidedAt: undefined, decisionNote: undefined };
+    updateQuote(updated);
+    refresh();
+    setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
+  }
+
+  // Back-route a Declined quote straight back to Sent for Acceptance (re-send) with a fresh sentAt;
+  // clears the prior decision stamps since it's pending a customer decision again.
+  function resendDeclined(quote: SavedQuote) {
+    if (quote.status !== "Declined" || !canTransition("Declined", "Ready for Approval")) return;
+    const now = new Date().toISOString();
+    const transformed = libApplyStatusChange(quote, "Ready for Approval", { sentAt: now });
+    const updated: SavedQuote = { ...transformed, decidedAt: undefined, decisionNote: undefined };
+    updateQuote(updated);
+    refresh();
+    setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
+  }
+
   // Create a Work Order (Job) from an Accepted EPP quote: snapshot the bid items + aggregate the
   // per-line LEM into a numeric recipe, persist via the jobs store, then route to the Jobs tab.
   // Idempotent — one job per accepted quote (guarded by workOrderQuoteIds / the stored quoteId).
@@ -805,6 +834,8 @@ export default function QuotesPage() {
                             else if (v === "act:advance") setAdvanceTarget(quote);
                             else if (v === "act:accept") recordDecision(quote, true, "");
                             else if (v === "act:decline") recordDecision(quote, false, "");
+                            else if (v === "act:revise") reviseDeclined(quote);
+                            else if (v === "act:resend") resendDeclined(quote);
                             else if (v.startsWith("jump:")) superUserSetStatus(quote, v.slice(5) as QuoteStatus);
                             else if (v === "su-back") superUserBack(quote);
                             else if (v === "su-reset") superUserResetToDraft(quote);
@@ -819,6 +850,12 @@ export default function QuotesPage() {
                             <>
                               <option value="act:accept">Mark Accepted</option>
                               <option value="act:decline">Mark Declined</option>
+                            </>
+                          )}
+                          {quote.status === "Declined" && (
+                            <>
+                              <option value="act:revise">Revise &amp; Resubmit (back to Draft)</option>
+                              <option value="act:resend">Re-send for Acceptance</option>
                             </>
                           )}
                           {advanceNext(quote.status) && (
