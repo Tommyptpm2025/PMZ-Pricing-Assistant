@@ -2811,6 +2811,7 @@ export default function ProjectPricerPage() {
                                                     <Input
                                                       type="number"
                                                       value={x.e.hours || ""}
+                                                      style={gateHighlights.has(`${item.id}:labor:${x.i}`) && !(typeof x.e.hours === "number" && x.e.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                                       onChange={(ev) => updateGroupedEntryHours(item, "labor", x.i, parseFloat(ev.target.value) || 0)}
                                                       className="h-8 w-full min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                       step="0.25"
@@ -3060,6 +3061,7 @@ export default function ProjectPricerPage() {
                                                     <Input
                                                       type="number"
                                                       value={x.e.hours || ""}
+                                                      style={gateHighlights.has(`${item.id}:equipment:${x.i}`) && !(typeof x.e.hours === "number" && x.e.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                                       onChange={(ev) => updateGroupedEntryHours(item, "equipment", x.i, parseFloat(ev.target.value) || 0)}
                                                       className="h-8 w-full min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                       step="0.25"
