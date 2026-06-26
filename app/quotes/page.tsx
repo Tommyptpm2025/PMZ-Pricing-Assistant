@@ -818,26 +818,37 @@ export default function QuotesPage() {
                     <TableCell className="text-right pr-3">
                       <div className="flex items-center justify-end gap-1">
                         {/* Status actions now live in the Change dropdown (status column). */}
-                        {/* Secondary actions — plain native <select> (reliable; NOT the custom
-                            Select). Reuses the existing preview / openQuote / duplicate handlers.
-                            Controlled value="" auto-resets to the placeholder after each pick. */}
-                        <select
-                          value=""
-                          aria-label="Quote actions"
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === "preview") openPreviewWithExport(quote);
-                            else if (v === "edit") openQuote(quote);
-                            else if (v === "duplicate") duplicateQuote(quote);
-                          }}
-                          className="h-7 rounded border px-1.5 text-xs bg-white"
-                          style={{ color: "#333333", borderColor: "#7D1424" }}
-                        >
-                          <option value="" disabled>Actions…</option>
-                          <option value="preview">Preview</option>
-                          <option value="edit">Edit</option>
-                          <option value="duplicate">Duplicate</option>
-                        </select>
+                        {/* Secondary actions — custom pill trigger matching the status pill:
+                            a styled [Actions ▾] button with an invisible native <select> overlay
+                            carrying the same preview / edit / duplicate handlers. UI only. */}
+                        <div className="relative inline-flex items-center group">
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-hidden
+                            className="inline-flex items-center gap-1 h-7 rounded border px-1.5 text-xs bg-white cursor-pointer transition-[filter] group-hover:brightness-95"
+                            style={{ color: "#333333", borderColor: "#7D1424" }}
+                          >
+                            Actions
+                            <span aria-hidden className="leading-none" style={{ fontSize: 10 }}>▾</span>
+                          </button>
+                          <select
+                            value=""
+                            aria-label="Quote actions"
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === "preview") openPreviewWithExport(quote);
+                              else if (v === "edit") openQuote(quote);
+                              else if (v === "duplicate") duplicateQuote(quote);
+                            }}
+                            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                          >
+                            <option value="" disabled>Actions…</option>
+                            <option value="preview">Preview</option>
+                            <option value="edit">Edit</option>
+                            <option value="duplicate">Duplicate</option>
+                          </select>
+                        </div>
                         <Button
                           size="sm"
                           variant="ghost"
