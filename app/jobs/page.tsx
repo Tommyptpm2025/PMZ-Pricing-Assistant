@@ -68,13 +68,10 @@ function jobStatusBadge(status: string) {
 }
 
 export default function JobsForemanPage() {
-  const [jobs, setJobs] = React.useState<Job[]>(() => {
-    try {
-      return loadJobs();
-    } catch {
-      return [];
-    }
-  });
+  // Start empty (SSR-safe), then load from localStorage on client mount — see the effects below.
+  // This avoids the hydration flash that could leave a selected job's recipe blank on first paint.
+  const [jobs, setJobs] = React.useState<Job[]>([]);
+  const [loaded, setLoaded] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [statusFilter, setStatusFilter] = React.useState<"all" | "open" | "completed">("all");
   const [notesDraft, setNotesDraft] = React.useState("");
@@ -84,10 +81,21 @@ export default function JobsForemanPage() {
   // number stored on the job; this map is just the in-flight text. Reset when switching jobs.
   const [actualDrafts, setActualDrafts] = React.useState<Record<string, string>>({});
 
-  // Persist on any jobs change (jobs array identity changes on mutations)
+  // Load saved jobs on client mount (deterministic — recipeLines are present before the user
+  // opens a job, so the Recipe & Actuals section renders immediately with no interaction).
   React.useEffect(() => {
+    try {
+      setJobs(loadJobs());
+    } catch {}
+    setLoaded(true);
+  }, []);
+
+  // Persist on any jobs change — but only AFTER the initial client load, so the empty initial
+  // state never overwrites stored jobs.
+  React.useEffect(() => {
+    if (!loaded) return;
     saveJobs(jobs);
-  }, [jobs]);
+  }, [jobs, loaded]);
 
   const selectedJob = React.useMemo(
     () => jobs.find((j) => j.id === selectedId) || null,
@@ -358,7 +366,18 @@ export default function JobsForemanPage() {
                           className={cn("hover:bg-muted/20 cursor-pointer", isSel && "bg-primary/5")}
                           onClick={() => selectJob(job.id)}
                         >
-                          <TableCell className="font-medium">{job.jobName}</TableCell>
+                          <TableCell className="font-medium">
+                            {/* Poka-yoke: the job name is the primary clickable (underlined, TPM
+                                red on hover) — matches every other tab. Eye icon still opens it too. */}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); selectJob(job.id); }}
+                              title="Open work order"
+                              className="text-left underline underline-offset-2 outline-none cursor-pointer hover:text-[#EB3300] focus-visible:text-[#EB3300]"
+                            >
+                              {job.jobName}
+                            </button>
+                          </TableCell>
                           <TableCell className="text-sm text-muted-foreground">{job.customerName || "—"}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">{job.workTypeName || "—"}</TableCell>
                           <TableCell>
@@ -561,7 +580,7 @@ export default function JobsForemanPage() {
                         {line.description || "Untitled line"}
                       </div>
                       <div className="space-y-4">
-                        {line.sections.map((section, si) => (
+                        {(line.sections || []).map((section, si) => (
                           <div key={si}>
                             <div
                               className={cn(
@@ -583,7 +602,7 @@ export default function JobsForemanPage() {
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                  {section.rows.map((row) => {
+                                  {(section.rows || []).map((row) => {
                                     const variance = row.actualQty == null ? null : row.actualQty - row.plannedQty;
                                     const overPlan = variance != null && variance > 0;
                                     const draftVal =
