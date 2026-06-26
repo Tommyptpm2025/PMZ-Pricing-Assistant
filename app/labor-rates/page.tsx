@@ -428,9 +428,9 @@ export default function LaborRateBuilder() {
         </div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-12">
+      <div className="grid gap-6 lg:grid-cols-12">
         {/* INPUT FORM */}
-        <div className="xl:col-span-7 space-y-6">
+        <div className="lg:col-span-7 space-y-6">
           <Card className="card">
             <CardHeader className="pb-4">
               <CardTitle className="text-xl">Role &amp; Pay Inputs</CardTitle>
@@ -633,7 +633,7 @@ export default function LaborRateBuilder() {
         </div>
 
         {/* LIVE RESULTS — THE IMPORTANT PART */}
-        <div className="xl:col-span-5">
+        <div className="lg:col-span-5">
           <Card className="card border-primary/30 sticky top-20 shadow-lg">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
@@ -763,7 +763,6 @@ export default function LaborRateBuilder() {
                     <TableHead>Role</TableHead>
                     <TableHead className="text-right">Base</TableHead>
                     <TableHead className="text-right">Fixed Fringes</TableHead>
-                    <TableHead className="text-right">Total Burden</TableHead>
                     <TableHead className="text-right">True Cost / Billable</TableHead>
                     <TableHead className="w-px" />
                   </TableRow>
@@ -804,7 +803,6 @@ export default function LaborRateBuilder() {
                             (rate.otherFixedFringes || 0)
                           )}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">{formatPercent(r.totalBurdenPercent)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatCurrency(r.trueCostPerBillableHour)}</TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">

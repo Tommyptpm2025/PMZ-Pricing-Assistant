@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getAllQuotes } from './quote-storage';
 
 /**
@@ -79,7 +79,6 @@ function seedFromQuotes(): Salesperson[] {
 
 export function useSalespeople() {
   const [salespeople, setSalespeople] = useState<Salesperson[]>([]);
-  const hasLoadedRef = useRef(false);
 
   const load = useCallback(() => {
     // First run ever (key absent) → seed once from existing quotes, then persist so we never re-seed
@@ -101,8 +100,10 @@ export function useSalespeople() {
   }, []);
 
   useEffect(() => {
-    if (hasLoadedRef.current) return;
-    hasLoadedRef.current = true;
+    // Load on every mount AND keep the cross-surface sync listeners registered for the lifetime of
+    // the mount. (Previously a one-shot `hasLoadedRef` guard skipped re-registering the listeners
+    // after a remount, so an open Pricer kept a stale registry snapshot and never saw salespeople
+    // added later in Settings.) `load` is an idempotent localStorage read, so any double-run is safe.
     load();
 
     const onStorage = (e: StorageEvent) => {

@@ -1666,17 +1666,25 @@ export default function ProjectPricerPage() {
     }
   }
 
-  function handleSaveEPPQuote() {
-    setSaveAttempted(true);
-    setEppSaveAttempted(true);
-    if (!eppHasItems) return;
+  // Actual EPP save + success cue. `asDraft` tailors the toast when saving via "Proceed Anyway".
+  function doSaveEPP(asDraft: boolean) {
     setIsSavingEPP(true);
     saveQuote("EPP");
-    setSaveMessage("Quote saved successfully");
+    setSaveMessage(asDraft ? "Incomplete draft saved" : "Quote saved successfully");
     // brief disable cue
     setTimeout(() => setIsSavingEPP(false), 1500);
     // auto dismiss message
     setTimeout(() => setSaveMessage(null), 4500);
+  }
+
+  function handleSaveEPPQuote() {
+    setSaveAttempted(true);
+    setEppSaveAttempted(true);
+    // Not a hard block anymore: if required header fields or line items are incomplete, surface the
+    // red highlights + warning and wait for the estimator to confirm via "Proceed Anyway" (which
+    // calls doSaveEPP directly). When everything's complete, save immediately.
+    if (!isValid || !eppHasItems) return;
+    doSaveEPP(false);
   }
 
   function handleSaveFullQuote() {
@@ -2011,7 +2019,13 @@ export default function ProjectPricerPage() {
   const isValid = Object.keys(validationErrors).length === 0;
 
   // Per-section item validation errors (independent)
-  const eppItemError = eppSaveAttempted && !eppHasItems ? "At least one line item is required" : null;
+  // Incomplete required fields for the EPP save warning ("Proceed Anyway" path). Header fields reuse
+  // the same validationErrors as the inline hints; line items add their own entry.
+  const eppIncompleteFields: string[] = [];
+  if (validationErrors.jobName) eppIncompleteFields.push("Job Name");
+  if (validationErrors.workType) eppIncompleteFields.push("Work Type");
+  if (validationErrors.customer) eppIncompleteFields.push("Customer");
+  if (!eppHasItems) eppIncompleteFields.push("at least one line item");
   const proItemError = proSaveAttempted && !proHasItems ? "At least one item is required" : null;
 
   // Computed for Grand Total using (user-editable or auto-default target) % as true margin
@@ -2373,7 +2387,7 @@ export default function ProjectPricerPage() {
               >
                 <SelectTrigger className={cn(
                   "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]",
-                  saveAttempted && validationErrors.customer && "border-red-300 focus-visible:border-red-400"
+                  saveAttempted && validationErrors.customer && "border-[#EB3300] ring-2 ring-[#EB3300]"
                 )}>
                   <SelectValue placeholder="Select customer..." />
                 </SelectTrigger>
@@ -2405,7 +2419,10 @@ export default function ProjectPricerPage() {
                   }
                 }}
                 onChange={(e) => updateEstimate({ jobName: e.target.value })}
-                className="mt-1.5 text-lg font-medium"
+                className={cn(
+                  "mt-1.5 text-lg font-medium",
+                  saveAttempted && validationErrors.jobName && "border-[#EB3300] ring-2 ring-[#EB3300]"
+                )}
               />
               {saveAttempted && validationErrors.jobName && (
                 <p className="mt-1 text-xs text-red-600">{validationErrors.jobName}</p>
@@ -2425,7 +2442,7 @@ export default function ProjectPricerPage() {
               >
                 <SelectTrigger className={cn(
                   "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]",
-                  !estimate.workTypeName && "border-red-300 focus-visible:border-red-400"
+                  saveAttempted && validationErrors.workType && "border-[#EB3300] ring-2 ring-[#EB3300]"
                 )}>
                   <SelectValue placeholder="Select work type..." />
                 </SelectTrigger>
@@ -3727,8 +3744,22 @@ export default function ProjectPricerPage() {
             {isReadOnly && (
               <div className="text-xs text-amber-700 mr-auto">Read-only (locked quote)</div>
             )}
-            {eppSaveAttempted && eppItemError && !isReadOnly && (
-              <div className="text-xs text-red-600 mr-auto">{eppItemError}</div>
+            {eppSaveAttempted && eppIncompleteFields.length > 0 && !isReadOnly && (
+              <div className="mr-auto flex flex-wrap items-center gap-3">
+                <div className="text-xs font-medium" style={{ color: "#EB3300" }}>
+                  Incomplete: {eppIncompleteFields.join(", ")}. Finish these, or save as a draft.
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => doSaveEPP(true)}
+                  disabled={isSavingEPP}
+                  className="font-semibold"
+                  style={{ borderColor: "#EB3300", color: "#EB3300" }}
+                >
+                  Proceed Anyway
+                </Button>
+              </div>
             )}
             <Button
               variant="outline"
@@ -3755,11 +3786,10 @@ export default function ProjectPricerPage() {
             <Button
               size="default"
               onClick={handleSaveEPPQuote}
-              disabled={isReadOnly || !eppHasItems || isSavingEPP}
-              title={!eppHasItems ? "Add items first" : undefined}
+              disabled={isReadOnly || isSavingEPP}
               className={cn(
                 "font-semibold shadow-sm",
-                (!eppHasItems || isReadOnly || isSavingEPP) && "opacity-60 cursor-not-allowed"
+                (isReadOnly || isSavingEPP) && "opacity-60 cursor-not-allowed"
               )}
             >
               Save Quote

@@ -425,9 +425,9 @@ export default function MiscRateBuilder() {
           )}
 
           {/* Main grid — inputs (left) + sticky LIVE RESULTS (right) */}
-          <div className="grid gap-6 xl:grid-cols-12">
+          <div className="grid gap-6 lg:grid-cols-12">
             {/* LEFT COLUMN — INPUTS */}
-            <div className="xl:col-span-7 space-y-6">
+            <div className="lg:col-span-7 space-y-6">
               <Card className="card">
                 <CardHeader>
                   <CardTitle className="text-xl">Cost Inputs</CardTitle>
@@ -514,7 +514,7 @@ export default function MiscRateBuilder() {
             </div>
 
             {/* RIGHT COLUMN — LIVE RESULTS (sticky) */}
-            <div className="xl:col-span-5">
+            <div className="lg:col-span-5">
               <Card className="card border-primary/30 sticky top-20 shadow-lg">
                 <CardHeader>
                   <CardTitle className="text-sm tracking-[0.5px] text-muted-foreground">LIVE RESULTS</CardTitle>

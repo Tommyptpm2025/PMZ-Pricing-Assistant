@@ -323,6 +323,10 @@ export default function QuotesPage() {
       to.setHours(23, 59, 59, 999);
       list = list.filter((q) => new Date(q.createdAt) <= to);
     }
+    // Stable display order by creation time. A status change bumps updatedAt, so sorting by
+    // updatedAt (getAllQuotes' default) would make the edited quote jump to the top of the list —
+    // making it look like the wrong row changed. createdAt keeps each row in a fixed position.
+    list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
     return list;
   }, [
     eppBase,
@@ -359,6 +363,8 @@ export default function QuotesPage() {
       to.setHours(23, 59, 59, 999);
       list = list.filter((q) => new Date(q.createdAt) <= to);
     }
+    // Stable display order by creation time (see filteredEpp) — keeps rows fixed across status edits.
+    list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
     return list;
   }, [
     fullBase,
@@ -674,6 +680,15 @@ export default function QuotesPage() {
     const setFrom = isEpp ? setEppDateFrom : setFullDateFrom;
     const setTo = isEpp ? setEppDateTo : setFullDateTo;
 
+    // Live per-stage tally for the chip count badges — from the full base list (all quotes of this
+    // type), so each chip shows how many quotes are currently in that stage. Re-derives on every
+    // refresh, so the counts update the moment a status changes.
+    const base = isEpp ? eppBase : fullBase;
+    const statusCounts = base.reduce<Record<string, number>>((acc, q) => {
+      acc[q.status] = (acc[q.status] || 0) + 1;
+      return acc;
+    }, {});
+
     return (
       <div className="rounded-lg border bg-white p-3 space-y-3">
         <div className="flex flex-wrap gap-x-4 gap-y-2 items-end">
@@ -684,17 +699,19 @@ export default function QuotesPage() {
               {STATUS_OPTIONS.map((st) => {
                 const active = statusSel.includes(st);
                 const c = STATUS_COLORS[st] || STATUS_COLORS["Draft"];
+                const count = statusCounts[st] || 0;
                 return (
                   <button
                     key={st}
                     onClick={() => toggleStatus(list, st)}
                     className={cn(
-                      "text-xs px-2 py-0.5 rounded border transition-colors",
+                      "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border transition-colors",
                       !active && "hover:bg-muted border-border"
                     )}
                     style={active ? { backgroundColor: c.bg, color: c.fg, borderColor: c.bg } : undefined}
                   >
                     {STATUS_LABELS[st]}
+                    <span className={cn("tabular-nums", active ? "opacity-80" : "text-muted-foreground")}>{count}</span>
                   </button>
                 );
               })}

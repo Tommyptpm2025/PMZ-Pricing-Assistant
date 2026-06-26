@@ -567,9 +567,9 @@ export default function EquipmentRateBuilder() {
         </div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-12">
+      <div className="grid gap-6 lg:grid-cols-12">
         {/* LEFT COLUMN — INPUTS */}
-        <div className="xl:col-span-7 space-y-6">
+        <div className="lg:col-span-7 space-y-6">
           {/* EQUIPMENT IDENTITY SECTION — asset identifiers (manual entry) */}
           <Card className="card">
             <CardHeader className="pb-4">
@@ -873,7 +873,7 @@ export default function EquipmentRateBuilder() {
         </div>
 
         {/* RIGHT COLUMN — LIVE RESULTS (sticky, matching Labor Rate Builder style) */}
-        <div className="xl:col-span-5">
+        <div className="lg:col-span-5">
           <Card className="card border-primary/30 sticky top-20 shadow-lg">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
