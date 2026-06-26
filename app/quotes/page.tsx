@@ -42,6 +42,7 @@ import {
   Check,
   X,
   ChevronRight,
+  CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
@@ -153,8 +154,12 @@ export default function QuotesPage() {
   // Accepted-handoff gate block: set when an accept attempt is refused because some bid lines
   // lack resolved LEM detail. Carries the quote id + the offending line descriptions.
   const [lemGateBlock, setLemGateBlock] = React.useState<{ quoteId: string; failures: LemGateLineFailure[] } | null>(null);
-  // Quote ids that already have a Work Order (Job), so "Create Work Order" stays idempotent.
+  // Quote ids that already have a Work Order (Job) — idempotency guard + drives the "View Work
+  // Order" links (a work order id implies the quote is Accepted or later).
   const [workOrderQuoteIds, setWorkOrderQuoteIds] = React.useState<Set<string>>(new Set());
+  // Transient toast (job name) shown when a work order is auto-created on Accept.
+  const [woToast, setWoToast] = React.useState<string | null>(null);
+  const woToastTimer = React.useRef<number | null>(null);
 
   // Path B preview: the Quotes-page "Preview" now routes through the SHARED Update Export dialog
   // (same gate as the Pricer's Path A) before showing the internal preview. These mirror the
@@ -475,6 +480,8 @@ export default function QuotesPage() {
     updateQuote(updated);
     refresh();
     setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
+    // A super-user jump to Accepted also auto-creates the work order (idempotent).
+    if (newStatus === "Approved") autoCreateWorkOrder(updated);
   }
 
   // Back — step exactly one status backward (mirror of forward Advance). Reuses the same
@@ -549,6 +556,8 @@ export default function QuotesPage() {
     setDecisionNote("");
     setLemGateBlock(null);
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
+    // Accept passed the gate → auto-create the work order (idempotent).
+    if (accepted) autoCreateWorkOrder(updated);
   }
 
   // Back-route a Declined quote to Draft to revise & resubmit. Appends history (so the trail keeps
@@ -582,11 +591,17 @@ export default function QuotesPage() {
   }
 
   // Create a Work Order (Job) from an Accepted EPP quote: snapshot the bid items + aggregate the
-  // per-line LEM into a numeric recipe, persist via the jobs store, then route to the Jobs tab.
-  // Idempotent — one job per accepted quote (guarded by workOrderQuoteIds / the stored quoteId).
-  function createWorkOrder(quote: SavedQuote) {
-    if (quote.status !== "Approved" || quote.quoteType !== "EPP") return;
-    if (workOrderQuoteIds.has(quote.id)) return;
+  // per-line LEM into a numeric recipe, persist via the jobs store. Idempotent — one job per
+  // accepted quote (guarded by workOrderQuoteIds AND the stored job.quoteId). Returns true only
+  // when it actually created a new work order. Does NOT navigate (callers decide).
+  function ensureWorkOrder(quote: SavedQuote): boolean {
+    if (quote.quoteType !== "EPP") return false;
+    if (workOrderQuoteIds.has(quote.id)) return false;
+    // Stale-state guard: a job may already exist even if the set hasn't caught up — record + skip.
+    if (loadJobs().some((j) => j.quoteId === quote.id)) {
+      setWorkOrderQuoteIds((prev) => new Set(prev).add(quote.id));
+      return false;
+    }
     const items = quote.eppLineItems || [];
     const job = createJobFromQuote({
       quoteId: quote.id,
@@ -613,7 +628,16 @@ export default function QuotesPage() {
     });
     saveJobs([...loadJobs(), job]);
     setWorkOrderQuoteIds((prev) => new Set(prev).add(quote.id));
-    router.push("/jobs");
+    return true;
+  }
+
+  // Auto-create the work order the moment a quote becomes Accepted, then toast (no navigation —
+  // the user stays on the Quotes list and can follow the "view in Jobs" link when ready).
+  function autoCreateWorkOrder(quote: SavedQuote) {
+    if (!ensureWorkOrder(quote)) return;
+    setWoToast(quote.jobName?.trim() || "Untitled Job");
+    if (woToastTimer.current) window.clearTimeout(woToastTimer.current);
+    woToastTimer.current = window.setTimeout(() => setWoToast(null), 6000);
   }
 
   // PART A — advance a quote forward through the back half of the lifecycle
@@ -877,6 +901,16 @@ export default function QuotesPage() {
                     <TableCell className="text-right pr-3 whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
                         {/* Status actions now live in the Change dropdown (status column). */}
+                        {/* View Work Order — only once a work order exists (Accepted or later). */}
+                        {workOrderQuoteIds.has(quote.id) && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); router.push("/jobs"); }}
+                            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-[#7D1424] mr-1"
+                          >
+                            → View Work Order
+                          </button>
+                        )}
                         {/* Secondary actions — custom pill trigger matching the status pill:
                             a styled [Actions ▾] button with an invisible native <select> overlay
                             carrying the same preview / edit / duplicate handlers. UI only. */}
@@ -937,6 +971,25 @@ export default function QuotesPage() {
 
   return (
     <div className="max-w-6xl space-y-8 pb-12">
+      {/* Work-order auto-create toast (auto-dismisses; "view in Jobs" routes to the Jobs tab). */}
+      {woToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg border bg-white px-4 py-3 text-sm shadow-lg"
+        >
+          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+          <span>Work Order created for <span className="font-medium">{woToast}</span> —</span>
+          <button
+            type="button"
+            onClick={() => { setWoToast(null); router.push("/jobs"); }}
+            className="underline underline-offset-2 font-medium hover:text-[#7D1424]"
+          >
+            view in Jobs
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -1293,20 +1346,19 @@ export default function QuotesPage() {
               </div>
             )}
 
-            {/* Accepted handoff — turn an Accepted EPP quote into a Work Order (Job) */}
-            {previewTarget?.status === "Approved" && previewTarget.quoteType === "EPP" && (
+            {/* Accepted handoff — the work order is auto-created on Accept; offer a link to view it. */}
+            {previewTarget && workOrderQuoteIds.has(previewTarget.id) && (
               <div className="flex items-center justify-end gap-2">
-                {workOrderQuoteIds.has(previewTarget.id) ? (
-                  <span className="text-xs text-muted-foreground">Work Order created ✓</span>
-                ) : (
-                  <Button
-                    className="text-white"
-                    style={{ backgroundColor: "#7D1424" }}
-                    onClick={() => previewTarget && createWorkOrder(previewTarget)}
-                  >
-                    Create Work Order
-                  </Button>
-                )}
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Work Order created
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setPreviewTarget(null); router.push("/jobs"); }}
+                  className="text-xs underline underline-offset-2 font-medium hover:text-[#7D1424]"
+                >
+                  → View Work Order
+                </button>
               </div>
             )}
 
