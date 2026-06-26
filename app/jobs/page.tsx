@@ -45,6 +45,7 @@ import {
   createId,
   type Job,
 } from "@/lib/jobs";
+import { STATUS_COLORS } from "@/lib/pmz-types";
 
 // Quantity formatter — up to 2 decimals, no trailing-zero noise. NO currency anywhere here:
 // the Foreman Work Order is field-execution only (cost lives in the Pricer, never on this view).
@@ -52,13 +53,15 @@ function fmtQty(n: number): string {
   return (Number.isFinite(n) ? n : 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-// Work-order status badge presentation, keyed by Job.status string so a future "scheduled" state
-// renders without a model change. Mirrors the quote lifecycle: Scheduled + Work Order Active are
-// blue; Completed is green. Falls back to the active (blue) treatment for any unknown status.
-const JOB_STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  open: { label: "Work Order Active", className: "border-blue-600 text-blue-700 bg-blue-50" },
-  scheduled: { label: "Scheduled", className: "border-blue-600 text-blue-700 bg-blue-50" },
-  completed: { label: "Completed", className: "border-emerald-600 text-emerald-700 bg-emerald-50" },
+// Work-order status badge presentation, keyed by Job.status string so a future "scheduled"/"lost"
+// state renders without a model change. Pulls from the shared lifecycle zone colors so a job badge
+// matches its quote pill: open → Work Order Active (indigo), scheduled → blue, lost → dark gray.
+// "completed" is a foreman work-order done state (not a lifecycle zone) — reuse Paid's dark green.
+const JOB_STATUS_BADGE: Record<string, { label: string; bg: string; fg: string }> = {
+  open: { label: "Work Order Active", ...STATUS_COLORS["In Progress"] },
+  scheduled: { label: "Scheduled", ...STATUS_COLORS["Scheduled"] },
+  completed: { label: "Completed", ...STATUS_COLORS["Paid"] },
+  lost: { label: "Lost", ...STATUS_COLORS["Lost"] },
 };
 function jobStatusBadge(status: string) {
   return JOB_STATUS_BADGE[status] ?? JOB_STATUS_BADGE.open;
@@ -362,7 +365,7 @@ export default function JobsForemanPage() {
                             {(() => {
                               const p = jobStatusBadge(job.status);
                               return (
-                                <Badge variant="outline" className={cn(p.className)}>
+                                <Badge variant="outline" style={{ backgroundColor: p.bg, color: p.fg, borderColor: p.bg }}>
                                   {job.status === "completed" ? (
                                     <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> {p.label}</span>
                                   ) : p.label}
@@ -446,7 +449,7 @@ export default function JobsForemanPage() {
                   {(() => {
                     const p = jobStatusBadge(selectedJob.status);
                     return (
-                      <Badge variant="outline" className={cn("text-sm", p.className)}>
+                      <Badge variant="outline" className="text-sm" style={{ backgroundColor: p.bg, color: p.fg, borderColor: p.bg }}>
                         {p.label}
                       </Badge>
                     );

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { STATUS_COLORS } from "@/lib/pmz-types";
 
 interface QuotePreviewProps {
   quote: any; // accepts normalized object from buildQuoteData (or legacy shape)
@@ -59,13 +60,14 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   // matches the PDF header behavior so the on-screen preview is no longer logo-blind.
   const logoDataUrl = q.logoDataUrl || null;
 
-  // Status badge for the document — clean customer-facing label, on-brand colors.
-  // Red = action needed, Maroon = in-flight, Charcoal = closed out (Paid).
+  // Status badge for the document — clean customer-facing label, with the shared lifecycle zone
+  // color (STATUS_COLORS) as the accent so the document pill matches the app's status pills.
   const STATUS_LABELS: Record<string, string> = {
     "Draft": "Draft",
     "Ready for Approval": "Awaiting acceptance",
     "Approved": "Accepted",
     "Declined": "Declined",
+    "Lost": "Lost",
     "In Progress": "In progress",
     "Completed": "Completed",
     "Ready to Invoice": "Ready to invoice",
@@ -73,12 +75,8 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
     "Paid": "Paid",
   };
   const statusLabel = STATUS_LABELS[q.status as string] || null;
-  // Red #EB3300 — action needed; Charcoal #333333 — Paid; Maroon #7D1424 — everything in-flight.
-  const STATUS_RED = ["Ready for Approval", "Ready to Invoice"];
-  const statusColor =
-    STATUS_RED.includes(q.status as string) ? "#EB3300"
-    : q.status === "Paid" ? "#333333"
-    : "#7D1424";
+  // Outlined pill: text + border use the zone background hex (saturated enough to read on white).
+  const statusColor = STATUS_COLORS[q.status as string]?.bg || "#7D1424";
 
   // Customer block (normalized by buildCustomerBlock): full address lines, contact, access, gps.
   const billToLines: string[] = Array.isArray(customer.billToLines) ? customer.billToLines : [];

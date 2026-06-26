@@ -54,7 +54,7 @@ import {
   updateQuote,
   saveQuote,
 } from "@/lib/quote-storage";
-import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
+import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
 import { canTransition, applyStatusChange as libApplyStatusChange } from "@/lib/quote-lifecycle";
 
 // Status filter chips — the full lifecycle in canonical order (Declined sits right after
@@ -120,20 +120,8 @@ function formatDate(iso?: string): string {
   }
 }
 
-// Functional status palette — light tint bg / darker readable text per lifecycle stage.
-// Intentionally separate from the brand palette; Declined's rose stays distinct from brand red.
-const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  "Draft": { bg: "#F1F1F1", fg: "#555555" },              // grey
-  "Ready for Approval": { bg: "#FEF3C7", fg: "#92600E" }, // amber
-  "Approved": { bg: "#DBEAFE", fg: "#1E40AF" },           // blue
-  "Scheduled": { bg: "#BFDBFE", fg: "#1D4ED8" },          // blue (deeper tint; ≠ indigo Work Order)
-  "In Progress": { bg: "#E0E7FF", fg: "#3730A3" },        // indigo
-  "Completed": { bg: "#CCFBF1", fg: "#115E59" },          // teal
-  "Ready to Invoice": { bg: "#FFEDD5", fg: "#9A3412" },   // orange
-  "Invoiced": { bg: "#E0F2FE", fg: "#075985" },           // sky
-  "Paid": { bg: "#DCFCE7", fg: "#166534" },               // green
-  "Declined": { bg: "#FFE4E6", fg: "#9F1239" },           // deep rose (≠ brand red #EB3300)
-};
+// Status pill colors now live in lib/pmz-types (STATUS_COLORS — the locked lifecycle zone map),
+// shared with the Jobs page and QuotePreview so every surface renders the same zone color.
 
 // Status pill. In `trigger` mode it gains an inline chevron + hover affordance so the colored
 // pill itself reads as a dropdown trigger (locked UI standard: the chevron IS the affordance).
@@ -145,7 +133,7 @@ function StatusBadge({ status, trigger = false }: { status: string; trigger?: bo
       variant="outline"
       title={label}
       className={cn("font-medium text-xs", trigger && "gap-1 cursor-pointer transition-[filter] group-hover:brightness-95")}
-      style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.fg }}
+      style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.bg }}
     >
       {label}
       {trigger && <span aria-hidden className="leading-none" style={{ fontSize: 10 }}>▾</span>}
@@ -586,6 +574,13 @@ export default function QuotesPage() {
     setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
   }
 
+  // Write off a Declined quote as Lost (terminal). One-way: only the super-user jump can revive it.
+  function markAsLost(quote: SavedQuote) {
+    if (quote.status !== "Declined" || !canTransition("Declined", "Lost")) return;
+    const updated = applyStatusChange(quote, "Lost");
+    setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
+  }
+
   // Create a Work Order (Job) from an Accepted EPP quote: snapshot the bid items + aggregate the
   // per-line LEM into a numeric recipe, persist via the jobs store, then route to the Jobs tab.
   // Idempotent — one job per accepted quote (guarded by workOrderQuoteIds / the stored quoteId).
@@ -664,14 +659,16 @@ export default function QuotesPage() {
             <div className="flex flex-wrap gap-1">
               {STATUS_OPTIONS.map((st) => {
                 const active = statusSel.includes(st);
+                const c = STATUS_COLORS[st] || STATUS_COLORS["Draft"];
                 return (
                   <button
                     key={st}
                     onClick={() => toggleStatus(list, st)}
                     className={cn(
                       "text-xs px-2 py-0.5 rounded border transition-colors",
-                      active ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted border-border"
+                      !active && "hover:bg-muted border-border"
                     )}
+                    style={active ? { backgroundColor: c.bg, color: c.fg, borderColor: c.bg } : undefined}
                   >
                     {STATUS_LABELS[st]}
                   </button>
@@ -836,6 +833,7 @@ export default function QuotesPage() {
                             else if (v === "act:decline") recordDecision(quote, false, "");
                             else if (v === "act:revise") reviseDeclined(quote);
                             else if (v === "act:resend") resendDeclined(quote);
+                            else if (v === "act:lost") markAsLost(quote);
                             else if (v.startsWith("jump:")) superUserSetStatus(quote, v.slice(5) as QuoteStatus);
                             else if (v === "su-back") superUserBack(quote);
                             else if (v === "su-reset") superUserResetToDraft(quote);
@@ -856,6 +854,7 @@ export default function QuotesPage() {
                             <>
                               <option value="act:revise">Revise &amp; Resubmit (back to Draft)</option>
                               <option value="act:resend">Re-send for Acceptance</option>
+                              <option value="act:lost">Mark as Lost</option>
                             </>
                           )}
                           {advanceNext(quote.status) && (

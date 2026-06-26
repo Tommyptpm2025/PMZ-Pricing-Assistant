@@ -232,6 +232,7 @@ export type QuoteStatus =
   | "Ready for Approval"
   | "Approved"
   | "Declined"
+  | "Lost"
   | "Scheduled"
   | "In Progress"
   | "Ready to Invoice"
@@ -313,7 +314,8 @@ export const STATUS_FLOW: Record<QuoteStatus, QuoteStatus[]> = {
   "Draft": ["Ready for Approval"],
   "Ready for Approval": ["Approved", "Declined"],
   "Approved": ["Scheduled"],
-  "Declined": ["Draft", "Ready for Approval"],
+  "Declined": ["Draft", "Ready for Approval", "Lost"],
+  "Lost": [], // terminal — a Declined quote written off; revive only via super-user jump
   "Scheduled": ["In Progress"],
   "In Progress": ["Ready to Invoice"],
   "Ready to Invoice": ["Invoiced"],
@@ -330,6 +332,7 @@ export const STATUS_ORDER: QuoteStatus[] = [
   "Ready for Approval",
   "Approved",
   "Declined",
+  "Lost",
   "Scheduled",
   "In Progress",
   "Ready to Invoice",
@@ -364,6 +367,7 @@ export const STATUS_LABELS: Record<QuoteStatus, string> = {
   "Ready for Approval": "Sent for Acceptance",
   "Approved": "Accepted",
   "Declined": "Declined",
+  "Lost": "Lost",
   "Scheduled": "Scheduled",
   "In Progress": "Work Order Active",
   "Ready to Invoice": "Ready to Invoice",
@@ -376,6 +380,27 @@ export const STATUS_LABELS: Record<QuoteStatus, string> = {
 export function statusLabel(status: QuoteStatus): string {
   return STATUS_LABELS[status] ?? status;
 }
+
+// Locked lifecycle color zones — the single source of truth for status pill colors across every
+// surface (Quotes list pills, filter chips, Jobs badges, QuotePreview). Solid background + light
+// text. Three zones: OFFICE/SALES (Draft→Lost), OPERATIONS (Scheduled→Work Order Active), and
+// FINANCE (Ready to Invoice→Paid). Keyed by stored status; consumers fall back to "Draft" for any
+// unmapped value (e.g. the retired "Completed").
+export const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
+  // Office / Sales
+  "Draft": { bg: "#1F2937", fg: "#F9FAFB" },              // dark charcoal
+  "Ready for Approval": { bg: "#F97316", fg: "#FFFFFF" }, // orange  (Sent for Acceptance)
+  "Approved": { bg: "#D97706", fg: "#FFFFFF" },           // amber   (Accepted)
+  "Declined": { bg: "#DC2626", fg: "#FFFFFF" },           // red
+  "Lost": { bg: "#4B5563", fg: "#FFFFFF" },               // dark gray
+  // Operations
+  "Scheduled": { bg: "#3B82F6", fg: "#FFFFFF" },          // blue
+  "In Progress": { bg: "#4F46E5", fg: "#FFFFFF" },        // indigo  (Work Order Active)
+  // Finance
+  "Ready to Invoice": { bg: "#0D9488", fg: "#FFFFFF" },   // teal
+  "Invoiced": { bg: "#16A34A", fg: "#FFFFFF" },           // green
+  "Paid": { bg: "#15803D", fg: "#FFFFFF" },               // dark green
+};
 
 /** Whole days elapsed since the most recent statusHistory entry's `at`. */
 export function getDaysInCurrentStatus(quote: SavedQuote): number {
