@@ -137,6 +137,7 @@ function StatusBadge({ status, trigger = false }: { status: string; trigger?: bo
   return (
     <Badge
       variant="outline"
+      title={label}
       className={cn("font-medium text-xs", trigger && "gap-1 cursor-pointer transition-[filter] group-hover:brightness-95")}
       style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.fg }}
     >
@@ -725,15 +726,17 @@ export default function QuotesPage() {
         <div className="overflow-x-auto">
           <Table className="w-full table-fixed">
             {/* Fixed column widths so all 8 columns fit a 1280px+ viewport without horizontal
-                scroll. Customer/Job Name get the most room; Status/Actions stay wide enough that
-                their pills never truncate. */}
+                scroll. Status is sized to show the longest pill label ("Sent for Acceptance")
+                without truncation; Actions stays wide enough that its pill never truncates.
+                Text columns (Customer/Job Name/Work Type/Salesperson/Last Updated) may ellipsis
+                but carry a native title tooltip with the full value. */}
             <colgroup>
               <col style={{ width: "16%" }} />
-              <col style={{ width: "18%" }} />
+              <col style={{ width: "15%" }} />
               <col style={{ width: "12%" }} />
               <col style={{ width: "10%" }} />
               <col style={{ width: "10%" }} />
-              <col style={{ width: "14%" }} />
+              <col style={{ width: "17%" }} />
               <col style={{ width: "10%" }} />
               <col style={{ width: "10%" }} />
             </colgroup>
@@ -766,15 +769,15 @@ export default function QuotesPage() {
                       <button
                         type="button"
                         onClick={() => openQuote(quote)}
-                        title="Open in Project Pricer"
+                        title={`${quote.customerName || quote.customer || "—"} — open in Project Pricer`}
                         className="block w-full truncate text-left underline underline-offset-2 cursor-pointer outline-none hover:text-[#EB3300] focus-visible:text-[#EB3300]"
                       >
                         {quote.customerName || quote.customer || "—"}
                       </button>
                     </TableCell>
-                    <TableCell className="text-sm truncate">{quote.jobName || "—"}</TableCell>
-                    <TableCell className="text-sm truncate">{quote.workType || "—"}</TableCell>
-                    <TableCell className="text-sm truncate">{quote.salesperson || "—"}</TableCell>
+                    <TableCell className="text-sm truncate" title={quote.jobName || "—"}>{quote.jobName || "—"}</TableCell>
+                    <TableCell className="text-sm truncate" title={quote.workType || "—"}>{quote.workType || "—"}</TableCell>
+                    <TableCell className="text-sm truncate" title={quote.salesperson || "—"}>{quote.salesperson || "—"}</TableCell>
                     <TableCell className="text-right font-medium tabular-nums whitespace-nowrap">
                       ${formatMoney(quote.totalRevenue)}
                     </TableCell>
@@ -872,7 +875,7 @@ export default function QuotesPage() {
                         </Button>
                       </div>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground tabular-nums truncate">
+                    <TableCell className="text-xs text-muted-foreground tabular-nums truncate" title={formatDate(quote.updatedAt || quote.createdAt)}>
                       {formatDate(quote.updatedAt || quote.createdAt)}
                     </TableCell>
                   </TableRow>
