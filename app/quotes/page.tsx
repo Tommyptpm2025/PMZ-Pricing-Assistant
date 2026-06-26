@@ -81,6 +81,18 @@ const ADVANCE_STATUSES: QuoteStatus[] = [
   "Invoiced",
 ];
 
+// Statuses for which a Work Order legitimately exists (Accepted-or-later spine). Used to gate
+// the "Work Order created" indicator so a quote that was Accepted and then back-routed to
+// Draft / Declined / Lost no longer shows it just because the Job snapshot still exists.
+const WORK_ORDER_STATUSES: QuoteStatus[] = [
+  "Approved",
+  "Scheduled",
+  "In Progress",
+  "Ready to Invoice",
+  "Invoiced",
+  "Paid",
+];
+
 // The single legal next status for an advanceable quote, else null.
 function advanceNext(status: QuoteStatus): QuoteStatus | null {
   if (!ADVANCE_STATUSES.includes(status)) return null;
@@ -1370,8 +1382,10 @@ export default function QuotesPage() {
               </div>
             )}
 
-            {/* Accepted handoff — the work order is auto-created on Accept; offer a link to view it. */}
-            {previewTarget && workOrderQuoteIds.has(previewTarget.id) && (
+            {/* Accepted handoff — the work order is auto-created on Accept; offer a link to view it.
+                Gated on an Accepted-or-later status so a back-routed (Draft/Declined/Lost) quote
+                whose Job snapshot still exists no longer falsely shows "Work Order created". */}
+            {previewTarget && workOrderQuoteIds.has(previewTarget.id) && WORK_ORDER_STATUSES.includes(previewTarget.status) && (
               <div className="flex items-center justify-end gap-2">
                 <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Work Order created
