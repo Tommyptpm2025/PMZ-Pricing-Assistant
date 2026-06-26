@@ -167,6 +167,92 @@ export function buildLineLemDetail(item: any, cats: LemRateCatalogs): LineLemDet
   return { sections, hasAny: sections.length > 0 };
 }
 
+// --- Cost-stripped recipe snapshot (Foreman Work Order) -----------------------------------
+//
+// The Foreman View is field-execution only: it shows WHAT to do and HOW MUCH was planned, with
+// NO cost/rate/$ anywhere. These drafts carry the same per-line / per-crew grouping as
+// buildLineLemDetail, but each row is just a name + a numeric planned quantity + a unit string.
+// No rate, no cost — the Job model snapshots these at accept time (ids stamped in jobs.ts).
+export interface RecipeRowDraft {
+  name: string;       // role / asset / material / misc item — resolved from the catalogs
+  plannedQty: number; // hours for labor/equipment, qty for material/misc
+  unit: string;       // "hrs" | "Ton" | "SF" | … ("" when a misc item has no UOM)
+}
+export interface RecipeSectionDraft {
+  title: string;   // "Labor" | "Equipment" | "Material" | "Miscellaneous" | "Crew: <name>"
+  isCrew: boolean;
+  rows: RecipeRowDraft[];
+}
+
+/**
+ * Resolve one EPP line's LEM entries into cost-stripped, grouped recipe sections for the work-order
+ * snapshot. Same grouping as buildLineLemDetail (ungrouped Labor/Equipment/Material/Misc in spec
+ * order, then one "Crew: <name>" section per crew group), but emits numeric planned quantities +
+ * units instead of formatted rate/cost strings. Empty sections are omitted.
+ */
+export function buildLineRecipeSections(item: any, cats: LemRateCatalogs): RecipeSectionDraft[] {
+  const labor: any[] = item?.laborEntries || [];
+  const equipment: any[] = item?.equipmentEntries || [];
+  const material: any[] = item?.materialEntries || [];
+  const misc: any[] = item?.miscellaneousEntries || [];
+
+  const laborDraft = (e: any): RecipeRowDraft => ({
+    name: cats.laborRates.find((r) => r.id === e.rateId)?.role || e.labor?.role || "Labor",
+    plannedQty: e.hours || 0,
+    unit: "hrs",
+  });
+  const equipDraft = (e: any): RecipeRowDraft => ({
+    name: cats.equipmentRates.find((r) => r.id === e.rateId)?.description || "Equipment",
+    plannedQty: e.hours || 0,
+    unit: "hrs",
+  });
+  const matDraft = (e: any): RecipeRowDraft => {
+    const profile = cats.materialRates.find((r) => r.id === e.rateId);
+    return { name: profile?.description || "Material", plannedQty: e.quantity || 0, unit: profile?.unitOfMeasure || "unit" };
+  };
+  const miscDraft = (e: any): RecipeRowDraft => {
+    const profile = cats.miscRates.find((r) => r.id === e.rateId);
+    return { name: e.description || profile?.description || "Miscellaneous", plannedQty: e.quantity || 0, unit: profile?.unitOfMeasure || "" };
+  };
+
+  const sections: RecipeSectionDraft[] = [];
+
+  // Ungrouped (non-crew) entries first, in spec order.
+  const laborRows = labor.filter((e) => !e?.group).map(laborDraft);
+  if (laborRows.length) sections.push({ title: "Labor", isCrew: false, rows: laborRows });
+  const equipRows = equipment.filter((e) => !e?.group).map(equipDraft);
+  if (equipRows.length) sections.push({ title: "Equipment", isCrew: false, rows: equipRows });
+  const matRows = material.map(matDraft);
+  if (matRows.length) sections.push({ title: "Material", isCrew: false, rows: matRows });
+  const miscRows = misc.map(miscDraft);
+  if (miscRows.length) sections.push({ title: "Miscellaneous", isCrew: false, rows: miscRows });
+
+  // Crew groups: gather grouped labor + equipment by group id, preserving first-seen order.
+  const groupOrder: string[] = [];
+  const groupName: Record<string, string> = {};
+  const groupLabor: Record<string, any[]> = {};
+  const groupEquip: Record<string, any[]> = {};
+  const note = (gid: string, name: string) => {
+    if (!groupOrder.includes(gid)) {
+      groupOrder.push(gid);
+      groupName[gid] = name || "Crew";
+      groupLabor[gid] = [];
+      groupEquip[gid] = [];
+    }
+  };
+  labor.filter((e) => e?.group).forEach((e) => { note(e.group.id, e.group.name); groupLabor[e.group.id].push(e); });
+  equipment.filter((e) => e?.group).forEach((e) => { note(e.group.id, e.group.name); groupEquip[e.group.id].push(e); });
+  groupOrder.forEach((gid) => {
+    const rows: RecipeRowDraft[] = [
+      ...groupLabor[gid].map(laborDraft),
+      ...groupEquip[gid].map(equipDraft),
+    ];
+    if (rows.length) sections.push({ title: `Crew: ${groupName[gid]}`, isCrew: true, rows });
+  });
+
+  return sections;
+}
+
 // One numeric work-order recipe line (planned quantity + unit cost), aggregated from a bid
 // line's LEM entries. Distinct from LemRow (which is display-formatted strings) because the
 // Job recipe / variance report needs real numbers. Misc entries are intentionally excluded —

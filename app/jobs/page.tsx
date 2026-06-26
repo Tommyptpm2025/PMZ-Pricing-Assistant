@@ -177,6 +177,8 @@ export default function JobsForemanPage() {
       ],
       recipe,
       actuals,
+      recipeLines: [],
+      attachments: [],
       jobSite: {
         address: "1420 Elm Street, Springfield, IL 62704",
         latitude: 39.78172,

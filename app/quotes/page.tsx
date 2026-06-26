@@ -46,7 +46,7 @@ import {
 import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
 import { useRateStore } from "@/lib/rate-store";
-import { buildLineLemDetail, buildLineRecipe, buildLineGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
+import { buildLineLemDetail, buildLineRecipe, buildLineRecipeSections, buildLineGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
 import { createJobFromQuote, loadJobs, saveJobs } from "@/lib/jobs";
 import {
   getAllQuotes,
@@ -578,6 +578,12 @@ export default function QuotesPage() {
         unitPrice: it.unitPrice,
       })),
       recipe: items.flatMap((it) => buildLineRecipe(it, lemCats)),
+      // Cost-stripped recipe grouped per bid line + per crew — what the Foreman Work Order renders.
+      recipeLines: items.map((it) => ({
+        lineId: it.id,
+        description: it.description,
+        sections: buildLineRecipeSections(it, lemCats),
+      })),
       quoteJobSiteAddress: quote.jobSiteAddress || quote.customerDetails?.jobSiteAddress,
     });
     saveJobs([...loadJobs(), job]);

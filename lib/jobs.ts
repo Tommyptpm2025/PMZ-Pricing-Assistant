@@ -43,6 +43,40 @@ export interface BidItemSnapshot {
   unitPrice: number;
 }
 
+// --- Cost-stripped recipe snapshot (Foreman Work Order) -----------------------------------
+//
+// What the foreman actually works from: the planned recipe grouped per bid line and per crew,
+// with NO cost/rate/$ anywhere on the model. Snapshotted at accept time so later rate or quote
+// edits never change a work order already in the field. The foreman enters actualQty per row.
+
+export interface JobRecipeRow {
+  id: string;             // stable, generated at snapshot time
+  name: string;           // role / asset / material name
+  plannedQty: number;     // hours for labor/equipment, qty for material/misc
+  unit: string;           // "hrs" | "Ton" | "SF" | …
+  actualQty: number | null; // null = not yet entered by the foreman
+}
+
+export interface JobRecipeSection {
+  title: string;   // "Labor" | "Equipment" | "Material" | "Misc" | "Crew: <name>"
+  isCrew: boolean;
+  rows: JobRecipeRow[];
+}
+
+export interface JobRecipeLine {
+  id: string;        // stable, generated at snapshot time
+  lineId: string;    // matches the source BidItem id
+  description: string; // bid line description
+  sections: JobRecipeSection[];
+}
+
+// Reserved for Build G — Job carries an `attachments` array that is always [] for now.
+export interface JobAttachment {
+  id: string;
+  name: string;
+  addedAt: string;
+}
+
 export interface Job {
   id: string;
   createdAt: string;
@@ -60,11 +94,18 @@ export interface Job {
   contractValue: number; // the revenue bid / grand total accepted
   bidItems: BidItemSnapshot[];
 
-  // The "Recipe" — planned LEM quantities (what foreman sees)
+  // The "Recipe" — planned LEM quantities (legacy flat list; carries unitCost for variance math).
   recipe: JobLEMItem[];
 
   // Actuals entered by foreman: map of recipe item id -> actual quantity used
   actuals: Record<string, number>;
+
+  // Cost-stripped recipe the Foreman Work Order renders from: grouped per bid line + per crew,
+  // each row carrying its own actualQty. No cost/rate/$ on this structure (see types above).
+  recipeLines: JobRecipeLine[];
+
+  // Reserved for Build G — always [] for now.
+  attachments: JobAttachment[];
 
   // Intake context snapshotted from the quote's customer at create time (see JobSite).
   jobSite?: JobSite;
@@ -149,6 +190,18 @@ export interface CreateJobInput {
     quantity: number;
     unitCost: number;
   }>;
+  // Cost-stripped per-line recipe drafts (from buildLineRecipeSections) — stamped with stable ids
+  // here. Structurally matches RecipeSectionDraft/RecipeRowDraft from lib/lem-detail (kept inline
+  // so the model file stays decoupled from the resolver).
+  recipeLines: Array<{
+    lineId: string;
+    description: string;
+    sections: Array<{
+      title: string;
+      isCrew: boolean;
+      rows: Array<{ name: string; plannedQty: number; unit: string }>;
+    }>;
+  }>;
   // Intake context source — snapshotted onto the job at create time. Pass the linked Customer
   // record (preferred: carries GPS + access notes + free-text notes) and/or the quote's
   // denormalized site string (quote.customerDetails?.jobSiteAddress / quote.jobSiteAddress).
@@ -171,6 +224,24 @@ export function createJobFromQuote(input: CreateJobInput): Job {
     actuals[item.id] = 0;
   });
 
+  // Stamp stable ids onto every recipe line + row; actuals start null (not yet entered).
+  const recipeLines: JobRecipeLine[] = input.recipeLines.map((line) => ({
+    id: createId(),
+    lineId: line.lineId,
+    description: line.description,
+    sections: line.sections.map((section) => ({
+      title: section.title,
+      isCrew: section.isCrew,
+      rows: section.rows.map((row) => ({
+        id: createId(),
+        name: row.name,
+        plannedQty: Math.max(0, row.plannedQty),
+        unit: row.unit,
+        actualQty: null,
+      })),
+    })),
+  }));
+
   // Snapshot intake context from the customer/quote at the moment the job is created.
   const jobSite = jobSiteFromCustomer(input.customer, input.quoteJobSiteAddress);
   const intakeNotes = input.customer?.notes?.trim() || undefined;
@@ -187,6 +258,8 @@ export function createJobFromQuote(input: CreateJobInput): Job {
     bidItems: input.bidItems.map((b) => ({ ...b })),
     recipe,
     actuals,
+    recipeLines,
+    attachments: [],
     jobSite,
     intakeNotes,
     notes: "",
@@ -205,6 +278,33 @@ export function updateJobActual(jobs: Job[], jobId: string, recipeItemId: string
         }
       : job
   );
+}
+
+// Foreman actuals entry against the cost-stripped recipe: set one row's actualQty by row id.
+// Pass null to clear a row back to "not yet entered"; negatives are floored to 0.
+export function updateRecipeRowActual(
+  jobs: Job[],
+  jobId: string,
+  rowId: string,
+  actualQty: number | null
+): Job[] {
+  return jobs.map((job) => {
+    if (job.id !== jobId) return job;
+    return {
+      ...job,
+      recipeLines: (job.recipeLines || []).map((line) => ({
+        ...line,
+        sections: line.sections.map((section) => ({
+          ...section,
+          rows: section.rows.map((row) =>
+            row.id === rowId
+              ? { ...row, actualQty: actualQty == null ? null : Math.max(0, actualQty) }
+              : row
+          ),
+        })),
+      })),
+    };
+  });
 }
 
 export function setJobNotes(jobs: Job[], jobId: string, notes: string): Job[] {
