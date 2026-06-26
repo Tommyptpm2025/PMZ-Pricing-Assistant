@@ -89,6 +89,7 @@ export interface Job {
 
   // Quote snapshot (what was sold / bid)
   jobName: string;
+  customerName?: string; // snapshotted for the foreman work order header
   workTypeName: string;
   salesperson: string;
   contractValue: number; // the revenue bid / grand total accepted
@@ -180,6 +181,7 @@ export function jobSiteFromCustomer(
 export interface CreateJobInput {
   quoteId?: string;
   jobName: string;
+  customerName?: string;
   workTypeName: string;
   salesperson: string;
   contractValue: number;
@@ -252,6 +254,7 @@ export function createJobFromQuote(input: CreateJobInput): Job {
     status: "open",
     quoteId: input.quoteId,
     jobName: input.jobName.trim() || "Untitled Job",
+    customerName: input.customerName?.trim() || undefined,
     workTypeName: input.workTypeName,
     salesperson: input.salesperson,
     contractValue: Math.max(0, input.contractValue),

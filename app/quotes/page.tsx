@@ -567,6 +567,7 @@ export default function QuotesPage() {
     const job = createJobFromQuote({
       quoteId: quote.id,
       jobName: quote.jobName,
+      customerName: quote.customerName || quote.customer || undefined,
       workTypeName: quote.workType || "",
       salesperson: quote.salesperson || "",
       contractValue: quote.grandTotal ?? quote.totalRevenue ?? 0,
