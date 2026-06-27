@@ -359,7 +359,7 @@ export default function LaborRateBuilder() {
                   value={inputs.role}
                   onChange={(e) => updateField("role", e.target.value)}
                   className="mt-1.5 text-base font-semibold placeholder:font-normal"
-                  placeholder="e.g. Journeyman Electrician"
+                  placeholder="e.g. Field Operator"
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Rename the current profile here. All sections below update live.
