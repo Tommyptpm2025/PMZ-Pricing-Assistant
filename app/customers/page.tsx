@@ -964,7 +964,7 @@ export default function CustomersPage() {
                   </div>
                   <div>
                     <Label htmlFor="jobZip">Postal / ZIP <RequiredHint show={!form.jobZip.trim()} /></Label>
-                    <Input id="jobZip" value={form.jobZip} onChange={(e) => setForm({ ...form, jobZip: digitsOnly(e.target.value) })} inputMode="numeric" placeholder="e.g. 62701" className={cn("mt-1.5", requiredRing(!form.jobZip.trim()))} />
+                    <Input id="jobZip" value={form.jobZip} onChange={(e) => setForm({ ...form, jobZip: digitsOnly(e.target.value) })} inputMode="numeric" placeholder="ZIP auto-fills city and state (coming soon)" className={cn("mt-1.5", requiredRing(!form.jobZip.trim()))} />
                   </div>
                   <div>
                     <Label htmlFor="jobCountry">Country <OptionalTag /></Label>
@@ -1056,7 +1056,7 @@ export default function CustomersPage() {
                   </div>
                   <div>
                     <Label htmlFor="billingZip">Postal / ZIP <RequiredHint show={!(form.billingSameAsJobSite ? form.jobZip : form.billingZip).trim()} /></Label>
-                    <Input id="billingZip" value={form.billingSameAsJobSite ? form.jobZip : form.billingZip} onChange={(e) => setForm({ ...form, billingZip: digitsOnly(e.target.value) })} disabled={form.billingSameAsJobSite} inputMode="numeric" placeholder="e.g. 62701" className={cn("mt-1.5", requiredRing(!(form.billingSameAsJobSite ? form.jobZip : form.billingZip).trim()))} />
+                    <Input id="billingZip" value={form.billingSameAsJobSite ? form.jobZip : form.billingZip} onChange={(e) => setForm({ ...form, billingZip: digitsOnly(e.target.value) })} disabled={form.billingSameAsJobSite} inputMode="numeric" placeholder="ZIP auto-fills city and state (coming soon)" className={cn("mt-1.5", requiredRing(!(form.billingSameAsJobSite ? form.jobZip : form.billingZip).trim()))} />
                   </div>
                   <div>
                     <Label htmlFor="billingCountry">Country <RequiredHint show={!form.billingCountryCode} /></Label>
