@@ -33,6 +33,8 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const headerSubtitle = co.short_name.trim() || (co.legal_name.trim() ? "" : "Total Profit Management");
   // Tier B token context assembled by buildQuoteData (estimator/customer/project/quote/acceptance).
   const tokenContext = q.tokenContext || null;
+  // Quote/Estimate label — the export toggle drives the document title and every label reference.
+  const docLabel = q.exportType === 'estimate' ? 'Estimate' : 'Quote';
   // Token values for per-section completeness checks in the Terms & Conditions block.
   const tokenValues = buildTokenValues(company, tokenContext);
   // A T&C section is "ready" when every token it references resolves to a non-empty value.
@@ -159,7 +161,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
       {/* Top control bar - kept for buttons */}
       <div className="flex items-center justify-between p-3 sm:p-4 md:p-6 border-b print:hidden bg-white sticky top-0 z-10 text-sm sm:text-base">
         <div className="font-medium text-gray-700 pr-2 truncate flex-1 min-w-0">
-          Quote Preview — Print or Save as PDF
+          {docLabel} Preview — Print or Save as PDF
         </div>
         <div className="flex gap-1 sm:gap-2 flex-shrink-0">
           {onClose && (
@@ -228,7 +230,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               )}
             </div>
             <div style={{ textAlign: 'right', fontSize: 9 }}>
-              Quote #{q.quoteNumber || Date.now().toString().slice(-7)}<br />
+              {docLabel} #{q.quoteNumber || Date.now().toString().slice(-7)}<br />
               {q.date || new Date().toLocaleDateString()}
               {statusLabel && (
                 <div style={{ marginTop: 4 }}>
@@ -254,7 +256,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
 
           {/* Title - centered QUOTE */}
           <div style={{ fontSize: 28, fontWeight: 'bold', textAlign: 'center', margin: '10px 0', letterSpacing: 2 }}>
-            {(q.exportType || 'quote').toUpperCase()}
+            {docLabel.toUpperCase()}
           </div>
 
           {/* TO / PROJECT columns */}
@@ -408,7 +410,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
 
           {/* footer */}
           <div style={{ marginTop: 24, fontSize: 8, color: '#555', textAlign: 'center' }}>
-            This document is a {(q.exportType || 'quote')}. Thank you for your business.
+            This document is a {docLabel.toLowerCase()}. Thank you for your business.
           </div>
         </div>
       </div>
