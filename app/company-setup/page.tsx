@@ -41,10 +41,44 @@ export default function CompanySetupPage() {
     }))
   }
 
+  // Years Experience auto-calculates from Year Founded (current year − founded). When founded is a
+  // valid year the field is read-only and we persist the computed value so the token resolves correctly.
+  const currentYear = new Date().getFullYear()
+  const foundedYear = parseInt(form.company.year_founded, 10)
+  const autoYears =
+    Number.isFinite(foundedYear) && foundedYear >= 1900 && foundedYear <= currentYear
+      ? String(currentYear - foundedYear)
+      : null
+
   function handleSave() {
-    save(form)
+    const toSave = autoYears !== null
+      ? { ...form, company: { ...form.company, years_experience: autoYears } }
+      : form
+    save(toSave)
     dirtyRef.current = false
     setSavedFlash(true)
+  }
+
+  // Company logo — shared with the Update Export dialog via the pmz_quote_logo key, rendered
+  // top-left on the document header. Stored separately from the settings JSON to keep it lean.
+  const [logoDataUrl, setLogoDataUrl] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    try { setLogoDataUrl(localStorage.getItem("pmz_quote_logo")) } catch {}
+  }, [])
+
+  function onLogoFile(file: File) {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string
+      setLogoDataUrl(dataUrl)
+      try { localStorage.setItem("pmz_quote_logo", dataUrl) } catch {}
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function removeLogo() {
+    setLogoDataUrl(null)
+    try { localStorage.removeItem("pmz_quote_logo") } catch {}
   }
 
   const annualInterest = computeAnnualInterest(form.terms.late_interest_monthly_pct)
@@ -62,6 +96,31 @@ export default function CompanySetupPage() {
         </div>
       </div>
 
+      {/* Company Logo */}
+      <Card className="card">
+        <CardHeader>
+          <CardTitle className="text-xl">Company Logo</CardTitle>
+          <CardDescription>Shown top-left on every quote document. PNG or JPG.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-4">
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) onLogoFile(f) }}
+              className="text-sm"
+            />
+            {logoDataUrl && (
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={logoDataUrl} alt="Logo preview" className="h-10 w-auto rounded border bg-white p-1" />
+                <Button variant="outline" size="sm" onClick={removeLogo}>Remove</Button>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Company */}
       <Section title="Company" description="Your legal identity and contact details — shown on every document header and footer.">
         <Field label="Legal Name" value={form.company.legal_name} onChange={(v) => setField("company", "legal_name", v)} placeholder="e.g. Total Profit Management LLC" />
@@ -70,9 +129,17 @@ export default function CompanySetupPage() {
         <Field label="Phone" value={form.company.phone} onChange={(v) => setField("company", "phone", formatPhone(v))} placeholder={`e.g. ${PHONE_PLACEHOLDER}`} />
         <Field label="Email" value={form.company.email} onChange={(v) => setField("company", "email", v)} placeholder="e.g. office@company.com" />
         <Field label="Address" value={form.company.address} onChange={(v) => setField("company", "address", v)} placeholder="e.g. 123 Main St" />
-        <Field label="City, State ZIP" value={form.company.city_state_zip} onChange={(v) => setField("company", "city_state_zip", v)} placeholder="e.g. Springfield, IL 62701" />
+        <Field label="City, State ZIP" value={form.company.city_state_zip} onChange={(v) => setField("company", "city_state_zip", v)} placeholder="ZIP auto-fills city and state (coming soon)" />
         <Field label="Year Founded" value={form.company.year_founded} onChange={(v) => setField("company", "year_founded", v)} placeholder="e.g. 2014" />
-        <Field label="Years Experience" value={form.company.years_experience} onChange={(v) => setField("company", "years_experience", v)} placeholder="e.g. 20" />
+        {autoYears !== null ? (
+          <div>
+            <Label htmlFor="years-exp-auto">Years Experience</Label>
+            <Input id="years-exp-auto" value={autoYears} readOnly disabled className="mt-1.5" />
+            <p className="mt-1 text-xs text-muted-foreground">Auto-calculated from Year Founded.</p>
+          </div>
+        ) : (
+          <Field label="Years Experience" value={form.company.years_experience} onChange={(v) => setField("company", "years_experience", v)} placeholder="e.g. 20" />
+        )}
         <Field label="Payment Methods" value={form.company.payment_methods} onChange={(v) => setField("company", "payment_methods", v)} placeholder="e.g. Check, ACH, all major cards" multiline />
       </Section>
 
