@@ -2021,7 +2021,9 @@ export default function ProjectPricerPage() {
     const projectName = s.jobName || estimate.jobName || "";
     const quoteDate = new Date().toLocaleDateString();
     const quoteNumber = Date.now().toString().slice(-7);
-    const quoteTotalDisplay = `$${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    const money0 = (n: number) => `$${Math.round(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    const quoteTotalDisplay = money0(total);
+    const sectionLabel = s.workTypeName || s.workType || estimate.workTypeName || "";
 
     return {
       jobName: s.jobName || estimate.jobName || "—",
@@ -2066,6 +2068,16 @@ export default function ProjectPricerPage() {
           signed_by: "",
           date: "",
         },
+        // Repeating tokens (line_item.* / section.*) — array data for table / templated rendering.
+        // resolveTokens leaves these literal in free text by design; they iterate, not interpolate.
+        // EPP has one work type per estimate, so a single section = the work type + grand total.
+        lineItems: lineItems.map((li: any) => ({
+          description: li.description,
+          amount: money0(li.lineTotal),
+        })),
+        sections: [
+          { label: sectionLabel, amount: quoteTotalDisplay },
+        ],
       },
     };
   };
