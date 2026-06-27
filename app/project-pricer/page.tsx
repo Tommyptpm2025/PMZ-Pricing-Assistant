@@ -2004,26 +2004,67 @@ export default function ProjectPricerPage() {
     // estimator NAME (mirrors salesperson); title/email/phone come from the Estimator Registry.
     const estimatorName = s.estimator || estimate.estimator || "";
     const estimatorRec = estimators.find((e) => e.name === estimatorName);
+
+    // Tier B token sources from the customer registry record + addresses. Project tokens use the
+    // job-site address, falling back to billing when no separate job site is set.
+    const cust: any = currentCustomer || {};
+    const billing: any = cust.billingAddress || {};
+    const job: any = cust.jobSiteAddress || {};
+    const hasJob = !!(job.street || job.street2 || job.city || job.state || job.zip);
+    const projAddr: any = hasJob ? job : billing;
+    const streetOf = (a: any) => [a.street, a.street2].filter(Boolean).join(", ");
+    const cityStateZipOf = (a: any) => {
+      const left = [a.city, a.state].filter(Boolean).join(", ");
+      return [left, a.zip].filter(Boolean).join(" ").trim();
+    };
+    const customerName = cust.name || estimate.customerName || "";
+    const projectName = s.jobName || estimate.jobName || "";
+    const quoteDate = new Date().toLocaleDateString();
+    const quoteNumber = Date.now().toString().slice(-7);
+    const quoteTotalDisplay = `$${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
     return {
       jobName: s.jobName || estimate.jobName || "—",
       customer: buildCustomerBlock(),
       workType: s.workTypeName || s.workType || estimate.workTypeName || "",
       salesperson: s.salesperson || estimate.salesperson || "",
       estimator: estimatorName,
-      date: new Date().toLocaleDateString(),
-      quoteNumber: Date.now().toString().slice(-7),
+      date: quoteDate,
+      quoteNumber,
       status: s.status || "EPP",
       lineItems,
       total,
       grossProfit: eppGrossProfitDollars,
-      // Tier B token context — extended in Steps 3–4 (customer/project/quote/line items).
-      // Step 2 populates the estimator.* tokens from the selected registry record.
+      // Tier B token context — estimator (Step 2) + customer/project/quote/acceptance (Step 3).
+      // Line-item / section tokens come in Step 4; rendering into T&C / Payment Terms in Steps 5–6.
       tokenContext: {
         estimator: {
           name: estimatorName,
           title: estimatorRec?.title || "",
           email: estimatorRec?.email || "",
           phone: estimatorRec?.phone || "",
+        },
+        customer: {
+          name: customerName,
+          address: streetOf(billing),
+          city_state_zip: cityStateZipOf(billing),
+          email: cust.email || "",
+          phone: cust.phone || cust.mobile || "",
+        },
+        project: {
+          name: projectName,
+          address: streetOf(projAddr),
+          city_state_zip: cityStateZipOf(projAddr),
+        },
+        quote: {
+          date: quoteDate,
+          number: quoteNumber,
+          total: quoteTotalDisplay,
+        },
+        // Blank signature/date lines for the customer to complete on the printed document.
+        acceptance: {
+          signed_by: "",
+          date: "",
         },
       },
     };
