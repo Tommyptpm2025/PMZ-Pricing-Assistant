@@ -25,3 +25,50 @@ export function paymentTermsComplete(company: CompanySettings | null | undefined
     t.cancellation_fee_pct,
   ].every((v) => (v ?? "").toString().trim() !== "");
 }
+
+/** One section of the full Terms & Conditions block (Step 6). Bodies are tokenized prose. */
+export interface TCSection {
+  id: string;
+  title: string;
+  body: string;
+  /** Lien notice — carries an amber "Attorney review required" badge (owner-facing, preview only). */
+  attorneyReview?: boolean;
+}
+
+/**
+ * The full Terms & Conditions, in order. Section 1 reuses the Payment Terms paragraph verbatim,
+ * so it appears once on the document (the standalone Step 5 block is folded into this).
+ */
+export const TC_SECTIONS: TCSection[] = [
+  { id: "payment", title: "Payment Terms", body: PAYMENT_TERMS_TEXT },
+  {
+    id: "change-orders",
+    title: "Change Orders",
+    body:
+      "Any change, addition, or deletion to the scope of work is binding only when authorized in writing through a signed change order. A non-refundable deposit of {{terms.change_order_deposit_pct}}% of the change order amount is due at execution.",
+  },
+  {
+    id: "cancellation",
+    title: "Cancellation",
+    body:
+      "If the Customer cancels after acceptance, the deposit will be refunded less a cancellation fee of {{terms.cancellation_fee_pct}}% of the total contract price.",
+  },
+  {
+    id: "liability",
+    title: "Liability",
+    body:
+      "The Contractor is not responsible for damage to unmarked utilities, irrigation, or similar improvements. The Contractor's liability is limited to the total contract price.",
+  },
+  {
+    id: "lien",
+    title: "Lien Notice",
+    body: "Under {{lien.state}} law... {{lien.state_notice_text}}",
+    attorneyReview: true,
+  },
+  {
+    id: "acceptance",
+    title: "Acceptance",
+    body: "This proposal is valid for {{terms.quote_validity_days}} days from the date issued.",
+  },
+];
+

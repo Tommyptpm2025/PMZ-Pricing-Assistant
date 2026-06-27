@@ -3,8 +3,8 @@
 import * as React from "react";
 import { STATUS_COLORS } from "@/lib/pmz-types";
 import { useCompanySettings } from "@/lib/company-settings";
-import { resolveTokens } from "@/lib/document-tokens";
-import { PAYMENT_TERMS_TEXT, paymentTermsComplete } from "@/lib/document-blocks";
+import { resolveTokens, buildTokenValues } from "@/lib/document-tokens";
+import { TC_SECTIONS } from "@/lib/document-blocks";
 
 interface QuotePreviewProps {
   quote: any; // accepts normalized object from buildQuoteData (or legacy shape)
@@ -33,10 +33,17 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const headerSubtitle = co.short_name.trim() || (co.legal_name.trim() ? "" : "Total Profit Management");
   // Tier B token context assembled by buildQuoteData (estimator/customer/project/quote/acceptance).
   const tokenContext = q.tokenContext || null;
-  // Payment Terms — auto-composed from Company Setup Default Terms, tokens resolved. Rendered only
-  // when the referenced terms fields are complete; otherwise an amber "complete terms" warning.
-  const paymentTermsReady = paymentTermsComplete(company);
-  const paymentTermsResolved = resolveTokens(PAYMENT_TERMS_TEXT, { company, quote: tokenContext });
+  // Token values for per-section completeness checks in the Terms & Conditions block.
+  const tokenValues = buildTokenValues(company, tokenContext);
+  // A T&C section is "ready" when every token it references resolves to a non-empty value.
+  // Incomplete sections show an amber owner note in preview and are omitted from print (never blanks).
+  const sectionReady = (body: string) => {
+    const matches = body.match(/\{\{\s*[a-z_]+\.[a-z_]+\s*\}\}/gi) || [];
+    return matches.every((m) => {
+      const path = m.replace(/[{}]/g, "").trim().toLowerCase();
+      return (tokenValues[path] ?? "").toString().trim() !== "";
+    });
+  };
   const options = q.options || {};
   const showQuantities = options.showQuantities !== false;
   const showUnits = options.showUnits !== false;
@@ -358,27 +365,43 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'right', flexBasis: '30%' }}>${formatWhole(grandTotal)}</div>
           </div>
 
-          {/* Payment Terms — auto-composed from Company Setup Default Terms (tokens resolved).
-              When terms are incomplete, an amber owner-facing warning shows in preview only
-              (print:hidden) instead of a sentence with blanks. */}
-          {paymentTermsReady ? (
-            <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#555' }}>
-              <div style={{ fontWeight: 'bold', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Payment Terms</div>
-              <div style={{ whiteSpace: 'pre-wrap' }}>{paymentTermsResolved}</div>
-            </div>
-          ) : (
-            <div
-              className="print:hidden"
-              style={{ marginTop: 16, fontSize: 9, color: '#92400E', backgroundColor: '#FEF3C7', border: '1px solid #F59E0B', borderRadius: 4, padding: '8px 10px' }}
-            >
-              <span style={{ fontWeight: 'bold' }}>⚠ </span>
-              Complete Default Terms in Company Setup to generate Payment Terms.
-            </div>
-          )}
+          {/* Terms & Conditions — six tokenized sections (Payment Terms is section 1, folded in
+              from Step 5). Each section renders when its tokens are complete; an incomplete section
+              shows an amber owner note in preview and is omitted from print (never blanks). The Lien
+              Notice carries an "Attorney review required" amber badge (owner-facing, preview only). */}
+          <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#555' }}>
+            <div style={{ fontWeight: 'bold', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Terms &amp; Conditions</div>
+            {TC_SECTIONS.map((sec, i) => {
+              const ready = sectionReady(sec.body);
+              return (
+                <div key={sec.id} className={ready ? undefined : "print:hidden"} style={{ marginBottom: 8 }}>
+                  <div style={{ fontWeight: 'bold', color: '#333', marginBottom: 2 }}>
+                    {i + 1}. {sec.title}
+                    {sec.attorneyReview && (
+                      <span
+                        className="print:hidden"
+                        style={{ marginLeft: 6, fontSize: 8, fontWeight: 'bold', color: '#92400E', backgroundColor: '#FEF3C7', border: '1px solid #F59E0B', borderRadius: 3, padding: '1px 5px', textTransform: 'uppercase', letterSpacing: 0.3 }}
+                      >
+                        Attorney review required
+                      </span>
+                    )}
+                  </div>
+                  {ready ? (
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{resolveTokens(sec.body, { company, quote: tokenContext })}</div>
+                  ) : (
+                    <div style={{ color: '#92400E', backgroundColor: '#FEF3C7', border: '1px solid #F59E0B', borderRadius: 4, padding: '6px 8px' }}>
+                      <span style={{ fontWeight: 'bold' }}>⚠ </span>
+                      Complete Company Setup to generate this section.
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
           {termsText && (
             <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#555' }}>
-              <div style={{ fontWeight: 'bold', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Terms &amp; Conditions</div>
+              <div style={{ fontWeight: 'bold', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Additional Terms</div>
               <div style={{ whiteSpace: 'pre-wrap' }}>{termsText}</div>
             </div>
           )}
