@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { STATUS_COLORS } from "@/lib/pmz-types";
+import { useCompanySettings } from "@/lib/company-settings";
 
 interface QuotePreviewProps {
   quote: any; // accepts normalized object from buildQuoteData (or legacy shape)
@@ -22,6 +23,12 @@ function formatWhole(amount: number | undefined | null): string {
 
 export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePreviewProps) {
   const q = quote || {};
+  // Company identity (Tier A) — global, read directly so it stays out of the per-quote
+  // print-window handoff. Header falls back to the PMZ/TPM wordmark when setup is empty.
+  const { settings: company } = useCompanySettings();
+  const co = company.company;
+  const headerName = co.legal_name.trim() || "Profit Margin Zone";
+  const headerSubtitle = co.short_name.trim() || (co.legal_name.trim() ? "" : "Total Profit Management");
   const options = q.options || {};
   const showQuantities = options.showQuantities !== false;
   const showUnits = options.showUnits !== false;
@@ -184,14 +191,26 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           >
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, paddingBottom: 8, borderBottom: '2px solid #111' }}>
-            <div>
-              {logoDataUrl ? (
+            <div style={{ maxWidth: '60%' }}>
+              {logoDataUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img className="pmz-logo" src={logoDataUrl} alt="Company logo" style={{ height: 32, width: 'auto', display: 'block', marginBottom: 2 }} />
-              ) : (
-                <div style={{ fontSize: 14, fontWeight: 'bold' }}>Profit Margin Zone</div>
+                <img className="pmz-logo" src={logoDataUrl} alt="Company logo" style={{ height: 32, width: 'auto', display: 'block', marginBottom: 4 }} />
               )}
-              <div style={{ fontSize: 8, color: '#555' }}>Total Profit Management</div>
+              <div style={{ fontSize: 14, fontWeight: 'bold' }}>{headerName}</div>
+              {headerSubtitle && <div style={{ fontSize: 8, color: '#555' }}>{headerSubtitle}</div>}
+              {(co.address.trim() || co.city_state_zip.trim()) && (
+                <div style={{ fontSize: 8, color: '#555', marginTop: 3 }}>
+                  {co.address.trim() && <div>{co.address}</div>}
+                  {co.city_state_zip.trim() && <div>{co.city_state_zip}</div>}
+                </div>
+              )}
+              {(co.phone.trim() || co.email.trim()) && (
+                <div style={{ fontSize: 8, color: '#555', marginTop: 2 }}>
+                  {co.phone.trim()}
+                  {co.phone.trim() && co.email.trim() && ' · '}
+                  {co.email.trim()}
+                </div>
+              )}
             </div>
             <div style={{ textAlign: 'right', fontSize: 9 }}>
               Quote #{q.quoteNumber || Date.now().toString().slice(-7)}<br />
