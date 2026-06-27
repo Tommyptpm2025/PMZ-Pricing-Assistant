@@ -304,6 +304,8 @@ export interface EquipmentRateInputs {
   ownership: EquipmentCostLine[]; // annual ownership cost lines
   operating: EquipmentCostLine[]; // annual operating cost lines
   estimatedHours: number;         // forward-looking billable hours/year (drives the planning rate)
+  utilizationPct?: number;        // % of budgeted hours the equipment is actually running (default 100);
+                                  // below 100 spreads fixed cost over fewer productive hours, raising the rate
   actualHours: number;            // actual hours/year (drives the "actual use" view)
   targetMargin: number;           // desired margin % on the final hourly rate
 }
@@ -318,7 +320,9 @@ export interface EquipmentRateResult {
   operatingAnnual: number;
   operatingPerHour: number;
   totalAnnualCost: number;
-  totalCostPerHour: number;       // the true total cost per billable hour
+  totalCostPerHour: number;       // the true total cost per billable hour (utilization-adjusted)
+  utilizationPct: number;         // normalized utilization applied to the budgeted-hours rate
+  effectiveBudgetedHours: number; // budgeted hours × utilization% — the productive-hours divisor
   recommendedRate: number;        // with target margin applied
   // "Actual use" view (uses actualHours instead of estimatedHours)
   actualDepreciationPerHour: number;
@@ -331,6 +335,14 @@ export interface EquipmentRateResult {
 // (starting − ending value) ÷ years (derived from start/end dates, default 8) — before dividing by
 // annual hours, then summed with annual ownership + operating ÷ annual hours. Single source of truth
 // for both the Equipment builder and the rate store's getEquipmentCostPerHour.
+// Utilization clamp for the equipment break-even rate. Blank / 0 / invalid → 100 (no idle
+// adjustment); otherwise clamped to 1–100. Exported so the builder UI and the rate math agree.
+export function normalizeUtilization(pct: number | undefined | null): number {
+  const n = typeof pct === 'number' ? pct : Number(pct);
+  if (!Number.isFinite(n) || n <= 0) return 100;
+  return Math.min(100, Math.max(1, n));
+}
+
 export function calculateEquipmentRate(inputs: EquipmentRateInputs): EquipmentRateResult {
   const {
     startingValue,
@@ -338,6 +350,7 @@ export function calculateEquipmentRate(inputs: EquipmentRateInputs): EquipmentRa
     ownership,
     operating,
     estimatedHours,
+    utilizationPct,
     actualHours,
     targetMargin,
     startDate,
@@ -361,8 +374,12 @@ export function calculateEquipmentRate(inputs: EquipmentRateInputs): EquipmentRa
   const ownershipAnnual = (ownership || []).reduce((sum, line) => sum + (line.cost || 0), 0);
   const operatingAnnual = (operating || []).reduce((sum, line) => sum + (line.cost || 0), 0);
 
-  // Use estimated hours for the forward-looking "Cost Per Unit"
-  const hoursForRate = Math.max(1, estimatedHours);
+  // Budgeted-hours break-even rate, adjusted for utilization (idle time). Effective productive
+  // hours = budgeted hours × utilization%; lower utilization spreads fixed cost over fewer hours,
+  // raising the rate. Applies to the budgeted-hours rate ONLY (not the actual-use view).
+  const utilization = normalizeUtilization(utilizationPct);
+  const effectiveBudgetedHours = Math.max(1, Math.round(estimatedHours * (utilization / 100)));
+  const hoursForRate = effectiveBudgetedHours;
 
   const depreciationPerHour = annualDepreciation / hoursForRate;
   const ownershipPerHour = ownershipAnnual / hoursForRate;
@@ -388,6 +405,8 @@ export function calculateEquipmentRate(inputs: EquipmentRateInputs): EquipmentRa
     operatingPerHour: round2(operatingPerHour),
     totalAnnualCost: round2(totalAnnualCost),
     totalCostPerHour: round2(totalCostPerHour),
+    utilizationPct: utilization,
+    effectiveBudgetedHours,
     recommendedRate: round2(recommendedRate),
     actualDepreciationPerHour: round2(annualDepreciation / actualHoursForCalc),
     actualOwnershipPerHour: round2(ownershipAnnual / actualHoursForCalc),
@@ -404,6 +423,7 @@ export const DEFAULT_EQUIPMENT_INPUTS: EquipmentRateInputs = {
   ownership: [],
   operating: [],
   estimatedHours: 1200,
+  utilizationPct: 100,
   actualHours: 980,
   targetMargin: 15,
 };

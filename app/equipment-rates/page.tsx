@@ -19,6 +19,7 @@ import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
 import {
   calculateEquipmentRate,
+  normalizeUtilization,
   formatCurrency,
   DEFAULT_EQUIPMENT_INPUTS,
   type EquipmentRateInputs,
@@ -57,6 +58,7 @@ interface EquipmentBuilderInputs {
   // Usage for the estimate year
   budgetedHours: number;   // annual hours the machine must run to recover all costs (from 2-yr P&L review)
   estimatedHours: number;
+  utilizationPct?: number;  // % of budgeted hours the equipment is actually running (default 100; legacy omit)
   actualHours: number;
   // Pricing goal
   targetMargin: number;
@@ -91,6 +93,7 @@ const DEFAULT_BUILDER_INPUTS: EquipmentBuilderInputs = {
   ],
   budgetedHours: 1400,
   estimatedHours: 1200,
+  utilizationPct: 100,
   actualHours: 980,
   targetMargin: 15,
 };
@@ -123,6 +126,7 @@ const BLANK_BUILDER_INPUTS: EquipmentBuilderInputs = {
   ],
   budgetedHours: 0,
   estimatedHours: 0,
+  utilizationPct: 100,
   actualHours: 0,
   targetMargin: 0,
 };
@@ -272,6 +276,11 @@ export default function EquipmentRateBuilder() {
   const estimatedHoursValue = inputs.budgetedHours;
   const actualHoursValue = inputs.actualHours;
 
+  // Utilization-adjusted productive hours — the divisor for the budgeted-hours break-even rate.
+  // Matches calculateEquipmentRate exactly so the displayed billable hours and the rate agree.
+  const utilizationValue = normalizeUtilization(inputs.utilizationPct);
+  const effectiveBudgetedHours = Math.max(1, Math.round(budgetedHoursValue * (utilizationValue / 100)));
+
   // ==================== UPDATE HELPERS ====================
   function updateField<K extends keyof EquipmentBuilderInputs>(field: K, value: EquipmentBuilderInputs[K]) {
     setInputs((prev) => ({ ...prev, [field]: value }));
@@ -330,6 +339,8 @@ export default function EquipmentRateBuilder() {
     const normalized = {
       ...profile,
       operating: normalizedOperating,
+      // Legacy profiles predate utilization — default to 100% (no idle adjustment).
+      utilizationPct: profile.utilizationPct ?? 100,
     };
     setInputs(normalized);
     setEditingId(profile.id);
@@ -639,6 +650,26 @@ export default function EquipmentRateBuilder() {
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">Based on your 2-year P&amp;L review — the hours this machine needs to run annually to recover all costs.</p>
                 </div>
+                {/* Utilization % — idle adjustment on the budgeted-hours break-even rate. */}
+                <div>
+                  <Label htmlFor="utilizationPct" className="text-sm">Utilization %</Label>
+                  <Input
+                    id="utilizationPct"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={inputs.utilizationPct || ""}
+                    onChange={(e) => updateField("utilizationPct", parseFloat(e.target.value) || 0)}
+                    className="mt-1.5 h-10 text-center font-medium tabular-nums"
+                    placeholder="100"
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">% of job time this equipment is actually running. Below 100% raises the cost per billable hour — idle time still costs money, spread across fewer productive hours.</p>
+                  {budgetedHoursValue > 0 && (
+                    <p className="mt-1 text-[11px] font-medium tabular-nums text-foreground">
+                      {budgetedHoursValue.toLocaleString()} budgeted × {utilizationValue}% = {effectiveBudgetedHours.toLocaleString()} billable hrs
+                    </p>
+                  )}
+                </div>
                 <div>
                   <Label htmlFor="estimatedHours" className="text-sm">Estimated Hours</Label>
                   <Input
@@ -769,8 +800,8 @@ export default function EquipmentRateBuilder() {
                   </TableHeader>
                   <TableBody>
                     {inputs.ownership.map((line) => {
-                      const perHour = inputs.estimatedHours > 0
-                        ? line.cost / inputs.estimatedHours
+                      const perHour = budgetedHoursValue > 0
+                        ? line.cost / effectiveBudgetedHours
                         : 0;
                       return (
                         <TableRow key={line.id}>
@@ -826,8 +857,8 @@ export default function EquipmentRateBuilder() {
                   </TableHeader>
                   <TableBody>
                     {inputs.operating.map((line) => {
-                      const perHour = inputs.estimatedHours > 0
-                        ? line.cost / inputs.estimatedHours
+                      const perHour = budgetedHoursValue > 0
+                        ? line.cost / effectiveBudgetedHours
                         : 0;
                       return (
                         <TableRow key={line.id}>
@@ -1111,7 +1142,7 @@ export default function EquipmentRateBuilder() {
                     ...inputs.ownership.map((l) => ({ label: l.name, annual: l.cost })),
                     ...inputs.operating.map((l) => ({ label: l.name, annual: l.cost })),
                   ].map((row, i) => {
-                    const budPerHr = budgetedHoursValue > 0 ? row.annual / budgetedHoursValue : null;
+                    const budPerHr = budgetedHoursValue > 0 ? row.annual / effectiveBudgetedHours : null;
                     const estPerHr = estimatedHoursValue > 0 ? row.annual / estimatedHoursValue : null;
                     const actPerHr = actualHoursValue > 0 ? row.annual / actualHoursValue : null;
                     return (
@@ -1129,7 +1160,7 @@ export default function EquipmentRateBuilder() {
                   {/* TOTAL ALL COSTS */}
                   {(() => {
                     const annual = calculations.totalAnnualCost;
-                    const budPerHr = budgetedHoursValue > 0 ? annual / budgetedHoursValue : null;
+                    const budPerHr = budgetedHoursValue > 0 ? annual / effectiveBudgetedHours : null;
                     const estPerHr = estimatedHoursValue > 0 ? annual / estimatedHoursValue : null;
                     const actPerHr = actualHoursValue > 0 ? annual / actualHoursValue : null;
                     return (

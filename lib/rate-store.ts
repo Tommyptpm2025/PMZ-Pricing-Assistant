@@ -22,6 +22,7 @@ export interface SavedEquipmentProfile {
   operating: any[];
   budgetedHours: number;
   estimatedHours: number;
+  utilizationPct?: number; // % of budgeted hours actually running (default 100); legacy records omit it
   actualHours: number;
   targetMargin: number;
 }
