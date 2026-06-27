@@ -63,6 +63,7 @@ import { updateQuote } from "@/lib/quote-storage";
 import { serializeEppLine, eppTotalRevenue } from "@/lib/epp-line";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
+import { useEstimators } from "@/lib/estimators";
 import { getAllTerms, type TermsBlock } from "@/lib/terms";
 
 // Stable ID generator (avoids Date.now/Math.random during SSR/hydration for client-only data)
@@ -130,6 +131,7 @@ interface CurrentEstimate {
   jobName: string;
   workTypeName: string;
   salesperson: string;
+  estimator: string;
   estimatedRevenue: number; // the total they are bidding (used for tier + target comparison)
   bidItems: BidItem[];
   customerName: string;
@@ -310,6 +312,13 @@ export default function ProjectPricerPage() {
     [salespeople]
   );
 
+  // Estimator registry (Company Setup → Estimators). Dropdown reads ACTIVE people, sorted A–Z.
+  const { estimators } = useEstimators();
+  const activeEstimators = React.useMemo(
+    () => estimators.filter((e) => e.active).map((e) => e.name).sort((a, b) => a.localeCompare(b)),
+    [estimators]
+  );
+
   // Correct labor burdened hourly rate using the imported calculateLaborRate (fixes broken labor calc in EPP panel)
   const getLaborBurdenedRate = (id: string): number => {
     if (!id) return 0;
@@ -363,6 +372,7 @@ export default function ProjectPricerPage() {
     jobName: "",
     workTypeName: "",
     salesperson: "",
+    estimator: "",
     estimatedRevenue: 24500,
     bidItems: [],
     customerName: "",
@@ -604,6 +614,7 @@ export default function ProjectPricerPage() {
             jobName: saved.jobName || "",
             workTypeName: saved.workTypeName || saved.workType || saved.workTypeId || "",
             salesperson: saved.salesperson || "",
+            estimator: saved.estimator || "",
             estimatedRevenue: saved.estimatedRevenue || saved.totalRevenue || 20000,
             bidItems: saved.bidItems || saved.eppLineItems || [],
             customerName: saved.customerName || saved.customer || "",
@@ -1404,6 +1415,7 @@ export default function ProjectPricerPage() {
       jobName: "",
       workTypeName: "",
       salesperson: "",
+      estimator: "",
       estimatedRevenue: 0,
       bidItems: [],
       customerName: "",
@@ -1455,6 +1467,7 @@ export default function ProjectPricerPage() {
       jobName: "Downtown Plaza Paving - Phase 1",
       workTypeName: workTypes[0]?.name || "Residential Paving",
       salesperson: "Owner",
+      estimator: "",
       estimatedRevenue: 24500,
       bidItems: demo,
       customerName: "Downtown Plaza LLC",
@@ -1622,6 +1635,7 @@ export default function ProjectPricerPage() {
         workTypeId,
         workType: workTypeName,
         salesperson: estimate.salesperson || "",
+        estimator: estimate.estimator || "",
         // also store full customer snapshot for preview
         customerDetails: {
           id: savedCustomerId,
@@ -1986,17 +2000,32 @@ export default function ProjectPricerPage() {
     });
     // Grand total = sum of the ROUNDED line totals, so the printed document always foots.
     const total = lineItems.reduce((sum: number, li: any) => sum + li.lineTotal, 0);
+    // Resolve the selected estimator's full record (Tier B token source). The quote stores the
+    // estimator NAME (mirrors salesperson); title/email/phone come from the Estimator Registry.
+    const estimatorName = s.estimator || estimate.estimator || "";
+    const estimatorRec = estimators.find((e) => e.name === estimatorName);
     return {
       jobName: s.jobName || estimate.jobName || "—",
       customer: buildCustomerBlock(),
       workType: s.workTypeName || s.workType || estimate.workTypeName || "",
       salesperson: s.salesperson || estimate.salesperson || "",
+      estimator: estimatorName,
       date: new Date().toLocaleDateString(),
       quoteNumber: Date.now().toString().slice(-7),
       status: s.status || "EPP",
       lineItems,
       total,
       grossProfit: eppGrossProfitDollars,
+      // Tier B token context — extended in Steps 3–4 (customer/project/quote/line items).
+      // Step 2 populates the estimator.* tokens from the selected registry record.
+      tokenContext: {
+        estimator: {
+          name: estimatorName,
+          title: estimatorRec?.title || "",
+          email: estimatorRec?.email || "",
+          phone: estimatorRec?.phone || "",
+        },
+      },
     };
   };
 
@@ -2371,7 +2400,7 @@ export default function ProjectPricerPage() {
       {/* 1. Top section — Customer (searchable), Job Name, Work Type (required), Salesperson. Bid total from table now drives margin tier. */}
       <Card className="card">
         <CardContent className="pt-6">
-          <div className="grid gap-6 md:grid-cols-4">
+          <div className="grid gap-6 md:grid-cols-5">
             <div>
               <Label className="text-xs font-medium tracking-wider text-muted-foreground">CUSTOMER</Label>
               <Select
@@ -2485,6 +2514,32 @@ export default function ProjectPricerPage() {
                   )}
                 </SelectContent>
               </Select>
+              <p className="mt-1 text-[11px] text-muted-foreground">Who owns this job?</p>
+            </div>
+
+            <div>
+              <Label className="text-xs font-medium tracking-wider text-muted-foreground">ESTIMATOR</Label>
+              <Select
+                value={estimate.estimator}
+                onValueChange={(val) => updateEstimate({ estimator: val })}
+              >
+                <SelectTrigger className={cn(
+                  "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]"
+                )}>
+                  <SelectValue placeholder="Select estimator" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeEstimators.map((name) => (
+                    <SelectItem key={`est-${name}`} value={name}>{name}</SelectItem>
+                  ))}
+                  {/* Backward-compat: keep a quote's stored estimator visible even when it's not an
+                      active registry entry (a since-deactivated person), marked "(unlisted)". */}
+                  {estimate.estimator && !activeEstimators.includes(estimate.estimator) && (
+                    <SelectItem value={estimate.estimator}>{estimate.estimator} (unlisted)</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[11px] text-muted-foreground">Who built this bid?</p>
             </div>
           </div>
         </CardContent>

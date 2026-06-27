@@ -258,6 +258,7 @@ export interface SavedQuote {
   customerId: string;
   workTypeId: string;
   salesperson: string;
+  estimator?: string; // Estimator Registry name selected on the quote (Tier B token source)
   status: QuoteStatus;
   locked: boolean;
 
