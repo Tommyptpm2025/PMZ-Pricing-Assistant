@@ -26,11 +26,13 @@ function formatWhole(amount: number | undefined | null): string {
 export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePreviewProps) {
   const q = quote || {};
   // Company identity (Tier A) — global, read directly so it stays out of the per-quote
-  // print-window handoff. Header falls back to the PMZ/TPM wordmark when setup is empty.
+  // print-window handoff. Header pulls EXCLUSIVELY from Company Setup — no hardcoded
+  // wordmark fallback. When legal_name is blank the Step 9 banner prompts the owner to
+  // complete setup; the header simply shows nothing rather than a stand-in brand.
   const { settings: company } = useCompanySettings();
   const co = company.company;
-  const headerName = co.legal_name.trim() || "Profit Margin Zone";
-  const headerSubtitle = co.short_name.trim() || (co.legal_name.trim() ? "" : "Total Profit Management");
+  const headerName = co.legal_name.trim();
+  const headerSubtitle = co.short_name.trim();
   // Step 9 — warn-only completeness gate. When the company brand-identity fields are blank
   // the document still renders (header falls back to the wordmark); we only nudge the owner
   // to finish Company Setup. Never blocks save/send, never prints.
@@ -167,6 +169,10 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           /* LEM detail: swap the on-screen text block for the aligned columnar block */
           .pmz-lem-screen { display: none !important; }
           .pmz-lem-print { display: block !important; }
+          /* Owner-only preview notices (incomplete-section / company banners, attorney badge)
+             never print. Reliable in-component rule — the Tailwind print: variant does not win
+             in the print tab, so all preview-only notices use this class instead. */
+          .pmz-print-hide { display: none !important; }
         }
       `}</style>
       {/* Top control bar - kept for buttons */}
@@ -198,7 +204,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
 
       {/* Step 9 — company-profile completeness banner (preview only; warn, never block/print). */}
       {!companyComplete && (
-        <div className="print:hidden mx-3 sm:mx-4 md:mx-6 mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs sm:text-sm text-amber-800">
+        <div className="pmz-print-hide print:hidden mx-3 sm:mx-4 md:mx-6 mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs sm:text-sm text-amber-800">
           <span className="font-semibold">Your company details are incomplete.</span>{' '}
           Complete Company Setup to generate a fully branded document.
         </div>
@@ -232,7 +238,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
                 // eslint-disable-next-line @next/next/no-img-element
                 <img className="pmz-logo" src={logoDataUrl} alt="Company logo" style={{ height: 32, width: 'auto', display: 'block', marginBottom: 4 }} />
               )}
-              <div style={{ fontSize: 14, fontWeight: 'bold' }}>{headerName}</div>
+              {headerName && <div style={{ fontSize: 14, fontWeight: 'bold' }}>{headerName}</div>}
               {headerSubtitle && <div style={{ fontSize: 8, color: '#555' }}>{headerSubtitle}</div>}
               {(co.address.trim() || co.city_state_zip.trim()) && (
                 <div style={{ fontSize: 8, color: '#555', marginTop: 3 }}>
@@ -397,12 +403,12 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             {TC_SECTIONS.map((sec, i) => {
               const ready = sectionReady(sec.body);
               return (
-                <div key={sec.id} className={ready ? undefined : "print:hidden"} style={{ marginBottom: 8 }}>
+                <div key={sec.id} className={ready ? undefined : "pmz-print-hide print:hidden"} style={{ marginBottom: 8 }}>
                   <div style={{ fontWeight: 'bold', color: '#333', marginBottom: 2 }}>
                     {i + 1}. {sec.title}
                     {sec.attorneyReview && (
                       <span
-                        className="print:hidden"
+                        className="pmz-print-hide print:hidden"
                         style={{ marginLeft: 6, fontSize: 8, fontWeight: 'bold', color: '#92400E', backgroundColor: '#FEF3C7', border: '1px solid #F59E0B', borderRadius: 3, padding: '1px 5px', textTransform: 'uppercase', letterSpacing: 0.3 }}
                       >
                         Attorney review required
