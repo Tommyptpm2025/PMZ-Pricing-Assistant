@@ -35,8 +35,15 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const tokenContext = q.tokenContext || null;
   // Quote/Estimate label — the export toggle drives the document title and every label reference.
   const docLabel = q.exportType === 'estimate' ? 'Estimate' : 'Quote';
+  // Inject the label as a token (lowercase for mid-sentence prose, e.g. "...accept this quote").
+  // It's render-time (exportType), so it's added here rather than in buildQuoteData, and used by
+  // BOTH the completeness gate and resolution so {{quote.label}} always resolves.
+  const docTokenContext = {
+    ...(tokenContext || {}),
+    quote: { ...((tokenContext && tokenContext.quote) || {}), label: docLabel.toLowerCase() },
+  };
   // Token values for per-section completeness checks in the Terms & Conditions block.
-  const tokenValues = buildTokenValues(company, tokenContext);
+  const tokenValues = buildTokenValues(company, docTokenContext);
   // A T&C section is "ready" when every token it references resolves to a non-empty value.
   // Incomplete sections show an amber owner note in preview and are omitted from print (never blanks).
   const sectionReady = (body: string) => {
@@ -389,7 +396,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
                     )}
                   </div>
                   {ready ? (
-                    <div style={{ whiteSpace: 'pre-wrap' }}>{resolveTokens(sec.body, { company, quote: tokenContext })}</div>
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{resolveTokens(sec.body, { company, quote: docTokenContext })}</div>
                   ) : (
                     <div style={{ color: '#92400E', backgroundColor: '#FEF3C7', border: '1px solid #F59E0B', borderRadius: 4, padding: '6px 8px' }}>
                       <span style={{ fontWeight: 'bold' }}>⚠ </span>

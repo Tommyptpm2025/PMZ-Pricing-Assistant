@@ -68,6 +68,7 @@ export const TOKEN_REGISTRY: TokenDef[] = [
   { path: 'quote.date', group: 'quote', key: 'date', label: 'Quote Date', tier: 'B' },
   { path: 'quote.number', group: 'quote', key: 'number', label: 'Quote Number', tier: 'B' },
   { path: 'quote.total', group: 'quote', key: 'total', label: 'Quote Total', tier: 'B' },
+  { path: 'quote.label', group: 'quote', key: 'label', label: 'Quote/Estimate Label', tier: 'B' },
   // Tier B — estimator (the estimator SELECTED on the quote, from the Estimator Registry)
   { path: 'estimator.name', group: 'estimator', key: 'name', label: 'Estimator Name', tier: 'B' },
   { path: 'estimator.title', group: 'estimator', key: 'title', label: 'Estimator Title', tier: 'B' },
@@ -108,7 +109,7 @@ export function tokensByGroup(): Record<string, TokenDef[]> {
  * part of this scalar context.
  */
 export interface QuoteTokenContext {
-  quote?: { date?: string; number?: string; total?: string };
+  quote?: { date?: string; number?: string; total?: string; label?: string };
   estimator?: { name?: string; title?: string; email?: string; phone?: string };
   customer?: { name?: string; address?: string; city_state_zip?: string; email?: string; phone?: string };
   project?: { name?: string; address?: string; city_state_zip?: string };
