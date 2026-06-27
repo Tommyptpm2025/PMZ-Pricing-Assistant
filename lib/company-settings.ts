@@ -79,6 +79,32 @@ export const EMPTY_COMPANY_SETTINGS: CompanySettings = {
 };
 
 /**
+ * Company-identity fields that make a document look "fully branded" — exactly the header
+ * block (name, address, contact). When any is blank the document still renders (the header
+ * falls back to the PMZ/TPM wordmark and drops empty lines), so this drives a warn-only
+ * banner on the document preview, never a hard block. (Build D, Step 9.)
+ */
+export const COMPANY_BRAND_FIELDS: (keyof CompanySettings['company'])[] = [
+  'legal_name',
+  'address',
+  'city_state_zip',
+  'phone',
+  'email',
+];
+
+/** Which brand-identity fields are still blank. Empty array → company profile is complete. */
+export function companyProfileMissing(settings: CompanySettings | null | undefined): string[] {
+  const c = settings?.company;
+  if (!c) return [...COMPANY_BRAND_FIELDS];
+  return COMPANY_BRAND_FIELDS.filter((k) => (c[k] ?? '').toString().trim() === '');
+}
+
+/** True when every brand-identity field is filled in. */
+export function companyProfileComplete(settings: CompanySettings | null | undefined): boolean {
+  return companyProfileMissing(settings).length === 0;
+}
+
+/**
  * Derived annual late-interest rate = monthly × 12. Returns '' when the monthly input is
  * blank or non-numeric, so the token resolves to an empty string rather than 'NaN'.
  */

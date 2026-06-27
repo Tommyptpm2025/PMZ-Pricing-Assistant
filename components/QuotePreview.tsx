@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { STATUS_COLORS } from "@/lib/pmz-types";
-import { useCompanySettings } from "@/lib/company-settings";
+import { useCompanySettings, companyProfileComplete } from "@/lib/company-settings";
 import { resolveTokens, buildTokenValues } from "@/lib/document-tokens";
 import { TC_SECTIONS } from "@/lib/document-blocks";
 
@@ -31,6 +31,10 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const co = company.company;
   const headerName = co.legal_name.trim() || "Profit Margin Zone";
   const headerSubtitle = co.short_name.trim() || (co.legal_name.trim() ? "" : "Total Profit Management");
+  // Step 9 — warn-only completeness gate. When the company brand-identity fields are blank
+  // the document still renders (header falls back to the wordmark); we only nudge the owner
+  // to finish Company Setup. Never blocks save/send, never prints.
+  const companyComplete = companyProfileComplete(company);
   // Tier B token context assembled by buildQuoteData (estimator/customer/project/quote/acceptance).
   const tokenContext = q.tokenContext || null;
   // Quote/Estimate label — the export toggle drives the document title and every label reference.
@@ -191,6 +195,14 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           </button>
         </div>
       </div>
+
+      {/* Step 9 — company-profile completeness banner (preview only; warn, never block/print). */}
+      {!companyComplete && (
+        <div className="print:hidden mx-3 sm:mx-4 md:mx-6 mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs sm:text-sm text-amber-800">
+          <span className="font-semibold">Your company details are incomplete.</span>{' '}
+          Complete Company Setup to generate a fully branded document.
+        </div>
+      )}
 
       {/* Full-page document preview, matching the PDF layout exactly.
           White sheet, letter width, centered on wide screens, scaled on narrow. */}
