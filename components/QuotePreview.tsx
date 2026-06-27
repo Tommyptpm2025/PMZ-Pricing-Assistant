@@ -266,10 +266,11 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             {docLabel.toUpperCase()}
           </div>
 
-          {/* TO / PROJECT columns */}
-          <div className="pmz-doc" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-            <div style={{ width: '48%' }}>
-              <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>TO:</div>
+          {/* Customer / Project columns — two equal-width columns with a fixed gutter:
+              customer (bill-to + contact) on the left, project + job site on the right. */}
+          <div className="pmz-doc" style={{ display: 'flex', gap: 24, marginBottom: 16, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>Customer</div>
               {customer.name && <div style={{ fontSize: 10, marginBottom: 1 }}>{customer.name}</div>}
               {showBillTo && billToLines.map((ln, i) => (
                 <div key={`bt${i}`} style={{ fontSize: 10, marginBottom: 1 }}>{ln}</div>
@@ -287,10 +288,11 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
                 <div style={{ fontSize: 9, color: '#555' }}>GPS: {gps}</div>
               )}
             </div>
-            <div style={{ width: '48%' }}>
-              <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>PROJECT:</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>Project / Job Site</div>
               <div style={{ fontSize: 10, marginBottom: 1 }}>{q.jobName || '—'}</div>
               <div style={{ fontSize: 10, marginBottom: 1 }}>Sales Rep: {q.salesperson || '—'}</div>
+              <div style={{ fontSize: 10, marginBottom: 1 }}>Estimator: {q.estimator || '—'}</div>
               {showJobSite && jobSiteLines.length > 0 && (
                 <div style={{ fontSize: 10, marginTop: 4, fontWeight: 'bold' }}>Job Site{jobSiteSameAsBilling ? ' (same as billing)' : ''}:</div>
               )}
