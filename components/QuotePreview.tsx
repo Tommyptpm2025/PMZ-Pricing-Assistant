@@ -3,6 +3,8 @@
 import * as React from "react";
 import { STATUS_COLORS } from "@/lib/pmz-types";
 import { useCompanySettings } from "@/lib/company-settings";
+import { resolveTokens } from "@/lib/document-tokens";
+import { PAYMENT_TERMS_TEXT, paymentTermsComplete } from "@/lib/document-blocks";
 
 interface QuotePreviewProps {
   quote: any; // accepts normalized object from buildQuoteData (or legacy shape)
@@ -29,6 +31,12 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const co = company.company;
   const headerName = co.legal_name.trim() || "Profit Margin Zone";
   const headerSubtitle = co.short_name.trim() || (co.legal_name.trim() ? "" : "Total Profit Management");
+  // Tier B token context assembled by buildQuoteData (estimator/customer/project/quote/acceptance).
+  const tokenContext = q.tokenContext || null;
+  // Payment Terms — auto-composed from Company Setup Default Terms, tokens resolved. Rendered only
+  // when the referenced terms fields are complete; otherwise an amber "complete terms" warning.
+  const paymentTermsReady = paymentTermsComplete(company);
+  const paymentTermsResolved = resolveTokens(PAYMENT_TERMS_TEXT, { company, quote: tokenContext });
   const options = q.options || {};
   const showQuantities = options.showQuantities !== false;
   const showUnits = options.showUnits !== false;
@@ -349,6 +357,24 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             <div style={{ fontSize: 11, fontWeight: 'bold', flexBasis: '70%' }}>TOTAL</div>
             <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'right', flexBasis: '30%' }}>${formatWhole(grandTotal)}</div>
           </div>
+
+          {/* Payment Terms — auto-composed from Company Setup Default Terms (tokens resolved).
+              When terms are incomplete, an amber owner-facing warning shows in preview only
+              (print:hidden) instead of a sentence with blanks. */}
+          {paymentTermsReady ? (
+            <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#555' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Payment Terms</div>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{paymentTermsResolved}</div>
+            </div>
+          ) : (
+            <div
+              className="print:hidden"
+              style={{ marginTop: 16, fontSize: 9, color: '#92400E', backgroundColor: '#FEF3C7', border: '1px solid #F59E0B', borderRadius: 4, padding: '8px 10px' }}
+            >
+              <span style={{ fontWeight: 'bold' }}>⚠ </span>
+              Complete Default Terms in Company Setup to generate Payment Terms.
+            </div>
+          )}
 
           {termsText && (
             <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#555' }}>
