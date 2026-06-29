@@ -67,8 +67,6 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const showBillTo = options.showBillTo !== false;
   const showJobSite = options.showJobSite !== false;
   const showPrimaryContact = options.showPrimaryContact !== false;
-  const showAccessNotes = !!options.showAccessNotes;
-  const showGPS = !!options.showGPS;
   const showLemDetail = !!options.showLemDetail;
 
   // Support normalized shape from buildQuoteData(source) for EPP (uses customer obj, qty, lineTotal, jobName, total, etc.)
@@ -115,14 +113,14 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   // Outlined pill: text + border use the zone background hex (saturated enough to read on white).
   const statusColor = STATUS_COLORS[q.status as string]?.bg || "#7D1424";
 
-  // Customer block (normalized by buildCustomerBlock): full address lines, contact, access, gps.
+  // Customer block (normalized by buildCustomerBlock): full address lines, contact.
+  // Access notes + GPS are Foreman Work Order data only — never rendered on this
+  // customer-facing document (suppressed entirely, regardless of any export option).
   const billToLines: string[] = Array.isArray(customer.billToLines) ? customer.billToLines : [];
   const jobSiteLines: string[] = Array.isArray(customer.jobSiteLines) ? customer.jobSiteLines : [];
   const jobSiteSameAsBilling = !!customer.jobSiteSameAsBilling;
   const contact = customer.contact || {};
   const contactNameTitle = [contact.name, contact.title].filter(Boolean).join(', ');
-  const access = customer.accessNotes || "";
-  const gps = customer.gps || "";
   // Document body field — standard charcoal. Customer/project data never uses TPM red/orange
   // (that color is reserved for required-field indicators and the LEM gate). One shared style
   // here forces the color explicitly so no inherited/cascaded accent color leaks through.
@@ -303,12 +301,6 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               {showPrimaryContact && contact.phone && <div style={docField}>Phone: {contact.phone}</div>}
               {showPrimaryContact && contact.mobile && <div style={docField}>Mobile: {contact.mobile}</div>}
               {showPrimaryContact && contact.email && <div style={docField}>Email: {contact.email}</div>}
-              {showAccessNotes && access && (
-                <div style={{ fontSize: 9, color: '#555' }}>Access: {access}</div>
-              )}
-              {showGPS && gps && (
-                <div style={{ fontSize: 9, color: '#555' }}>GPS: {gps}</div>
-              )}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>Project / Job Site</div>
