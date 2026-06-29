@@ -23,8 +23,8 @@ export function MainLayout({ children }: MainLayoutProps) {
             </div>
           </main>
 
-          {/* Subtle footer bar */}
-          <footer className="border-t bg-white/60 py-3 text-center text-xs text-muted-foreground lg:px-8">
+          {/* Subtle footer bar — dev/demo strip; never prints (would add a stray page to any PDF) */}
+          <footer className="print:hidden border-t bg-white/60 py-3 text-center text-xs text-muted-foreground lg:px-8">
             PMZ Pricing Assistant — LEM costs are the truth. <span className="hidden sm:inline">v0.1 • Client-side demo</span>
           </footer>
         </div>
