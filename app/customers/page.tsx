@@ -187,8 +187,9 @@ function PreviewSection({ title, subtitle, children }: { title: string; subtitle
 }
 
 // Full read-only preview of a saved customer — same five-section layout as Add/Edit, every field
-// rendered as locked text (no inputs, no Save). Editing is reached only from the list's pencil.
-function CustomerPreview({ customer, onBack }: { customer: Customer; onBack: () => void }) {
+// rendered as locked text (no inputs, no Save). Edit opens the same form as the list's pencil
+// (loadForEdit), via the Edit button in the header.
+function CustomerPreview({ customer, onBack, onEdit }: { customer: Customer; onBack: () => void; onEdit: () => void }) {
   const c = customer;
   const job: any = c.jobSiteAddress || {};
   const bill: any = c.billingAddress || {};
@@ -204,9 +205,14 @@ function CustomerPreview({ customer, onBack }: { customer: Customer; onBack: () 
             <CardTitle>{c.name || "Customer"}</CardTitle>
             <CardDescription>Saved customer — read-only preview.</CardDescription>
           </div>
-          <Button type="button" variant="outline" size="lg" className="shrink-0" onClick={onBack}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back to list
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            <Button type="button" size="lg" onClick={onEdit}>
+              <Edit2 className="mr-2 h-4 w-4" /> Edit
+            </Button>
+            <Button type="button" variant="outline" size="lg" onClick={onBack}>
+              <ArrowLeft className="mr-2 h-4 w-4" /> Back to list
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -706,7 +712,7 @@ export default function CustomersPage() {
       </div>
 
       {previewTarget ? (
-        <CustomerPreview customer={previewTarget} onBack={() => { setPreviewTarget(null); setActiveTab("saved"); }} />
+        <CustomerPreview customer={previewTarget} onBack={() => { setPreviewTarget(null); setActiveTab("saved"); }} onEdit={() => { loadForEdit(previewTarget); setPreviewTarget(null); }} />
       ) : (
       <>
       {/* Tabs */}
