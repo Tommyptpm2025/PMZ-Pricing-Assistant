@@ -326,7 +326,9 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               <div style={colHeader}>Project</div>
               <div className="pmz-charcoal" style={docField}>{q.jobName || '—'}</div>
               <div className="pmz-charcoal" style={docField}>Sales Rep: {q.salesperson || '—'}</div>
-              <div className="pmz-charcoal" style={docField}>Estimator: {q.estimator || '—'}</div>
+              {String(q.estimator || '').trim() !== '' && (
+                <div className="pmz-charcoal" style={docField}>Estimator: {q.estimator}</div>
+              )}
             </div>
           </div>
 
