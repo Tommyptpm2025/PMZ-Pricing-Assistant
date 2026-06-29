@@ -415,8 +415,6 @@ export default function ProjectPricerPage() {
   const [showBillTo, setShowBillTo] = React.useState(true);
   const [showJobSite, setShowJobSite] = React.useState(true);
   const [showPrimaryContact, setShowPrimaryContact] = React.useState(true);
-  const [showAccessNotes, setShowAccessNotes] = React.useState(false);
-  const [showGPS, setShowGPS] = React.useState(false);
 
   // Terms & Conditions selection for Update Export dialog (Stage 2)
   const [selectedTermsId, setSelectedTermsId] = React.useState<string | null>(null);
@@ -1802,8 +1800,6 @@ export default function ProjectPricerPage() {
       showBillTo,
       showJobSite,
       showPrimaryContact,
-      showAccessNotes,
-      showGPS,
     };
     setShowUpdateExport(false);
     // Open full-page quote in new tab (replaces old modal preview)
@@ -1833,8 +1829,6 @@ export default function ProjectPricerPage() {
           showBillTo,
           showJobSite,
           showPrimaryContact,
-          showAccessNotes,
-          showGPS,
           showLemDetail,
         },
         logoDataUrl,
@@ -4011,10 +4005,6 @@ export default function ProjectPricerPage() {
         setShowJobSite={setShowJobSite}
         showPrimaryContact={showPrimaryContact}
         setShowPrimaryContact={setShowPrimaryContact}
-        showAccessNotes={showAccessNotes}
-        setShowAccessNotes={setShowAccessNotes}
-        showGPS={showGPS}
-        setShowGPS={setShowGPS}
         showQuantities={showQuantities}
         setShowQuantities={setShowQuantities}
         showUnits={showUnits}

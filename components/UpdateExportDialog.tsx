@@ -41,10 +41,6 @@ export interface UpdateExportDialogProps {
   setShowJobSite: (v: boolean) => void;
   showPrimaryContact: boolean;
   setShowPrimaryContact: (v: boolean) => void;
-  showAccessNotes: boolean;
-  setShowAccessNotes: (v: boolean) => void;
-  showGPS: boolean;
-  setShowGPS: (v: boolean) => void;
   showQuantities: boolean;
   setShowQuantities: (v: boolean) => void;
   showUnits: boolean;
@@ -73,10 +69,6 @@ export default function UpdateExportDialog({
   setShowJobSite,
   showPrimaryContact,
   setShowPrimaryContact,
-  showAccessNotes,
-  setShowAccessNotes,
-  showGPS,
-  setShowGPS,
   showQuantities,
   setShowQuantities,
   showUnits,
@@ -218,24 +210,6 @@ export default function UpdateExportDialog({
                   className="accent-red-600"
                 />
                 <span className="text-sm">Show Primary Contact name + phone/email</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showAccessNotes}
-                  onChange={(e) => setShowAccessNotes(e.target.checked)}
-                  className="accent-red-600"
-                />
-                <span className="text-sm">Show Access Notes / Delivery Instructions</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showGPS}
-                  onChange={(e) => setShowGPS(e.target.checked)}
-                  className="accent-red-600"
-                />
-                <span className="text-sm">Show GPS Coordinates</span>
               </label>
             </div>
           </div>

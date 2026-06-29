@@ -184,8 +184,6 @@ export default function QuotesPage() {
   const [showBillTo, setShowBillTo] = React.useState(true);
   const [showJobSite, setShowJobSite] = React.useState(true);
   const [showPrimaryContact, setShowPrimaryContact] = React.useState(true);
-  const [showAccessNotes, setShowAccessNotes] = React.useState(false);
-  const [showGPS, setShowGPS] = React.useState(false);
   const [showQuantities, setShowQuantities] = React.useState(true);
   const [showUnits, setShowUnits] = React.useState(true);
   const [showPerUnitPrice, setShowPerUnitPrice] = React.useState(true);
@@ -218,8 +216,6 @@ export default function QuotesPage() {
     setShowBillTo(true);
     setShowJobSite(true);
     setShowPrimaryContact(true);
-    setShowAccessNotes(false);
-    setShowGPS(false);
     setShowQuantities(true);
     setShowUnits(true);
     setShowPerUnitPrice(true);
@@ -1076,10 +1072,6 @@ export default function QuotesPage() {
         setShowJobSite={setShowJobSite}
         showPrimaryContact={showPrimaryContact}
         setShowPrimaryContact={setShowPrimaryContact}
-        showAccessNotes={showAccessNotes}
-        setShowAccessNotes={setShowAccessNotes}
-        showGPS={showGPS}
-        setShowGPS={setShowGPS}
         showQuantities={showQuantities}
         setShowQuantities={setShowQuantities}
         showUnits={showUnits}
