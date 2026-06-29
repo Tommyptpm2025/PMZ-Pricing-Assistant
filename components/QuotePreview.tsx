@@ -455,7 +455,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           {termsText && (
             <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#333' }}>
               <div style={{ fontWeight: 'bold', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Additional Terms</div>
-              <div style={{ whiteSpace: 'pre-wrap' }}>{termsText}</div>
+              <div className="pmz-charcoal" style={{ whiteSpace: 'pre-wrap', color: '#333333' }}>{termsText}</div>
             </div>
           )}
 
