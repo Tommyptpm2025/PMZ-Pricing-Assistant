@@ -5,6 +5,7 @@ import { STATUS_COLORS } from "@/lib/pmz-types";
 import { useCompanySettings, companyProfileComplete } from "@/lib/company-settings";
 import { resolveTokens, buildTokenValues } from "@/lib/document-tokens";
 import { TC_SECTIONS } from "@/lib/document-blocks";
+import { formatPhone } from "@/lib/phone";
 
 interface QuotePreviewProps {
   quote: any; // accepts normalized object from buildQuoteData (or legacy shape)
@@ -121,6 +122,14 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const jobSiteSameAsBilling = !!customer.jobSiteSameAsBilling;
   const contact = customer.contact || {};
   const contactNameTitle = [contact.name, contact.title].filter(Boolean).join(', ');
+  // Fix 4 — one horizontal contact strip rendered BELOW the customer/project columns.
+  // Order: Contact | Mobile | Email | Phone. Phone/Mobile forced to xxx-xxx-xxxx; any
+  // empty field is omitted (no bare label with no value).
+  const contactStripItems: { label: string; value: string }[] = [];
+  if (contactNameTitle) contactStripItems.push({ label: 'Contact', value: contactNameTitle });
+  if (contact.mobile) contactStripItems.push({ label: 'Mobile', value: formatPhone(contact.mobile) });
+  if (contact.email) contactStripItems.push({ label: 'Email', value: contact.email });
+  if (contact.phone) contactStripItems.push({ label: 'Phone', value: formatPhone(contact.phone) });
   // Document body field — standard charcoal. Customer/project data never uses TPM red/orange
   // (that color is reserved for required-field indicators and the LEM gate). One shared style
   // here forces the color explicitly so no inherited/cascaded accent color leaks through.
@@ -164,8 +173,8 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           .pmz-line { page-break-inside: avoid; break-inside: avoid; }
           /* Level 1 — bid line typography */
           .pmz-bid-row > div { font-size: 10pt !important; font-weight: 600 !important; color: #212322 !important; }
-          /* Document blocks — TO / PROJECT / Terms at 9pt */
-          .pmz-doc div, .pmz-terms div { font-size: 9pt !important; }
+          /* Document blocks — customer/project columns, contact strip, Terms at 9pt */
+          .pmz-doc div, .pmz-doc span, .pmz-terms div { font-size: 9pt !important; }
           /* TOTAL row */
           .pmz-total > div { font-size: 11pt !important; font-weight: 700 !important; color: #212322 !important; }
           /* LEM detail: swap the on-screen text block for the aligned columnar block */
@@ -295,12 +304,6 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               {showBillTo && billToLines.map((ln, i) => (
                 <div key={`bt${i}`} style={docField}>{ln}</div>
               ))}
-              {showPrimaryContact && contactNameTitle && (
-                <div style={docField}>Contact: {contactNameTitle}</div>
-              )}
-              {showPrimaryContact && contact.phone && <div style={docField}>Phone: {contact.phone}</div>}
-              {showPrimaryContact && contact.mobile && <div style={docField}>Mobile: {contact.mobile}</div>}
-              {showPrimaryContact && contact.email && <div style={docField}>Email: {contact.email}</div>}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>Project / Job Site</div>
@@ -315,6 +318,21 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               ))}
             </div>
           </div>
+
+          {/* Contact strip — single horizontal row below the two columns:
+              Contact | Mobile | Email | Phone. Empty fields omitted. */}
+          {showPrimaryContact && contactStripItems.length > 0 && (
+            <div className="pmz-doc" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 14px', marginBottom: 16 }}>
+              {contactStripItems.map((it, i) => (
+                <React.Fragment key={it.label}>
+                  {i > 0 && <span style={{ color: '#bbb', fontSize: 10 }}>|</span>}
+                  <span style={{ fontSize: 10, color: '#333' }}>
+                    <span style={{ fontWeight: 600 }}>{it.label}:</span> {it.value}
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
+          )}
 
           {/* Line Items Table - full columns, matching PDF */}
           <div style={{ width: '100%', marginBottom: 12 }}>
