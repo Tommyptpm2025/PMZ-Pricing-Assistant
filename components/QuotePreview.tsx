@@ -120,20 +120,23 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const billToLines: string[] = Array.isArray(customer.billToLines) ? customer.billToLines : [];
   const jobSiteLines: string[] = Array.isArray(customer.jobSiteLines) ? customer.jobSiteLines : [];
   const contact = customer.contact || {};
-  // Fix 4 — one horizontal contact strip rendered BELOW the customer/project columns.
-  // Order: Contact | Mobile | Email | Phone. Phone/Mobile forced to xxx-xxx-xxxx; any
-  // empty field is omitted (no bare label with no value). Fix 4B: name only — the
-  // contact's title/role stays in the customer record, off the customer-facing quote.
+  // Contact strip — four equal-width (25%) columns below the three-column block, in fixed
+  // order Contact | Mobile | Phone | Email. Phones forced to xxx-xxx-xxxx; an empty field
+  // shows a charcoal "—" so the grid stays intact. Name only (title/role stays in the record).
   const contactName = (contact.name || '').trim();
-  const contactStripItems: { label: string; value: string }[] = [];
-  if (contactName) contactStripItems.push({ label: 'Contact', value: contactName });
-  if (contact.mobile) contactStripItems.push({ label: 'Mobile', value: formatPhone(contact.mobile) });
-  if (contact.email) contactStripItems.push({ label: 'Email', value: contact.email });
-  if (contact.phone) contactStripItems.push({ label: 'Phone', value: formatPhone(contact.phone) });
+  const contactStripItems: { label: string; value: string }[] = [
+    { label: 'Contact', value: contactName },
+    { label: 'Mobile', value: contact.mobile ? formatPhone(contact.mobile) : '' },
+    { label: 'Phone', value: contact.phone ? formatPhone(contact.phone) : '' },
+    { label: 'Email', value: contact.email || '' },
+  ];
+  const hasAnyContact = contactStripItems.some((it) => it.value);
   // Document body field — standard charcoal. Customer/project data never uses TPM red/orange
   // (that color is reserved for required-field indicators and the LEM gate). One shared style
   // here forces the color explicitly so no inherited/cascaded accent color leaks through.
   const docField: React.CSSProperties = { fontSize: 10, marginBottom: 1, color: '#333' };
+  // Column header — shared style for the Customer / Job Site / Project labels.
+  const colHeader: React.CSSProperties = { fontSize: 8, fontWeight: 'bold', marginBottom: 4, paddingBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #333' };
 
   // Scale the full-page preview to fit narrow screens (phones) using transform scale
   const PAGE_WIDTH = 816; // US Letter width in px
@@ -153,6 +156,15 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
       {/* Print rules: full letter page, 0.5in margins, sheet fills the printable width
           (drop the on-screen fixed width / scale / shadow / gray backdrop when printing). */}
       <style>{`
+        /* Force charcoal on document body data fields. Beats inherited accents AND the browser's
+           auto-detection of address / phone / price-like strings, which wraps text in a synthetic
+           link colored via -webkit-text-fill-color (which overrides plain color). We override BOTH
+           color and -webkit-text-fill-color (+ kill the underline). Screen and print. */
+        .pmz-charcoal, .pmz-charcoal * {
+          color: #333 !important;
+          -webkit-text-fill-color: #333 !important;
+          text-decoration: none !important;
+        }
         @media print {
           @page { size: letter; margin: 0.5in; }
           html, body { background: #fff !important; }
@@ -242,9 +254,10 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               padding: '40px',
             }}
           >
-          {/* Header */}
+          {/* Header — logo / company identity (left), QUOTE/ESTIMATE title (center),
+              document #/date/status (right): all on one row, no separate title row below. */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, paddingBottom: 8, borderBottom: '2px solid #111' }}>
-            <div style={{ maxWidth: '60%' }}>
+            <div style={{ maxWidth: '38%' }}>
               {logoDataUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img className="pmz-logo" src={logoDataUrl} alt="Company logo" style={{ height: 32, width: 'auto', display: 'block', marginBottom: 4 }} />
@@ -265,7 +278,10 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
                 </div>
               )}
             </div>
-            <div style={{ textAlign: 'right', fontSize: 9 }}>
+            <div style={{ flex: 1, alignSelf: 'center', textAlign: 'center', fontSize: 28, fontWeight: 'bold', letterSpacing: 2, color: '#333' }}>
+              {docLabel.toUpperCase()}
+            </div>
+            <div style={{ textAlign: 'right', fontSize: 9, color: '#333' }}>
               {docLabel} #{q.quoteNumber || Date.now().toString().slice(-7)}<br />
               {q.date || new Date().toLocaleDateString()}
               {statusLabel && (
@@ -290,53 +306,45 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             </div>
           </div>
 
-          {/* Title - centered QUOTE */}
-          <div style={{ fontSize: 28, fontWeight: 'bold', textAlign: 'center', margin: '10px 0', letterSpacing: 2 }}>
-            {docLabel.toUpperCase()}
-          </div>
-
-          {/* Customer / Project columns — two equal-width columns with a fixed gutter:
-              customer (bill-to + contact) on the left, project + job site on the right. */}
+          {/* Three equal-width columns: Customer (bill-to) | Job Site | Project details.
+              Address-line toggles (showBillTo / showJobSite) still gate each column's lines. */}
           <div className="pmz-doc" style={{ display: 'flex', gap: 24, marginBottom: 16, alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>Customer</div>
-              {customer.name && <div style={docField}>{customer.name}</div>}
+              <div style={colHeader}>Customer</div>
+              {customer.name && <div className="pmz-charcoal" style={docField}>{customer.name}</div>}
               {showBillTo && billToLines.map((ln, i) => (
-                <div key={`bt${i}`} style={docField}>{ln}</div>
+                <div key={`bt${i}`} className="pmz-charcoal" style={docField}>{ln}</div>
               ))}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>Project / Job Site</div>
-              <div style={docField}>{q.jobName || '—'}</div>
-              <div style={docField}>Sales Rep: {q.salesperson || '—'}</div>
-              <div style={docField}>Estimator: {q.estimator || '—'}</div>
-              {showJobSite && jobSiteLines.length > 0 && (
-                <div style={{ ...docField, marginTop: 4, fontWeight: 'bold' }}>Job Site:</div>
-              )}
-              {showJobSite && jobSiteLines.map((ln, i) => (
-                <div key={`js${i}`} style={docField}>{ln}</div>
-              ))}
+              <div style={colHeader}>Job Site</div>
+              {showJobSite && jobSiteLines.length > 0
+                ? jobSiteLines.map((ln, i) => <div key={`js${i}`} className="pmz-charcoal" style={docField}>{ln}</div>)
+                : <div className="pmz-charcoal" style={docField}>—</div>}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={colHeader}>Project</div>
+              <div className="pmz-charcoal" style={docField}>{q.jobName || '—'}</div>
+              <div className="pmz-charcoal" style={docField}>Sales Rep: {q.salesperson || '—'}</div>
+              <div className="pmz-charcoal" style={docField}>Estimator: {q.estimator || '—'}</div>
             </div>
           </div>
 
-          {/* Contact strip — single horizontal row below the two columns:
-              Contact | Mobile | Email | Phone. Empty fields omitted. */}
-          {showPrimaryContact && contactStripItems.length > 0 && (
-            <div className="pmz-doc" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 14px', marginBottom: 16 }}>
-              {contactStripItems.map((it, i) => (
-                <React.Fragment key={it.label}>
-                  {i > 0 && <span style={{ color: '#bbb', fontSize: 10 }}>|</span>}
-                  <span style={{ fontSize: 10, color: '#333' }}>
-                    <span style={{ fontWeight: 600 }}>{it.label}:</span> {it.value}
-                  </span>
-                </React.Fragment>
+          {/* Contact strip — four equal-width (25%) columns below the three-column block:
+              Contact | Mobile | Phone | Email. No separators; empty fields show "—". */}
+          {showPrimaryContact && hasAnyContact && (
+            <div className="pmz-doc" style={{ display: 'flex', marginBottom: 16 }}>
+              {contactStripItems.map((it) => (
+                <div key={it.label} className="pmz-charcoal" style={{ flex: 1, minWidth: 0, fontSize: 10, color: '#333' }}>
+                  <span style={{ fontWeight: 600 }}>{it.label}:</span> {it.value || '—'}
+                </div>
               ))}
             </div>
           )}
 
           {/* Line Items Table - full columns, matching PDF */}
           <div style={{ width: '100%', marginBottom: 12 }}>
-            <div className="pmz-thead" style={{ display: 'flex', backgroundColor: '#f5f5f5', borderBottom: '1px solid #111' }}>
+            <div className="pmz-thead" style={{ display: 'flex', backgroundColor: '#f5f5f5', borderBottom: '1px solid #111', color: '#333' }}>
               <div style={{ padding: 6, fontSize: 9, fontWeight: 'bold', borderRight: '0.5px solid #999', flexBasis: '40%' }}>Description</div>
               {showQuantities && <div style={{ padding: 6, fontSize: 9, fontWeight: 'bold', borderRight: '0.5px solid #999', flexBasis: '10%', textAlign: 'right' }}>Qty</div>}
               {showUnits && <div style={{ padding: 6, fontSize: 9, fontWeight: 'bold', borderRight: '0.5px solid #999', flexBasis: '10%', textAlign: 'center' }}>Unit</div>}
@@ -348,7 +356,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               const lemOn = showLemDetail && item.lemDetail && item.lemDetail.hasAny;
               return (
                 <div className="pmz-line" key={idx}>
-                  <div className="pmz-bid-row" style={{ display: 'flex', borderBottom: lemOn ? 'none' : '0.5px solid #ccc' }}>
+                  <div className="pmz-bid-row pmz-charcoal" style={{ display: 'flex', borderBottom: lemOn ? 'none' : '0.5px solid #ccc', color: '#333' }}>
                     <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '40%' }}>{item.description || '—'}</div>
                     {showQuantities && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'right' }}>{item.quantity || 0}</div>}
                     {showUnits && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'center' }}>{item.unit || ''}</div>}
@@ -396,14 +404,14 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
                 </div>
               );
             }) : (
-              <div style={{ display: 'flex' }}>
+              <div style={{ display: 'flex', color: '#333' }}>
                 <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', width: '100%' }}>No line items</div>
               </div>
             )}
           </div>
 
           {/* TOTAL row */}
-          <div className="pmz-total" style={{ display: 'flex', marginTop: 4, borderTop: '1px solid #111', paddingTop: 4 }}>
+          <div className="pmz-total pmz-charcoal" style={{ display: 'flex', marginTop: 4, borderTop: '1px solid #111', paddingTop: 4, color: '#333' }}>
             <div style={{ fontSize: 11, fontWeight: 'bold', flexBasis: '70%' }}>TOTAL</div>
             <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'right', flexBasis: '30%' }}>${formatWhole(grandTotal)}</div>
           </div>
@@ -412,7 +420,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               from Step 5). Each section renders when its tokens are complete; an incomplete section
               shows an amber owner note in preview and is omitted from print (never blanks). The Lien
               Notice carries an "Attorney review required" amber badge (owner-facing, preview only). */}
-          <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#555' }}>
+          <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#333' }}>
             <div style={{ fontWeight: 'bold', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Terms &amp; Conditions</div>
             {TC_SECTIONS.map((sec, i) => {
               const ready = sectionReady(sec.body);
@@ -443,7 +451,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           </div>
 
           {termsText && (
-            <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#555' }}>
+            <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#333' }}>
               <div style={{ fontWeight: 'bold', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Additional Terms</div>
               <div style={{ whiteSpace: 'pre-wrap' }}>{termsText}</div>
             </div>
