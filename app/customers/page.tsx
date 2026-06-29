@@ -109,10 +109,10 @@ function SectionCompletion({ flags }: { flags: boolean[] }) {
 function renderContactLink(value?: string) {
   const v = (value || "").trim();
   if (!v) return null;
-  if (isValidEmail(v)) return <a href={`mailto:${v}`} className="text-primary hover:underline">{v}</a>;
+  if (isValidEmail(v)) return <a href={`mailto:${v}`} className="hover:underline" style={{ color: '#333' }}>{v}</a>;
   if (/^https?:\/\//i.test(v) || /\.[a-z]{2,}(\/|$)/i.test(v)) {
     const href = /^https?:\/\//i.test(v) ? v : `https://${v}`;
-    return <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{v}</a>;
+    return <a href={href} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: '#333' }}>{v}</a>;
   }
   return <span>{v}</span>;
 }
