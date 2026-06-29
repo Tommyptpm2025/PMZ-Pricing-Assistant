@@ -38,8 +38,10 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
+import { pdf } from '@react-pdf/renderer';
 import QuotePreview from "@/components/QuotePreview";
+import QuotePdfDocument from "@/components/QuotePdfDocument";
+import { getCompanySettings } from "@/lib/company-settings";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
 import { buildLineLemDetail, type LemRateCatalogs } from "@/lib/lem-detail";
 import {
@@ -2114,247 +2116,6 @@ export default function ProjectPricerPage() {
     ? Math.round(targetBidPrice * (1 - targetMargin / 100))
     : 0;
 
-  // Professional PDF styles + logo support
-  const styles = StyleSheet.create({
-    page: {
-      padding: 40,
-      fontFamily: 'Helvetica',
-      fontSize: 10,
-      color: '#111',
-    },
-    header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'flex-start',
-      marginBottom: 12,
-      paddingBottom: 8,
-      borderBottomWidth: 2,
-      borderBottomColor: '#111',
-    },
-    logo: {
-      maxWidth: 120,
-      maxHeight: 50,
-    },
-    companyName: {
-      fontSize: 14,
-      fontWeight: 'bold',
-    },
-    quoteTitle: {
-      fontSize: 28,
-      fontWeight: 'bold',
-      textAlign: 'center',
-      marginVertical: 10,
-      letterSpacing: 2,
-    },
-    infoSection: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: 16,
-    },
-    infoCol: {
-      width: '48%',
-    },
-    infoLabel: {
-      fontSize: 8,
-      fontWeight: 'bold',
-      marginBottom: 2,
-      color: '#444',
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-    },
-    infoText: {
-      fontSize: 10,
-      marginBottom: 1,
-    },
-    table: {
-      width: '100%',
-      marginBottom: 12,
-    },
-    tableHeader: {
-      flexDirection: 'row',
-      backgroundColor: '#f5f5f5',
-      borderBottomWidth: 1,
-      borderBottomColor: '#111',
-    },
-    tableHeaderCell: {
-      padding: 6,
-      fontSize: 9,
-      fontWeight: 'bold',
-      borderRightWidth: 0.5,
-      borderRightColor: '#999',
-    },
-    tableRow: {
-      flexDirection: 'row',
-      borderBottomWidth: 0.5,
-      borderBottomColor: '#ccc',
-    },
-    tableCell: {
-      padding: 5,
-      fontSize: 9,
-      borderRightWidth: 0.5,
-      borderRightColor: '#ccc',
-    },
-    tableCellRight: {
-      padding: 5,
-      fontSize: 9,
-      textAlign: 'right',
-    },
-    totalRow: {
-      flexDirection: 'row',
-      marginTop: 4,
-      borderTopWidth: 1,
-      borderTopColor: '#111',
-      paddingTop: 4,
-    },
-    totalLabel: {
-      fontSize: 11,
-      fontWeight: 'bold',
-    },
-    totalValue: {
-      fontSize: 11,
-      fontWeight: 'bold',
-      textAlign: 'right',
-    },
-    footer: {
-      marginTop: 24,
-      fontSize: 8,
-      color: '#555',
-      textAlign: 'center',
-    },
-  });
-
-  const QuotePDF = ({
-    estimate,
-    exportType = 'quote',
-    showQuantities = true,
-    showUnits = true,
-    showPerUnitPrice = true,
-    showLineItemPrices = true,
-    logoDataUrl = null,
-    showBillTo = true,
-    showJobSite = true,
-    showPrimaryContact = true,
-    showAccessNotes = false,
-    showGPS = false,
-  }: any) => {
-    const items = estimate.bidItems || [];
-    // Rounded customer line totals (presentation only); grand total foots to their sum. item.unitPrice
-    // here is already the customer (marked-up) price — the call site feeds QuotePDF marked-up bid items.
-    const pdfLines = items.map((item: any) => {
-      const qty = item.quantity || 0;
-      const lineTotal = roundToQuote(qty * (item.unitPrice || 0));
-      const perUnit = qty > 0 ? lineTotal / qty : (item.unitPrice || 0);
-      return { description: item.description || '—', qty, unit: item.unit || '', perUnit, lineTotal };
-    });
-    const grandTotal = pdfLines.reduce((sum: number, l: any) => sum + l.lineTotal, 0);
-
-    // Compute column widths dynamically
-    const descWidth = '40%';
-    const qtyWidth = showQuantities ? '10%' : '0%';
-    const unitWidth = showUnits ? '10%' : '0%';
-    const priceWidth = showPerUnitPrice ? '15%' : '0%';
-    const totalWidth = showLineItemPrices ? '15%' : '0%';
-
-    // Single normalized customer block (same source as the on-screen preview); never includes notes.
-    const cb = buildCustomerBlock();
-
-    return (
-      <Document>
-        <Page size="A4" style={styles.page}>
-          {/* Header with logo */}
-          <View style={styles.header}>
-            <View>
-              {logoDataUrl ? (
-                <Image src={logoDataUrl} style={styles.logo} />
-              ) : (
-                <Text style={styles.companyName}>Profit Margin Zone</Text>
-              )}
-              <Text style={{ fontSize: 8, color: '#555' }}>Total Profit Management</Text>
-            </View>
-            <View style={{ textAlign: 'right' }}>
-              <Text style={{ fontSize: 9 }}>Quote #{Date.now().toString().slice(-7)}</Text>
-              <Text style={{ fontSize: 9 }}>{new Date().toLocaleDateString()}</Text>
-            </View>
-          </View>
-
-          {/* Title */}
-          <Text style={styles.quoteTitle}>{exportType === 'quote' ? 'QUOTE' : 'ESTIMATE'}</Text>
-
-          {/* Customer / Project Info */}
-          <View style={styles.infoSection}>
-            <View style={styles.infoCol}>
-              <Text style={styles.infoLabel}>TO:</Text>
-              {!!cb.name && <Text style={styles.infoText}>{cb.name}</Text>}
-              {showBillTo && cb.billToLines.map((ln: string, i: number) => (
-                <Text key={`bt${i}`} style={styles.infoText}>{ln}</Text>
-              ))}
-              {showPrimaryContact && !!(cb.contact.name || cb.contact.title) && (
-                <Text style={styles.infoText}>Contact: {[cb.contact.name, cb.contact.title].filter(Boolean).join(', ')}</Text>
-              )}
-              {showPrimaryContact && !!cb.contact.phone && <Text style={styles.infoText}>Phone: {cb.contact.phone}</Text>}
-              {showPrimaryContact && !!cb.contact.mobile && <Text style={styles.infoText}>Mobile: {cb.contact.mobile}</Text>}
-              {showPrimaryContact && !!cb.contact.email && <Text style={styles.infoText}>Email: {cb.contact.email}</Text>}
-              {showAccessNotes && !!cb.accessNotes && (
-                <Text style={[styles.infoText, { fontSize: 8 }]}>Access: {cb.accessNotes}</Text>
-              )}
-              {showGPS && !!cb.gps && (
-                <Text style={[styles.infoText, { fontSize: 8 }]}>GPS: {cb.gps}</Text>
-              )}
-            </View>
-            <View style={styles.infoCol}>
-              <Text style={styles.infoLabel}>PROJECT:</Text>
-              <Text style={styles.infoText}>{estimate.jobName || 'Project Name'}</Text>
-              <Text style={styles.infoText}>Sales Rep: {estimate.salesperson || '—'}</Text>
-              {showJobSite && cb.jobSiteLines.length > 0 && (
-                <Text style={[styles.infoText, { marginTop: 4 }]}>Job Site{cb.jobSiteSameAsBilling ? ' (same as billing)' : ''}:</Text>
-              )}
-              {showJobSite && cb.jobSiteLines.map((ln: string, i: number) => (
-                <Text key={`js${i}`} style={styles.infoText}>{ln}</Text>
-              ))}
-            </View>
-          </View>
-
-          {/* Line Items Table */}
-          <View style={styles.table}>
-            {/* Header row */}
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderCell, { width: descWidth }]}>Description</Text>
-              {showQuantities && <Text style={[styles.tableHeaderCell, { width: qtyWidth }]}>Qty</Text>}
-              {showUnits && <Text style={[styles.tableHeaderCell, { width: unitWidth }]}>Unit</Text>}
-              {showPerUnitPrice && <Text style={[styles.tableHeaderCell, { width: priceWidth }]}>Unit Price</Text>}
-              {showLineItemPrices && <Text style={[styles.tableHeaderCell, { width: totalWidth }]}>Line Total</Text>}
-            </View>
-
-            {/* Data rows */}
-            {pdfLines.length > 0 ? pdfLines.map((line: any, idx: number) => (
-                <View key={idx} style={styles.tableRow}>
-                  <Text style={[styles.tableCell, { width: descWidth }]}>{line.description}</Text>
-                  {showQuantities && <Text style={[styles.tableCell, { width: qtyWidth }]}>{line.qty}</Text>}
-                  {showUnits && <Text style={[styles.tableCell, { width: unitWidth }]}>{line.unit}</Text>}
-                  {showPerUnitPrice && <Text style={[styles.tableCell, { width: priceWidth }]}>${formatMoney(line.perUnit)}</Text>}
-                  {showLineItemPrices && <Text style={[styles.tableCell, { width: totalWidth }]}>${formatWhole(line.lineTotal)}</Text>}
-                </View>
-            )) : (
-              <View style={styles.tableRow}>
-                <Text style={[styles.tableCell, { width: '100%' }]}>No line items</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Grand Total */}
-          <View style={styles.totalRow}>
-            <Text style={[styles.totalLabel, { width: '70%' }]}>TOTAL</Text>
-            <Text style={[styles.totalValue, { width: '30%' }]}>${formatWhole(grandTotal)}</Text>
-          </View>
-
-          <Text style={styles.footer}>
-            This document is a {exportType}. Thank you for your business.
-          </Text>
-        </Page>
-      </Document>
-    );
-  };
-
   // Full-page printable preview in new tab (no modal)
   if (isPrintPreview) {
     if (!printQuoteData) {
@@ -2365,17 +2126,42 @@ export default function ProjectPricerPage() {
       );
     }
     const { quoteData, options = {}, logoDataUrl: ldu = null, exportType: et = 'quote', termsText = null } = printQuoteData;
+    // Single normalized quote object — fed to BOTH the on-screen preview and the PDF renderer,
+    // so the exported document matches the sheet exactly.
+    const previewQuote = {
+      ...(quoteData || {}),
+      options,
+      logoDataUrl: ldu,
+      exportType: et,
+      termsText,
+    };
+    // Build E export: render a true vector PDF (QuotePdfDocument) and download it. This replaces
+    // window.print() — no browser HTML in the output, so charcoal stays charcoal (no extension
+    // auto-link teal) and pagination is deterministic. Company settings are read at click time
+    // (this renders outside React's tree, so the document takes them as a prop, not a hook).
+    const handleDownloadPdf = async () => {
+      try {
+        const company = getCompanySettings();
+        const blob = await pdf(<QuotePdfDocument quote={previewQuote} company={company} />).toBlob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const label = et === 'estimate' ? 'Estimate' : 'Quote';
+        const num = (quoteData && quoteData.quoteNumber) || '';
+        a.download = `${label}${num ? '-' + num : ''}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error('PDF export failed', e);
+      }
+    };
     return (
       <QuotePreview
-        quote={{
-          ...(quoteData || {}),
-          options,
-          logoDataUrl: ldu,
-          exportType: et,
-          termsText,
-        }}
+        quote={previewQuote}
         onClose={() => window.close()}
-        onExportPDF={() => window.print()}
+        onExportPDF={handleDownloadPdf}
       />
     );
   }
