@@ -123,6 +123,10 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   const contactNameTitle = [contact.name, contact.title].filter(Boolean).join(', ');
   const access = customer.accessNotes || "";
   const gps = customer.gps || "";
+  // Document body field — standard charcoal. Customer/project data never uses TPM red/orange
+  // (that color is reserved for required-field indicators and the LEM gate). One shared style
+  // here forces the color explicitly so no inherited/cascaded accent color leaks through.
+  const docField: React.CSSProperties = { fontSize: 10, marginBottom: 1, color: '#333' };
 
   // Scale the full-page preview to fit narrow screens (phones) using transform scale
   const PAGE_WIDTH = 816; // US Letter width in px
@@ -289,16 +293,16 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           <div className="pmz-doc" style={{ display: 'flex', gap: 24, marginBottom: 16, alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>Customer</div>
-              {customer.name && <div style={{ fontSize: 10, marginBottom: 1 }}>{customer.name}</div>}
+              {customer.name && <div style={docField}>{customer.name}</div>}
               {showBillTo && billToLines.map((ln, i) => (
-                <div key={`bt${i}`} style={{ fontSize: 10, marginBottom: 1 }}>{ln}</div>
+                <div key={`bt${i}`} style={docField}>{ln}</div>
               ))}
               {showPrimaryContact && contactNameTitle && (
-                <div style={{ fontSize: 10, marginBottom: 1 }}>Contact: {contactNameTitle}</div>
+                <div style={docField}>Contact: {contactNameTitle}</div>
               )}
-              {showPrimaryContact && contact.phone && <div style={{ fontSize: 10, marginBottom: 1 }}>Phone: {contact.phone}</div>}
-              {showPrimaryContact && contact.mobile && <div style={{ fontSize: 10, marginBottom: 1 }}>Mobile: {contact.mobile}</div>}
-              {showPrimaryContact && contact.email && <div style={{ fontSize: 10, marginBottom: 1 }}>Email: {contact.email}</div>}
+              {showPrimaryContact && contact.phone && <div style={docField}>Phone: {contact.phone}</div>}
+              {showPrimaryContact && contact.mobile && <div style={docField}>Mobile: {contact.mobile}</div>}
+              {showPrimaryContact && contact.email && <div style={docField}>Email: {contact.email}</div>}
               {showAccessNotes && access && (
                 <div style={{ fontSize: 9, color: '#555' }}>Access: {access}</div>
               )}
@@ -308,14 +312,14 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 2, color: '#444', textTransform: 'uppercase', letterSpacing: 0.5 }}>Project / Job Site</div>
-              <div style={{ fontSize: 10, marginBottom: 1 }}>{q.jobName || '—'}</div>
-              <div style={{ fontSize: 10, marginBottom: 1 }}>Sales Rep: {q.salesperson || '—'}</div>
-              <div style={{ fontSize: 10, marginBottom: 1 }}>Estimator: {q.estimator || '—'}</div>
+              <div style={docField}>{q.jobName || '—'}</div>
+              <div style={docField}>Sales Rep: {q.salesperson || '—'}</div>
+              <div style={docField}>Estimator: {q.estimator || '—'}</div>
               {showJobSite && jobSiteLines.length > 0 && (
-                <div style={{ fontSize: 10, marginTop: 4, fontWeight: 'bold' }}>Job Site{jobSiteSameAsBilling ? ' (same as billing)' : ''}:</div>
+                <div style={{ ...docField, marginTop: 4, fontWeight: 'bold' }}>Job Site{jobSiteSameAsBilling ? ' (same as billing)' : ''}:</div>
               )}
               {showJobSite && jobSiteLines.map((ln, i) => (
-                <div key={`js${i}`} style={{ fontSize: 10, marginBottom: 1 }}>{ln}</div>
+                <div key={`js${i}`} style={docField}>{ln}</div>
               ))}
             </div>
           </div>
