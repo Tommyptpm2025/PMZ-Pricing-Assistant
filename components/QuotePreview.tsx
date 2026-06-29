@@ -119,14 +119,14 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   // customer-facing document (suppressed entirely, regardless of any export option).
   const billToLines: string[] = Array.isArray(customer.billToLines) ? customer.billToLines : [];
   const jobSiteLines: string[] = Array.isArray(customer.jobSiteLines) ? customer.jobSiteLines : [];
-  const jobSiteSameAsBilling = !!customer.jobSiteSameAsBilling;
   const contact = customer.contact || {};
-  const contactNameTitle = [contact.name, contact.title].filter(Boolean).join(', ');
   // Fix 4 — one horizontal contact strip rendered BELOW the customer/project columns.
   // Order: Contact | Mobile | Email | Phone. Phone/Mobile forced to xxx-xxx-xxxx; any
-  // empty field is omitted (no bare label with no value).
+  // empty field is omitted (no bare label with no value). Fix 4B: name only — the
+  // contact's title/role stays in the customer record, off the customer-facing quote.
+  const contactName = (contact.name || '').trim();
   const contactStripItems: { label: string; value: string }[] = [];
-  if (contactNameTitle) contactStripItems.push({ label: 'Contact', value: contactNameTitle });
+  if (contactName) contactStripItems.push({ label: 'Contact', value: contactName });
   if (contact.mobile) contactStripItems.push({ label: 'Mobile', value: formatPhone(contact.mobile) });
   if (contact.email) contactStripItems.push({ label: 'Email', value: contact.email });
   if (contact.phone) contactStripItems.push({ label: 'Phone', value: formatPhone(contact.phone) });
@@ -311,7 +311,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               <div style={docField}>Sales Rep: {q.salesperson || '—'}</div>
               <div style={docField}>Estimator: {q.estimator || '—'}</div>
               {showJobSite && jobSiteLines.length > 0 && (
-                <div style={{ ...docField, marginTop: 4, fontWeight: 'bold' }}>Job Site{jobSiteSameAsBilling ? ' (same as billing)' : ''}:</div>
+                <div style={{ ...docField, marginTop: 4, fontWeight: 'bold' }}>Job Site:</div>
               )}
               {showJobSite && jobSiteLines.map((ln, i) => (
                 <div key={`js${i}`} style={docField}>{ln}</div>
