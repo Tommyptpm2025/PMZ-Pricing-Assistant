@@ -1229,7 +1229,7 @@ export default function ProjectPricerPage() {
         item.id === id
           ? {
               ...item,
-              [field]: (field === "labor" || field === "priceOverridden" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string))
+              [field]: (field === "priceOverridden" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string))
                 ? (value === "" ? undefined : value)
                 : Math.max(0, Number(value) || 0),
             }
