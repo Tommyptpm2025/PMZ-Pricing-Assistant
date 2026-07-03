@@ -25,10 +25,15 @@ function createId() {
   return Math.random().toString(36).slice(2, 11);
 }
 
+// Every line carries a Fixed/Variable tag — muscle-memory education, not analysis.
+// Fixed: "costs you whether you do a dollar of work or a million." Variable: "no work, no cost."
+type CostBehavior = "Fixed" | "Variable";
+
 interface OverheadItem {
   id: string;
   category: string;
   amount: number;
+  behavior: CostBehavior;
 }
 
 interface OverheadChart {
@@ -39,8 +44,9 @@ interface OverheadChart {
   notes: string;
 }
 
-// Standard construction contractor overhead categories
-const DEFAULT_CATEGORIES: Omit<OverheadItem, "id" | "amount">[] = [
+// Standard construction contractor overhead categories (overhead is largely Fixed by nature;
+// Tom flips the variable ones — that tagging is the muscle-memory exercise).
+const DEFAULT_CATEGORIES: { category: string }[] = [
   { category: "Office Salaries & Wages" },
   { category: "Rent / Lease (Office)" },
   { category: "Utilities (Office)" },
@@ -60,6 +66,7 @@ const DEFAULT_CHART: OverheadChart = {
     id: createId(),
     category: cat.category,
     amount: [12500, 4200, 1850, 3100, 950, 2800, 1650, 1450, 980, 1250, 650, 1200][index] || 1000,
+    behavior: "Fixed" as CostBehavior,
   })),
   monthlyRevenue: 185000,
   monthlyCogs: 112000,
@@ -80,7 +87,11 @@ export default function OverheadProfitPage() {
       if (raw) {
         const parsed: OverheadChart = JSON.parse(raw);
         if (parsed.items && parsed.items.length > 0) {
-          setChart(parsed);
+          // Backfill the behavior tag for charts saved before V/F tagging shipped.
+          setChart({
+            ...parsed,
+            items: parsed.items.map((it) => ({ ...it, behavior: it.behavior ?? "Fixed" })),
+          });
         }
       }
     } catch {}
@@ -140,6 +151,17 @@ export default function OverheadProfitPage() {
     }));
   }
 
+  function toggleItemBehavior(id: string) {
+    setChart((prev) => ({
+      ...prev,
+      items: prev.items.map((item) =>
+        item.id === id
+          ? { ...item, behavior: item.behavior === "Fixed" ? "Variable" : "Fixed" }
+          : item
+      ),
+    }));
+  }
+
   function addCategory() {
     const name = newCategoryName.trim();
     if (!name) return;
@@ -148,6 +170,7 @@ export default function OverheadProfitPage() {
       id: createId(),
       category: name,
       amount: 0,
+      behavior: "Fixed",
     };
 
     setChart((prev) => ({
@@ -324,11 +347,31 @@ export default function OverheadProfitPage() {
                     return (
                       <TableRow key={item.id}>
                         <TableCell>
-                          <Input
-                            value={item.category}
-                            onChange={(e) => updateItemCategory(item.id, e.target.value)}
-                            className="border-0 bg-transparent p-0 h-auto font-medium focus-visible:ring-1"
-                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleItemBehavior(item.id)}
+                              title={
+                                item.behavior === "Fixed"
+                                  ? "Fixed: costs you whether you do a dollar of work or a million. Click to change."
+                                  : "Variable: no work, no cost. Click to change."
+                              }
+                              aria-label={`Cost type: ${item.behavior}. Click to toggle.`}
+                              className={cn(
+                                "shrink-0 grid place-items-center w-6 h-6 rounded text-xs font-bold border transition-colors",
+                                item.behavior === "Fixed"
+                                  ? "border-border bg-muted text-muted-foreground hover:bg-muted/70"
+                                  : "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+                              )}
+                            >
+                              {item.behavior === "Fixed" ? "F" : "V"}
+                            </button>
+                            <Input
+                              value={item.category}
+                              onChange={(e) => updateItemCategory(item.id, e.target.value)}
+                              className="border-0 bg-transparent p-0 h-auto font-medium focus-visible:ring-1"
+                            />
+                          </div>
                         </TableCell>
                         <TableCell>
                           <CurrencyInput
@@ -359,6 +402,12 @@ export default function OverheadProfitPage() {
                   })}
                 </TableBody>
               </Table>
+            </div>
+
+            {/* Fixed/Variable legend — plain-language definitions live in the UI */}
+            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-muted-foreground">
+              <span><span className="font-bold text-foreground">F</span> Fixed — costs you whether you do a dollar of work or a million</span>
+              <span><span className="font-bold text-primary">V</span> Variable — no work, no cost</span>
             </div>
 
             {/* Add new */}
