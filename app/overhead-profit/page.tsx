@@ -14,10 +14,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Calculator, Plus, RotateCcw, ArrowUp, ArrowDown, Trash2, Upload, Save } from "lucide-react";
+import { Calculator, Plus, RotateCcw, ArrowUp, ArrowDown, Trash2, Save } from "lucide-react";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
+import { PnlOrganizer } from "@/components/PnlOrganizer";
 
 const STORAGE_KEY = "pmz_overhead_chart";
 
@@ -272,7 +273,7 @@ export default function OverheadProfitPage() {
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
             )}
           >
-            P&amp;L Import
+            P&amp;L Organizer
           </button>
         </div>
       </div>
@@ -510,29 +511,9 @@ export default function OverheadProfitPage() {
         </Card>
       </div>
 
-      {/* P&L Import tab (unchanged placeholder) */}
+      {/* P&L Organizer tab — manual entry + the five true numbers (Build F2) */}
       <div className={activeTab === 'import' ? '' : 'hidden'}>
-        <Card className="card">
-          <CardHeader>
-            <CardTitle>P&amp;L Import</CardTitle>
-            <CardDescription>
-              Automatically extract and categorize overhead from your financial statements.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="border-2 border-dashed border-muted-foreground/30 rounded-xl p-12 text-center bg-muted/20">
-              <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <Upload className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <div className="font-medium mb-1">Drag &amp; drop your P&amp;L statement here</div>
-              <div className="text-sm text-muted-foreground mb-4">PDF • Excel (.xlsx) • CSV</div>
-              <Button variant="outline" disabled>Browse Files (Coming Soon)</Button>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              This feature will connect directly to the existing Python AI parsing tool. Upload your Profit &amp; Loss and it will automatically map line items to your Chart of Accounts.
-            </div>
-          </CardContent>
-        </Card>
+        <PnlOrganizer />
       </div>
 
       <p className="text-center text-xs text-muted-foreground max-w-prose mx-auto">
