@@ -114,6 +114,7 @@ interface BidItem {
   materialEntries?: Array<{
     rateId?: string;
     quantity?: number;
+    rate?: number;
   }>;
   miscellaneousEntries?: Array<{
     rateId?: string;
