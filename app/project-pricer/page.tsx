@@ -1646,7 +1646,6 @@ export default function ProjectPricerPage() {
           id: savedCustomerId,
           name: savedCustomerName,
           billingAddress: savedCustomerBilling,
-        jobSiteAddress: savedCustomerJobSite,
           jobSiteAddress: savedCustomerJobSite,
         },
         // Preserve lifecycle fields when updating; initialize them on first save.
