@@ -135,7 +135,7 @@ function SidebarContent({ onNavigate }: SidebarContentProps) {
                 </button>
                 {isExpanded &&
                   item.children.map((child) => {
-                    const ChildIcon = child.icon
+                    const ChildIcon = child.icon || FileText
                     const isActive = pathname === child.href
                     const isDisabled = child.disabled
                     return (
@@ -167,7 +167,7 @@ function SidebarContent({ onNavigate }: SidebarContentProps) {
               </div>
             )
           } else {
-            const Icon = item.icon
+            const Icon = item.icon || FileText
             const isActive = pathname === item.href
             const isDisabled = item.disabled
             return (
