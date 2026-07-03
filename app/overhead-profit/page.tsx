@@ -18,6 +18,7 @@ import { Calculator, Plus, RotateCcw, ArrowUp, ArrowDown, Trash2, Save } from "l
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
+import { BUCKET_COLORS } from "@/lib/pmz-types";
 import { PnlOrganizer } from "@/components/PnlOrganizer";
 
 const STORAGE_KEY = "pmz_overhead_chart";
@@ -467,12 +468,15 @@ export default function OverheadProfitPage() {
                   <span className="text-lg font-semibold tabular-nums">{formatMoney(grossProfit)}</span>
                 </div>
                 <div className="flex items-center justify-between py-2">
-                  <span className="text-sm text-muted-foreground">Cost to run the business (Overhead)</span>
-                  <span className="text-lg font-semibold tabular-nums">{formatMoney(totalOverhead)}</span>
+                  <span className="text-sm" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Running the Business (Overhead)</span>
+                  <span className="text-lg font-semibold tabular-nums" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(totalOverhead)}</span>
                 </div>
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm font-medium">What you actually keep (Net Profit)</span>
-                  <span className={cn("text-xl font-bold tabular-nums", netProfit >= 0 ? "text-primary" : "text-destructive")}>
+                  <span
+                    className={cn("text-xl font-bold tabular-nums", netProfit < 0 && "text-destructive")}
+                    style={netProfit >= 0 ? { color: BUCKET_COLORS["Net Profit"].fg } : undefined}
+                  >
                     {formatMoney(netProfit)}
                   </span>
                 </div>

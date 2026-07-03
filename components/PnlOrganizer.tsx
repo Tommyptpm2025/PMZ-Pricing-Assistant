@@ -9,6 +9,7 @@ import { CurrencyInput } from "@/components/ui/currency-input";
 import { Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
+import { BUCKET_COLORS } from "@/lib/pmz-types";
 import {
   loadWorksheet,
   saveWorksheet,
@@ -22,17 +23,17 @@ import {
 const BUCKETS: { key: PnlBucket; title: string; hint: string }[] = [
   {
     key: "Direct COGS",
-    title: "Direct job costs",
+    title: "Direct Job Costs (Direct COGS)",
     hint: "Materials, labor, and equipment that go straight into the job.",
   },
   {
     key: "Indirect COGS",
-    title: "Hidden job costs",
+    title: "Hidden Job Costs (Indirect COGS)",
     hint: "The silent killers — supervision, small tools, unbillable time.",
   },
   {
     key: "Overhead",
-    title: "Running the business",
+    title: "Running the Business (Overhead)",
     hint: "Office, rent, insurance, admin — costs you whether or not you have a job.",
   },
 ];
@@ -88,15 +89,15 @@ export function PnlOrganizer() {
         {BUCKETS.map((b) => {
           const lines = ws.lines.filter((l) => l.bucket === b.key);
           return (
-            <div key={b.key} className="rounded-xl border p-4">
+            <div key={b.key} className="rounded-xl border p-4" style={{ borderColor: BUCKET_COLORS[b.key].border }}>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="font-semibold">{b.title}</div>
+                  <div className="font-semibold" style={{ color: BUCKET_COLORS[b.key].fg }}>{b.title}</div>
                   <div className="text-xs text-muted-foreground">{b.hint}</div>
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-xs text-muted-foreground">Subtotal</div>
-                  <div className="text-lg font-semibold tabular-nums">{formatMoney(bucketTotal(ws, b.key))}</div>
+                  <div className="text-lg font-semibold tabular-nums" style={{ color: BUCKET_COLORS[b.key].fg }}>{formatMoney(bucketTotal(ws, b.key))}</div>
                 </div>
               </div>
               <div className="mt-3 space-y-2">
@@ -168,14 +169,15 @@ export function PnlOrganizer() {
             <SummaryRow label="Money in (Revenue)" value={summary.revenue} />
             <SummaryRow label="What the work cost (Cost of Goods)" value={summary.costOfGoods} />
             <SummaryRow label="Left after the work (Gross Profit)" value={summary.grossProfit} />
-            <SummaryRow label="Cost to run the business (Overhead)" value={summary.overhead} />
+            <div className="flex items-center justify-between py-2">
+              <span className="text-sm" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Running the Business (Overhead)</span>
+              <span className="text-lg font-semibold tabular-nums" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(summary.overhead)}</span>
+            </div>
             <div className="flex items-center justify-between py-2">
               <span className="text-sm font-medium">What you actually keep (Net Profit)</span>
               <span
-                className={cn(
-                  "text-xl font-bold tabular-nums",
-                  summary.netProfit >= 0 ? "text-primary" : "text-destructive"
-                )}
+                className={cn("text-xl font-bold tabular-nums", summary.netProfit < 0 && "text-destructive")}
+                style={summary.netProfit >= 0 ? { color: BUCKET_COLORS["Net Profit"].fg } : undefined}
               >
                 {formatMoney(summary.netProfit)}
               </span>

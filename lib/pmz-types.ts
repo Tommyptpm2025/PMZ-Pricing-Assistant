@@ -403,6 +403,23 @@ export const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   "Paid": { bg: "#15803D", fg: "#FFFFFF" },               // dark green
 };
 
+// Money-bucket colors — single source of truth (same pattern as STATUS_COLORS).
+// Every surface that shows bucket identity imports these; no screen hardcodes
+// bucket colors. Color always rides alongside the paired name, never alone.
+//   fg     = strong color for text / accents
+//   bg     = soft fill for cards / boxes
+//   border = mid tint for card / box borders
+export const BUCKET_COLORS: Record<string, { fg: string; bg: string; border: string }> = {
+  "Direct COGS": { fg: "#475569", bg: "#F1F5F9", border: "#CBD5E1" },   // slate — calm/neutral (Direct Job Costs)
+  "Indirect COGS": { fg: "#7D1424", bg: "#FEF2F2", border: "#FCA5A5" }, // brand maroon — silent killer (Hidden Job Costs)
+  "Overhead": { fg: "#4338CA", bg: "#EEF2FF", border: "#C7D2FE" },      // indigo — distinct (Running the Business)
+  "Net Profit": { fg: "#15803D", bg: "#ECFDF5", border: "#6EE7B7" },    // green — KEPT MONEY ONLY (covered state)
+};
+
+// Amber warning — reserved for exactly one job: the Overhead Recovery Countdown
+// "not covered" state. Never used for bucket identity.
+export const COUNTDOWN_UNCOVERED = { fg: "#B45309", bg: "#FFFBEB", border: "#FDE68A" };
+
 /** Whole days elapsed since the most recent statusHistory entry's `at`. */
 export function getDaysInCurrentStatus(quote: SavedQuote): number {
   const history = quote.statusHistory;
