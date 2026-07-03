@@ -510,7 +510,11 @@ export default function ProjectPricerPage() {
   // Collapsed state for crew group cards in the Per-Line Real Costing panel, keyed by group id (default expanded)
   const [collapsedCrewGroups, setCollapsedCrewGroups] = React.useState<Record<string, boolean>>({});
   // For auto-focusing newly added costing entry inputs
-  const [pendingCostingFocus, setPendingCostingFocus] = React.useState(null); // {itemId: string, category: 'labor'|'equipment'|'material', idx: number }
+  const [pendingCostingFocus, setPendingCostingFocus] = React.useState<{
+    itemId: string;
+    category: "labor" | "equipment" | "material" | "misc";
+    idx: number;
+  } | null>(null);
   // For showing the target margin result bar after clicking Apply, per item
   const [costingTargetResult, setCostingTargetResult] = React.useState<Record<string, {requiredLineTotal: number, requiredGP: number, target: number}>>({});
 
