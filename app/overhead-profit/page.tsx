@@ -17,6 +17,7 @@ import {
 import { Calculator, Plus, RotateCcw, ArrowUp, ArrowDown, Trash2, Upload, Save } from "lucide-react";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
+import { formatMoney } from "@/lib/format";
 
 const STORAGE_KEY = "pmz_overhead_chart";
 
@@ -106,6 +107,19 @@ export default function OverheadProfitPage() {
     if (!chart.billableHours || chart.billableHours === 0) return 0;
     return Math.round((totalOverhead / chart.billableHours) * 100) / 100;
   }, [totalOverhead, chart.billableHours]);
+
+  // The five true numbers (Goal 2) — all derived from the existing chart, no new fields.
+  const grossProfit = React.useMemo(
+    () => chart.monthlyRevenue - chart.monthlyCogs,
+    [chart.monthlyRevenue, chart.monthlyCogs]
+  );
+  const netProfit = React.useMemo(() => grossProfit - totalOverhead, [grossProfit, totalOverhead]);
+  // Overhead Recovery Countdown: gross profit "recovers" overhead; the remainder counts to zero.
+  // When it hits zero, every dollar after is net profit.
+  const overheadRemaining = React.useMemo(
+    () => Math.max(0, totalOverhead - grossProfit),
+    [totalOverhead, grossProfit]
+  );
 
   // ==================== ACTIONS ====================
   function updateItemAmount(id: string, newAmount: number) {
@@ -383,6 +397,50 @@ export default function OverheadProfitPage() {
                     {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(overheadPerBillableHour)}
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* The Bottom Line — Your Five True Numbers (Goal 2) */}
+            <div className="mt-4 rounded-xl border bg-surface-2 p-5">
+              <div className="text-sm font-semibold tracking-wider text-muted-foreground mb-3">THE BOTTOM LINE — YOUR FIVE TRUE NUMBERS</div>
+              <div className="divide-y divide-border/60">
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm text-muted-foreground">Money in (Revenue)</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatMoney(chart.monthlyRevenue)}</span>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm text-muted-foreground">What the work cost (Cost of Goods)</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatMoney(chart.monthlyCogs)}</span>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm text-muted-foreground">Left after the work (Gross Profit)</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatMoney(grossProfit)}</span>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm text-muted-foreground">Cost to run the business (Overhead)</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatMoney(totalOverhead)}</span>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm font-medium">What you actually keep (Net Profit)</span>
+                  <span className={cn("text-xl font-bold tabular-nums", netProfit >= 0 ? "text-primary" : "text-destructive")}>
+                    {formatMoney(netProfit)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Overhead Recovery Countdown */}
+              <div className={cn("mt-4 rounded-lg border p-4", overheadRemaining > 0 ? "bg-background" : "border-primary/40 bg-primary/5")}>
+                <div className="text-xs font-semibold tracking-wider text-muted-foreground">OVERHEAD RECOVERY COUNTDOWN</div>
+                {overheadRemaining > 0 ? (
+                  <div className="mt-1">
+                    <span className="text-2xl font-bold tabular-nums">{formatMoney(overheadRemaining)}</span>
+                    <span className="ml-2 text-sm text-muted-foreground">still to cover this month before you make a dime.</span>
+                  </div>
+                ) : (
+                  <div className="mt-1 text-lg font-bold text-primary">
+                    Overhead covered — every dollar after this is profit.
+                  </div>
+                )}
               </div>
             </div>
 
