@@ -18,7 +18,7 @@ import { Calculator, Plus, RotateCcw, ArrowUp, ArrowDown, Trash2, Save } from "l
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
-import { BUCKET_COLORS } from "@/lib/pmz-types";
+import { BUCKET_COLORS, COUNTDOWN_UNCOVERED } from "@/lib/pmz-types";
 import { PnlOrganizer } from "@/components/PnlOrganizer";
 
 const STORAGE_KEY = "pmz_overhead_chart";
@@ -482,20 +482,29 @@ export default function OverheadProfitPage() {
                 </div>
               </div>
 
-              {/* Overhead Recovery Countdown */}
-              <div className={cn("mt-4 rounded-lg border p-4", overheadRemaining > 0 ? "bg-background" : "border-primary/40 bg-primary/5")}>
-                <div className="text-xs font-semibold tracking-wider text-muted-foreground">OVERHEAD RECOVERY COUNTDOWN</div>
-                {overheadRemaining > 0 ? (
-                  <div className="mt-1">
-                    <span className="text-2xl font-bold tabular-nums">{formatMoney(overheadRemaining)}</span>
-                    <span className="ml-2 text-sm text-muted-foreground">still to cover this month before you make a dime.</span>
+              {/* Overhead Recovery Countdown — state-aware, computed from the live five numbers.
+                  Not covered: amber warning (COUNTDOWN_UNCOVERED). Covered: green (Net Profit token). */}
+              {(() => {
+                const covered = overheadRemaining <= 0;
+                const tone = covered ? BUCKET_COLORS["Net Profit"] : COUNTDOWN_UNCOVERED;
+                return (
+                  <div
+                    className="mt-4 rounded-lg border p-4"
+                    style={{ borderColor: tone.border, backgroundColor: tone.bg }}
+                  >
+                    <div className="text-xs font-semibold tracking-wider" style={{ color: tone.fg }}>
+                      OVERHEAD RECOVERY COUNTDOWN
+                    </div>
+                    <div className="mt-1 text-lg font-bold" style={{ color: tone.fg }}>
+                      {covered ? (
+                        "Overhead covered — every dollar after this is profit."
+                      ) : (
+                        <>You need <span className="tabular-nums">{formatMoney(overheadRemaining)}</span> more to cover overhead.</>
+                      )}
+                    </div>
                   </div>
-                ) : (
-                  <div className="mt-1 text-lg font-bold text-primary">
-                    Overhead covered — every dollar after this is profit.
-                  </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
 
             {/* Notes */}
