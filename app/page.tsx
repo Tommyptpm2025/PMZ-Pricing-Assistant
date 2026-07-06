@@ -166,7 +166,7 @@ export default function OverviewPage() {
           onClick={() => alert('COGS Breakdown (Labor + Equipment + Materials)\n\nThis pulls live from your saved profiles in the Rate Builders.\n\nNote: Real job-level totals will come from the Project Pricer when you build actual quotes.')}
         >
           <div className="flex items-center justify-between">
-            <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">COGS (Direct Costs)</div>
+            <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Cost of Goods (COGS)</div>
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">click for breakdown →</span>
           </div>
           <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
@@ -229,7 +229,7 @@ export default function OverviewPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-600" /> PMZ Money Map — Quick Snapshot
+                <AlertTriangle className="h-4 w-4 text-[#EB3300]" /> PMZ Money Map — Quick Snapshot
               </CardTitle>
               <CardDescription>
                 How your current bid (from Project Pricer) maps to profit reality.
