@@ -80,49 +80,61 @@ export default function OverviewPage() {
   const [hydrated, setHydrated] = useState(false)
   useEffect(() => { setHydrated(true) }, [])
 
-  // Money Map snapshot data — pulls live from Project Pricer (current estimate or last saved quote) when available
+  // ── PMZ Money Map — one shared, honest source (Fix 3) ───────────────────────
+  // Every rung derives from the rungs above it: Gross = Revenue − Direct − Indirect,
+  // Net = Gross − Overhead. Every percentage is computed from the dollars, never
+  // typed in — no rung carries a hardcoded ratio.
+  //
+  // Live path: the last saved quote supplies Revenue / Direct / Indirect COGS, and
+  // the saved overhead chart supplies the overhead-of-revenue rate, allocated to
+  // this bid's revenue. Only when BOTH exist is the ladder fully sourced (isLive).
+  // Otherwise ONE clearly-labeled sample seed runs through the identical formula.
   const moneyMapSnapshot = useMemo(() => {
-    let currentRevenue = revenue
-    let currentGpPercent = parseFloat(grossProfitPercent)
-    let indirectPercent = 8 // illustrative "silent killer" % from typical bids
+    // The ONE sample seed — raw inputs only (revenue + the three cost buckets).
+    // Illustrative; replaced wholesale the moment a live, fully-sourced bid exists.
+    const SAMPLE = { revenue: 185000, directCogs: 111000, indirectCogs: 14800, overhead: 22200 }
+
+    let input = SAMPLE
+    let isLive = false
+
     if (hydrated) { try {
-      const estRaw = localStorage.getItem("pmz_current_estimate_v1")
-      if (estRaw) {
-        const est = JSON.parse(estRaw)
-        if (est.bidItems && est.bidItems.length > 0) {
-          currentRevenue = est.bidItems.reduce((sum: number, item: any) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0)
-        }
-      }
       const quotesRaw = localStorage.getItem("pmz_saved_quotes")
-      if (quotesRaw) {
-        const qs = JSON.parse(quotesRaw)
-        if (qs.length > 0) {
-          const last = qs[qs.length - 1]
-          if (last.totalRevenue) currentRevenue = last.totalRevenue
-          if (last.targetMargin) currentGpPercent = last.targetMargin
+      const quotes = quotesRaw ? JSON.parse(quotesRaw) : []
+      const overheadRaw = localStorage.getItem("pmz_overhead_chart")
+      const overheadChart = overheadRaw ? JSON.parse(overheadRaw) : null
+
+      if (Array.isArray(quotes) && quotes.length > 0 && overheadChart) {
+        const last = quotes[quotes.length - 1]
+        const rev = Number(last.totalRevenue) || 0
+        const direct = Number(last.directCogsDollars) || 0
+        const indirect = Number(last.indirectCogsDollars) || 0
+        // Overhead as a real allocation: (company overhead ÷ company revenue) × this bid.
+        const totalOverhead = Array.isArray(overheadChart.items)
+          ? overheadChart.items.reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0)
+          : 0
+        const overheadRate = overheadChart.monthlyRevenue > 0 ? totalOverhead / overheadChart.monthlyRevenue : 0
+        if (rev > 0) {
+          input = { revenue: rev, directCogs: direct, indirectCogs: indirect, overhead: Math.round(rev * overheadRate) }
+          isLive = true
         }
       }
     } catch {} }
-    const directCogs = Math.round(currentRevenue * 0.65)
-    const indirectCogs = Math.round(currentRevenue * (indirectPercent / 100))
-    const gross = Math.round(currentRevenue * (currentGpPercent / 100))
-    const overhead = Math.round(currentRevenue * 0.12)
-    const net = gross - overhead
-    const netPct = currentRevenue > 0 ? Math.round((net / currentRevenue) * 100) : 10
+
+    // The single ladder formula — identical for live data and the sample seed.
+    const { revenue: rev, directCogs, indirectCogs, overhead } = input
+    const grossProfit = rev - directCogs - indirectCogs
+    const netProfit = grossProfit - overhead
+    const pct = (n: number) => (rev > 0 ? Math.round((n / rev) * 1000) / 10 : 0)
     return {
-      revenue: currentRevenue,
-      directCogs,
-      directPercent: 65,
-      indirectCogs,
-      indirectPercent,
-      grossProfit: gross,
-      grossPercent: currentGpPercent,
-      overhead,
-      overheadPercent: 12,
-      netProfit: net,
-      netPercent: netPct,
+      isLive,
+      revenue: rev,
+      directCogs, directPercent: pct(directCogs),
+      indirectCogs, indirectPercent: pct(indirectCogs),
+      grossProfit, grossPercent: pct(grossProfit),
+      overhead, overheadPercent: pct(overhead),
+      netProfit, netPercent: pct(netProfit),
     }
-  }, [revenue, grossProfitPercent, hydrated])
+  }, [hydrated])
 
   const [showMoneyMap, setShowMoneyMap] = useState(false)
   const [highlightedBucket, setHighlightedBucket] = useState<string | null>(null)
@@ -230,9 +242,16 @@ export default function OverviewPage() {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-[#EB3300]" /> PMZ Money Map — Quick Snapshot
+                {moneyMapSnapshot.isLive ? (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}>LIVE</span>
+                ) : (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-muted text-muted-foreground">SAMPLE DATA</span>
+                )}
               </CardTitle>
               <CardDescription>
-                How your current bid (from Project Pricer) maps to profit reality.
+                {moneyMapSnapshot.isLive
+                  ? "How your latest bid (from Project Pricer) maps to profit reality."
+                  : "How a bid maps to profit reality. Build a bid in the Project Pricer to see your own numbers here."}
               </CardDescription>
             </div>
             <Button size="sm" onClick={() => { setShowMoneyMap(true); setHighlightedBucket(null); }}>
@@ -273,11 +292,13 @@ export default function OverviewPage() {
           </div>
 
           <div className="mt-3 text-xs rounded px-3 py-2 border" style={{ color: BUCKET_COLORS["Indirect COGS"].fg, backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>
-            Your current bid is allocating <strong>{moneyMapSnapshot.indirectPercent}%</strong> to Hidden Job Costs (Indirect COGS) — the bucket that quietly kills margins.
+            {moneyMapSnapshot.isLive ? "Your latest bid is" : "This sample bid is"} allocating <strong>{moneyMapSnapshot.indirectPercent}%</strong> to Hidden Job Costs (Indirect COGS) — the bucket that quietly kills margins.
           </div>
 
           <div className="mt-2 text-[10px] text-muted-foreground">
-            Values pulled live from Project Pricer current bid (or demo). Click the button for the full educational ladder.
+            {moneyMapSnapshot.isLive
+              ? "Pulled live from your last saved Project Pricer bid; overhead allocated from your Overhead chart. Click the button for the full educational ladder."
+              : "Sample data — no saved bid yet. Build one in the Project Pricer (with an Overhead chart set) and it flows in here automatically. Click the button for the full educational ladder."}
           </div>
         </CardContent>
       </Card>
@@ -352,7 +373,19 @@ export default function OverviewPage() {
             <div className="p-6 space-y-6 max-h-[80vh] overflow-auto">
               {/* The Ladder - 6 rungs, clean stacked design */}
               <div className="max-w-lg mx-auto">
-                <div className="text-xs uppercase tracking-[1px] text-muted-foreground mb-2 text-center">THE PROFIT LADDER (how every dollar flows)</div>
+                <div className="mb-2 flex items-center justify-center gap-2">
+                  <div className="text-xs uppercase tracking-[1px] text-muted-foreground text-center">THE PROFIT LADDER (how every dollar flows)</div>
+                  {moneyMapSnapshot.isLive ? (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}>LIVE</span>
+                  ) : (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-muted text-muted-foreground">SAMPLE DATA</span>
+                  )}
+                </div>
+                {!moneyMapSnapshot.isLive && (
+                  <div className="mb-2 text-center text-[11px] text-muted-foreground">
+                    Sample figures shown — build a bid in the Project Pricer (with an Overhead chart set) to see your own.
+                  </div>
+                )}
 
                 {/* Rung 1: Revenue (neutral — not a bucket) */}
                 <div
