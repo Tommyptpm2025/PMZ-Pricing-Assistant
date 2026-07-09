@@ -32,6 +32,14 @@ When unsure which tier a change is, treat it as the second tier and stop.
 - **Flag scope expansion.** If a change turns out to reach further than stated — a shared store, another component, more files than expected — stop and flag it before proceeding.
 - **Plan first for anything structural.** Use Plan Mode; show the diff before applying.
 
+## Local environment — ONE ADDRESS, ONE CABINET
+
+- **The single address is `http://localhost:3007`.** Dev work, verification, and Tom's browser walks all happen there — one origin, one localStorage cabinet.
+- **No parallel servers, ever.** Never stand up a second dev/prod server on another port (3000 or otherwise) for routine work. One running server at a time, on 3007.
+- **Why:** localStorage is origin-scoped (`host:port`). Two servers = two separate data homes = split-brain builder data. On 2026-07-08 a full 26-key export/import migration was needed to reunite data that had been stranded under `:3000`. One address prevents a repeat.
+- **Only exception:** a deliberate, temporary recovery server (e.g. to migrate stranded data), explicitly requested by Tom — killed the moment the recovery is verified.
+- **Serving 3007:** `npm run build` then `npx next start -p 3007`. For a live-reload dev pass when needed, run dev *on 3007* (`npm run dev -- -p 3007`) — still one address.
+
 ## Locked conventions & vocabulary
 
 - **Brand:** Profit Margin Zone (PMZ). **Never** "Performance Margin Zone."
