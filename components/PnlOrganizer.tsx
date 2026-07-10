@@ -23,17 +23,17 @@ import {
 const BUCKETS: { key: PnlBucket; title: string; hint: string }[] = [
   {
     key: "Direct COGS",
-    title: "Direct Job Costs (Direct COGS)",
+    title: "Cost of Goods (Direct Job Costs)",
     hint: "Materials, labor, and equipment that go straight into the job.",
   },
   {
     key: "Indirect COGS",
-    title: "Hidden Job Costs (Indirect COGS)",
+    title: "Indirect Cost of Goods (Hidden Job Costs)",
     hint: "The silent killers — supervision, small tools, unbillable time.",
   },
   {
     key: "Overhead",
-    title: "Running the Business (Overhead)",
+    title: "Overhead (Running the Business)",
     hint: "Office, rent, insurance, admin — costs you whether or not you have a job.",
   },
 ];

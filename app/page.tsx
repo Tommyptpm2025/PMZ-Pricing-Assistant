@@ -202,7 +202,7 @@ export default function OverviewPage() {
           onClick={() => window.location.href = '/overhead-profit'}
         >
           <div className="flex items-center justify-between">
-            <div className="text-xs uppercase tracking-[1.5px]" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Running the Business (Overhead)</div>
+            <div className="text-xs uppercase tracking-[1.5px]" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Overhead (Running the Business)</div>
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">view details →</span>
           </div>
           <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
@@ -263,36 +263,36 @@ export default function OverviewPage() {
           {/* Compact 6-rung ladder */}
           <div className="space-y-1 text-sm">
             <div className="flex items-center justify-between rounded border bg-muted/40 px-3 py-1.5">
-              <div className="font-medium">1. Revenue</div>
+              <div className="font-medium">1. Revenue (Income)</div>
               <div className="tabular-nums font-semibold">{formatMoney(moneyMapSnapshot.revenue)}</div>
             </div>
             <div className="flex items-center justify-between rounded border px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}>
-              <div className="font-medium" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>2. Direct Job Costs (Direct COGS)</div>
+              <div className="font-medium" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>2. Cost of Goods (Direct Job Costs)</div>
               <div className="tabular-nums" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>{formatMoney(moneyMapSnapshot.directCogs)} <span className="text-xs">({moneyMapSnapshot.directPercent}%)</span></div>
             </div>
             <div className="flex items-center justify-between rounded border-2 px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>
               <div>
-                <span className="font-medium" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>3. Hidden Job Costs (Indirect COGS)</span>
+                <span className="font-medium" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>3. Indirect Cost of Goods (Hidden Job Costs)</span>
                 <span className="ml-1 text-[10px] font-semibold" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>SILENT PROFIT KILLER</span>
               </div>
               <div className="tabular-nums" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>{formatMoney(moneyMapSnapshot.indirectCogs)} <span className="text-xs">({moneyMapSnapshot.indirectPercent}%)</span></div>
             </div>
             <div className="flex items-center justify-between rounded border bg-muted/40 px-3 py-1.5">
-              <div className="font-medium">4. Gross Profit</div>
+              <div className="font-medium">4. Gross Profit (Left After the Work)</div>
               <div className="tabular-nums">{formatMoney(moneyMapSnapshot.grossProfit)} <span className="text-xs text-muted-foreground">({moneyMapSnapshot.grossPercent}%)</span></div>
             </div>
             <div className="flex items-center justify-between rounded border px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}>
-              <div className="font-medium" style={{ color: BUCKET_COLORS["Overhead"].fg }}>5. Running the Business (Overhead)</div>
+              <div className="font-medium" style={{ color: BUCKET_COLORS["Overhead"].fg }}>5. Overhead (Running the Business)</div>
               <div className="tabular-nums" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(moneyMapSnapshot.overhead)} <span className="text-xs">({moneyMapSnapshot.overheadPercent}%)</span></div>
             </div>
             <div className="flex items-center justify-between rounded border-2 px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}>
-              <div className="font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>6. Net Profit (what you keep)</div>
+              <div className="font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>6. Net Profit (What You Keep)</div>
               <div className="tabular-nums font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{formatMoney(moneyMapSnapshot.netProfit)} <span className="text-xs">({moneyMapSnapshot.netPercent}%)</span></div>
             </div>
           </div>
 
           <div className="mt-3 text-xs rounded px-3 py-2 border" style={{ color: BUCKET_COLORS["Indirect COGS"].fg, backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>
-            {moneyMapSnapshot.isLive ? "Your latest bid is" : "This sample bid is"} allocating <strong>{moneyMapSnapshot.indirectPercent}%</strong> to Hidden Job Costs (Indirect COGS) — the bucket that quietly kills margins.
+            {moneyMapSnapshot.isLive ? "Your latest bid is" : "This sample bid is"} allocating <strong>{moneyMapSnapshot.indirectPercent}%</strong> to Indirect Cost of Goods (Hidden Job Costs) — the bucket that quietly kills margins.
           </div>
 
           <div className="mt-2 text-[10px] text-muted-foreground">
@@ -393,26 +393,26 @@ export default function OverviewPage() {
                   className="cursor-pointer rounded-xl border bg-muted/40 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
                 >
                   <div>
-                    <div className="font-semibold">1. Revenue</div>
+                    <div className="font-semibold">1. Revenue (Income)</div>
                     <div className="text-xs text-muted-foreground">Top line — what the customer pays you</div>
                   </div>
                   <div className="text-right text-sm font-semibold tabular-nums">{formatMoney(moneyMapSnapshot.revenue)}</div>
                 </div>
 
-                {/* Rung 2: Direct Job Costs (Direct COGS) — slate */}
+                {/* Rung 2: Cost of Goods (Direct Job Costs) — slate */}
                 <div
                   onClick={() => setHighlightedBucket('direct')}
                   className="cursor-pointer rounded-xl border p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
                   style={{ backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}
                 >
                   <div>
-                    <div className="font-semibold" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>2. Direct Job Costs (Direct COGS)</div>
+                    <div className="font-semibold" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>2. Cost of Goods (Direct Job Costs)</div>
                     <div className="text-xs" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>Obvious job costs you see in the Pricer (L+E+M)</div>
                   </div>
                   <div className="text-right text-sm tabular-nums" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>{formatMoney(moneyMapSnapshot.directCogs)} <span className="text-xs">({moneyMapSnapshot.directPercent}%)</span></div>
                 </div>
 
-                {/* Rung 3: Hidden Job Costs (Indirect COGS) — brand maroon, the killer */}
+                {/* Rung 3: Indirect Cost of Goods (Hidden Job Costs) — brand maroon, the killer */}
                 <div
                   onClick={() => setHighlightedBucket('indirect')}
                   className="cursor-pointer rounded-xl border-2 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
@@ -420,7 +420,7 @@ export default function OverviewPage() {
                 >
                   <div>
                     <div className="font-semibold flex items-center gap-1.5" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>
-                      3. Hidden Job Costs (Indirect COGS) <span className="text-[10px] px-1.5 py-0 rounded text-white font-medium" style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].fg }}>SILENT KILLER</span>
+                      3. Indirect Cost of Goods (Hidden Job Costs) <span className="text-[10px] px-1.5 py-0 rounded text-white font-medium" style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].fg }}>SILENT KILLER</span>
                     </div>
                     <div className="text-xs" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>The hidden bucket: labor burden, shop supplies, small tools, untracked mobilization, admin creep, etc.</div>
                   </div>
@@ -433,20 +433,20 @@ export default function OverviewPage() {
                   className="cursor-pointer rounded-xl border bg-muted/40 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
                 >
                   <div>
-                    <div className="font-semibold">4. Gross Profit</div>
+                    <div className="font-semibold">4. Gross Profit (Left After the Work)</div>
                     <div className="text-xs text-muted-foreground">What’s left after all job costs (Direct + Indirect COGS)</div>
                   </div>
                   <div className="text-right text-sm tabular-nums">{formatMoney(moneyMapSnapshot.grossProfit)} <span className="text-xs">({moneyMapSnapshot.grossPercent}%)</span></div>
                 </div>
 
-                {/* Rung 5: Running the Business (Overhead) — indigo */}
+                {/* Rung 5: Overhead (Running the Business) — indigo */}
                 <div
                   onClick={() => setHighlightedBucket('overhead')}
                   className="cursor-pointer rounded-xl border p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
                   style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}
                 >
                   <div>
-                    <div className="font-semibold" style={{ color: BUCKET_COLORS["Overhead"].fg }}>5. Running the Business (Overhead)</div>
+                    <div className="font-semibold" style={{ color: BUCKET_COLORS["Overhead"].fg }}>5. Overhead (Running the Business)</div>
                     <div className="text-xs" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Fixed cost of running the business (see Overhead &amp; Profit pillar)</div>
                   </div>
                   <div className="text-right text-sm tabular-nums" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(moneyMapSnapshot.overhead)} <span className="text-xs">({moneyMapSnapshot.overheadPercent}%)</span></div>
@@ -459,7 +459,7 @@ export default function OverviewPage() {
                   style={{ backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}
                 >
                   <div>
-                    <div className="font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>6. Net Profit — What You Keep</div>
+                    <div className="font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>6. Net Profit (What You Keep)</div>
                     <div className="text-xs" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>True owner profit after everything. The culture goal.</div>
                   </div>
                   <div className="text-right text-sm tabular-nums font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{formatMoney(moneyMapSnapshot.netProfit)} <span className="text-xs">({moneyMapSnapshot.netPercent}%)</span></div>
@@ -473,10 +473,10 @@ export default function OverviewPage() {
                     <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
                     <div>
                       {highlightedBucket === 'revenue' && "Revenue is the top line from your Project Pricer bid items total."}
-                      {highlightedBucket === 'direct' && "Direct Job Costs (Direct COGS) = the Labor + Equipment + Material costs you actively build in the Full Real LEM section of the Project Pricer."}
-                      {highlightedBucket === 'indirect' && "Hidden Job Costs (Indirect COGS) hides in: labor burden rates (beyond base pay), shop supplies, small tools, unbillable time, mobilization “extras”, fuel surcharges not passed through, etc. These rarely appear explicitly in your LEM table but destroy your target margin. This is the bucket the Money Map exists to kill."}
+                      {highlightedBucket === 'direct' && "Cost of Goods (Direct Job Costs) = the Labor + Equipment + Material costs you actively build in the Full Real LEM section of the Project Pricer."}
+                      {highlightedBucket === 'indirect' && "Indirect Cost of Goods (Hidden Job Costs) hides in: labor burden rates (beyond base pay), shop supplies, small tools, unbillable time, mobilization “extras”, fuel surcharges not passed through, etc. It’s a subset of Cost of Goods — it rolls up to COGS on the P&L, but PMZ teaches the breakout. These rarely appear explicitly in your LEM table but destroy your target margin. This is the bucket the Money Map exists to kill."}
                       {highlightedBucket === 'gross' && "Gross Profit = Revenue minus (Direct + Indirect COGS). This is the number the Project Pricer’s Gross Profit % field is trying to protect."}
-                      {highlightedBucket === 'overhead' && "Running the Business (Overhead) = fixed business costs (insurance, shop rent, admin salaries, etc.). Managed in the Overhead &amp; Profit pillar."}
+                      {highlightedBucket === 'overhead' && "Overhead (Running the Business) = fixed business costs (insurance, shop rent, admin salaries, etc.). Managed in the Overhead &amp; Profit pillar."}
                       {highlightedBucket === 'net' && "Net Profit = Gross minus Overhead. This is the true owner take-home. Everything else is just moving money between buckets."}
                     </div>
                   </div>
@@ -493,7 +493,7 @@ export default function OverviewPage() {
                     className="cursor-pointer rounded-lg border p-3 transition hover:shadow-sm"
                     style={{ backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}
                   >
-                    <div className="font-medium" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>Direct Job Costs (Direct COGS)</div>
+                    <div className="font-medium" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>Cost of Goods (Direct Job Costs)</div>
                     <div className="text-xs mt-0.5" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>The obvious L+E+M you control per job in the Project Pricer Real LEM.</div>
                   </div>
                   <div
@@ -501,7 +501,7 @@ export default function OverviewPage() {
                     className="cursor-pointer rounded-lg border-2 p-3 transition hover:shadow-sm"
                     style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}
                   >
-                    <div className="font-medium" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>Hidden Job Costs (Indirect COGS) <span className="text-[10px] align-super">(the killer)</span></div>
+                    <div className="font-medium" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>Indirect Cost of Goods (Hidden Job Costs) <span className="text-[10px] align-super">(the killer)</span></div>
                     <div className="text-xs mt-0.5" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>Burden, supplies, unbillable, hidden mobilization. Where your margin quietly disappears.</div>
                   </div>
                   <div
@@ -509,7 +509,7 @@ export default function OverviewPage() {
                     className="cursor-pointer rounded-lg border p-3 transition hover:shadow-sm"
                     style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}
                   >
-                    <div className="font-medium" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Running the Business (Overhead)</div>
+                    <div className="font-medium" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Overhead (Running the Business)</div>
                     <div className="text-xs mt-0.5" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Fixed cost of running the business. See the Overhead &amp; Profit tool for details.</div>
                   </div>
                 </div>
@@ -518,7 +518,7 @@ export default function OverviewPage() {
 
               {/* Mini glossary / culture note */}
               <div className="text-[11px] text-muted-foreground border-t pt-4">
-                <strong>Quick Glossary:</strong> Direct Job Costs (Direct COGS) = job-visible costs in LEM. Hidden Job Costs (Indirect COGS) = the invisible tax on every job. Running the Business (Overhead) = the price of being in business. Net Profit = the only number that pays the owner. The culture is to shrink Hidden Job Costs (Indirect COGS) first — it’s the fastest lever most contractors have.
+                <strong>Quick Glossary:</strong> Cost of Goods (Direct Job Costs) = job-visible costs in LEM. Indirect Cost of Goods (Hidden Job Costs) = the invisible tax on every job — a subset of Cost of Goods that rolls up to COGS on the P&amp;L, but PMZ teaches the breakout. Overhead (Running the Business) = the price of being in business. Net Profit = the only number that pays the owner. The culture is to shrink Indirect Cost of Goods (Hidden Job Costs) first — it’s the fastest lever most contractors have.
               </div>
             </div>
 
