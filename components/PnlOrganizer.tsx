@@ -184,9 +184,23 @@ export function PnlOrganizer() {
             </div>
           </div>
 
-          {/* Overhead Recovery Countdown — state-aware, computed from the live five numbers.
-              Not covered: amber warning (COUNTDOWN_UNCOVERED). Covered: green (Net Profit token). */}
+          {/* Overhead Recovery Countdown — three states, computed from the live five numbers.
+              Empty (no overhead entered): NEUTRAL/muted — green must be EARNED, never shown on a
+              blank slate. Short: amber warning (COUNTDOWN_UNCOVERED). Covered: green (Net Profit). */}
           {(() => {
+            // No real overhead yet → neutral prompt, short-circuit before any green/amber verdict.
+            if (summary.overhead <= 0) {
+              return (
+                <div className="mt-4 rounded-lg border border-border bg-muted/40 p-4">
+                  <div className="text-xs font-semibold tracking-wider text-muted-foreground">
+                    OVERHEAD RECOVERY COUNTDOWN
+                  </div>
+                  <div className="mt-1 text-lg font-medium text-muted-foreground">
+                    Enter your overhead to start the countdown.
+                  </div>
+                </div>
+              );
+            }
             const covered = summary.overheadRemaining <= 0;
             const tone = covered ? BUCKET_COLORS["Net Profit"] : COUNTDOWN_UNCOVERED;
             return (
