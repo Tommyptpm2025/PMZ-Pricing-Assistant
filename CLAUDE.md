@@ -40,6 +40,12 @@ When unsure which tier a change is, treat it as the second tier and stop.
 - **Only exception:** a deliberate, temporary recovery server (e.g. to migrate stranded data), explicitly requested by Tom — killed the moment the recovery is verified.
 - **Serving 3007:** `npm run build` then `npx next start -p 3007`. For a live-reload dev pass when needed, run dev *on 3007* (`npm run dev -- -p 3007`) — still one address.
 
+## Live-site verification — deploy green, then hard refresh, THEN test
+
+- **Never test the live Vercel site against a change until its deploy is confirmed green.** Pushing ≠ live; Vercel takes a minute or two to build.
+- **Sequence, every time:** (1) confirm the deploy for that exact commit reports **green**, (2) **hard refresh** the browser (Ctrl+F5 / Cmd+Shift+R) to evict the stale build, (3) *then* run the test.
+- **Why:** a browser holding the pre-deploy build shows old behavior on the new URL — reads as a "bug" that doesn't exist. On 2026-07-11 a "green at $0 overhead" bug report turned out to be a stale pre-Fix-5 build cached in the browser; a hard refresh matched the (correct) local build. Confirm deploy-green + hard-refresh before trusting — or reporting — anything the live site shows.
+
 ## Locked conventions & vocabulary
 
 - **Brand:** Profit Margin Zone (PMZ). **Never** "Performance Margin Zone."
