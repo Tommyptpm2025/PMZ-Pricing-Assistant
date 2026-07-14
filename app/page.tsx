@@ -69,12 +69,12 @@ function qualifyingQuotes(quotes: unknown): any[] {
   return Array.isArray(quotes) ? quotes.filter((q: any) => REALIZED_STATUSES.has(q?.status)) : [];
 }
 
-// Per-card honesty chip — three states:
-//   LIVE   = realized performance from qualifying quotes / a live chart (green, earned).
-//   BID    = your real latest-bid numbers, but not yet realized performance (neutral outline).
-//   SAMPLE = illustrative seed, not your data (muted fill).
-// LIVE can NEVER appear on a sales card with zero qualifying quotes.
-type CardState = "LIVE" | "BID" | "SAMPLE";
+// Per-card honesty chip — only two states, both EARNED from the owner's own data:
+//   LIVE = realized performance (invoiced-tier quotes / a filled chart) — green.
+//   BID  = the owner's real latest-bid numbers, not yet realized — neutral outline.
+// There is NO sample state: a card with no earned data shows an instructive empty state
+// (naming the action that earns it) instead of a badge or a made-up number.
+type CardState = "LIVE" | "BID";
 function SourceTag({ state }: { state: CardState }) {
   if (state === "LIVE") {
     return (
@@ -86,18 +86,16 @@ function SourceTag({ state }: { state: CardState }) {
       </span>
     );
   }
-  if (state === "BID") {
-    return (
-      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border border-border bg-transparent text-foreground">
-        BID
-      </span>
-    );
-  }
   return (
-    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-muted text-muted-foreground">
-      SAMPLE
+    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border border-border bg-transparent text-foreground">
+      BID
     </span>
   );
+}
+
+// The instructive empty state shown in place of a number when a card has no earned data.
+function CardEmpty({ text }: { text: string }) {
+  return <div className="mt-4 text-sm text-muted-foreground leading-snug">{text}</div>;
 }
 
 export default function OverviewPage() {
@@ -108,22 +106,20 @@ export default function OverviewPage() {
   const [hydrated, setHydrated] = useState(false)
   useEffect(() => { setHydrated(true) }, [])
 
-  // ── Boss View — per-card honest source (Boss View honesty pass) ─────────────
-  // Each card earns LIVE or wears SAMPLE independently based on its OWN source.
-  //  • Revenue / COGS / Gross / Net: from saved quotes at INVOICED status or beyond
-  //    ONLY (invoiced-is-terminal — drafts/sent/declined never masquerade as
-  //    performance). No invoiced quotes → fall back to the latest saved bid, clearly
-  //    labelled. No saved quotes → the one sample seed.
-  //  • Overhead / per-hour: from the saved Overhead chart (items + billable hours).
-  //  • Every rung derives from the rungs above: Gross = Revenue − COGS,
-  //    Net = Gross − Overhead. No hardcoded financial constant survives.
+  // ── Boss View — ONLY earned numbers (owner's ruling: kill the make-believe) ──
+  // A number is earned when the owner's own data produces it. There are NO sample
+  // placeholders: a card with no earned data returns earned:false and the render shows
+  // an instructive empty state naming the action that earns it.
+  //  • Revenue / COGS: summed from qualifying (invoiced-or-beyond) quotes → LIVE; else the
+  //    latest saved bid → BID; else nothing earned.
+  //  • Overhead / per-hour: from the saved Overhead chart (items / billable hours).
+  //  • Derived cards compute ONLY when every input is earned: Gross needs sales;
+  //    Net needs sales AND overhead (real bid revenue + empty overhead ⇒ Net empty).
   const bossView = useMemo(() => {
-    // The ONE sample seed (honestly labelled) — the former demo figures.
-    const SAMPLE = { revenue: 185000, cogs: 112000, overhead: 28500, billableHours: 1420 }
-    let revenue = SAMPLE.revenue, cogs = SAMPLE.cogs
-    let salesTier: 'invoiced' | 'bid' | 'sample' = 'sample'
-    let overhead = SAMPLE.overhead, billableHours = SAMPLE.billableHours
-    let overheadLive = false
+    let revenue = 0, cogs = 0
+    let salesTier: 'invoiced' | 'bid' | 'none' = 'none'
+    let overhead = 0, billableHours = 0
+    let overheadEarned = false, billableHoursEarned = false
 
     if (hydrated) { try {
       const quotesRaw = localStorage.getItem("pmz_saved_quotes")
@@ -131,13 +127,10 @@ export default function OverviewPage() {
       // ONE shared qualifying set — Revenue, COGS, and Gross all read from exactly this list.
       const qualifying = qualifyingQuotes(quotes)
       if (qualifying.length > 0) {
-        // Realized performance: sum only the qualifying (invoiced-or-beyond) quotes.
         revenue = qualifying.reduce((s, q) => s + (Number(q.totalRevenue) || 0), 0)
         cogs = qualifying.reduce((s, q) => s + (Number(q.directCogsDollars) || 0) + (Number(q.indirectCogsDollars) || 0), 0)
         salesTier = 'invoiced'
       } else if (quotes.length > 0) {
-        // Zero qualifying quotes → fall back to the latest saved bid, explicitly labelled BID.
-        // A Draft / Work Order Active / Declined quote is a bid, never realized performance.
         const last = quotes[quotes.length - 1]
         revenue = Number(last.totalRevenue) || 0
         cogs = (Number(last.directCogsDollars) || 0) + (Number(last.indirectCogsDollars) || 0)
@@ -147,48 +140,51 @@ export default function OverviewPage() {
       const chart = overheadRaw ? JSON.parse(overheadRaw) : null
       if (chart && Array.isArray(chart.items)) {
         const total = chart.items.reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0)
-        if (total > 0) {
-          overhead = total
-          billableHours = Number(chart.billableHours) || 0
-          overheadLive = true
-        }
+        if (total > 0) { overhead = total; overheadEarned = true }
+        const bh = Number(chart.billableHours) || 0
+        if (overheadEarned && bh > 0) { billableHours = bh; billableHoursEarned = true }
       }
     } catch {} }
 
+    // Earned flags — a card is earned only when the owner's data produced it.
+    const salesEarned = salesTier !== 'none'
+    const grossEarned = salesEarned                          // Gross = Revenue − COGS (same sales tier)
+    const perHourEarned = overheadEarned && billableHoursEarned
+    const netEarned = salesEarned && overheadEarned          // every input earned; no blending
+
     const grossProfit = revenue - cogs
     const netProfit = grossProfit - overhead
-    const overheadPerHour = billableHours > 0 ? overhead / billableHours : 0
+    const overheadPerHour = perHourEarned ? overhead / billableHours : 0
     const pct = (n: number) => (revenue > 0 ? (n / revenue) * 100 : 0)
 
-    const salesLive = salesTier === 'invoiced'
-    const perHourLive = overheadLive && billableHours > 0
-    const netLive = salesLive && overheadLive
-    const allLive = salesLive && overheadLive && perHourLive
+    // Badges (only rendered when earned): sales/gross/net follow the sales tier; overhead
+    // and per-hour have a single earned tier (LIVE). SAMPLE is gone.
+    const salesBadge: CardState = salesTier === 'invoiced' ? 'LIVE' : 'BID'
+    const netBadge: CardState = salesTier === 'invoiced' ? 'LIVE' : 'BID'
 
-    // Explicit per-card badge states (LIVE can never show on a sales card with zero qualifying).
-    const salesBadge: CardState = salesTier === 'invoiced' ? 'LIVE' : salesTier === 'bid' ? 'BID' : 'SAMPLE'
-    const overheadBadge: CardState = overheadLive ? 'LIVE' : 'SAMPLE'
-    const perHourBadge: CardState = perHourLive ? 'LIVE' : 'SAMPLE'
-    const netBadge: CardState = netLive ? 'LIVE' : 'SAMPLE'
+    const salesSource = salesTier === 'invoiced' ? 'from invoiced quotes' : 'from latest bid'
+    const netSource = `${salesTier === 'invoiced' ? 'invoiced quotes' : 'latest bid'} · Overhead chart`
 
-    const salesSource = salesTier === 'invoiced' ? 'from invoiced quotes'
-      : salesTier === 'bid' ? 'from latest bid'
-      : 'Sample data'
-    const overheadSource = overheadLive ? 'from your Overhead chart' : 'Sample data'
-    const perHourSource = perHourLive ? 'from your Overhead chart'
-      : overheadLive ? 'Set billable hours in your Overhead chart'
-      : 'Sample data'
-    const salesShort = salesTier === 'invoiced' ? 'invoiced quotes' : salesTier === 'bid' ? 'latest bid' : 'sample'
-    const netSource = `${salesShort} · ${overheadLive ? 'Overhead chart' : 'sample'}`
+    // Banner — describes what's earned and what's still waiting; no sample theater.
+    const waiting: string[] = []
+    if (!salesEarned) waiting.push('a saved bid')
+    if (!overheadEarned) waiting.push('your overhead chart')
+    if (overheadEarned && !billableHoursEarned) waiting.push('billable hours in your overhead chart')
+    const fullyLive = salesTier === 'invoiced' && overheadEarned && billableHoursEarned
+    const banner = fullyLive
+      ? 'Live from your libraries — every number is earned from your data.'
+      : waiting.length
+        ? `Waiting on ${waiting.join(', ')}.`
+        : 'Showing your latest bid and overhead — invoice a quote to lock in realized performance.'
 
     return {
-      salesTier, salesLive, overheadLive, perHourLive, netLive, allLive,
-      salesBadge, overheadBadge, perHourBadge, netBadge,
+      salesTier, salesEarned, grossEarned, overheadEarned, perHourEarned, netEarned, fullyLive,
+      salesBadge, netBadge, banner,
       revenue, cogs, grossProfit, overhead, overheadPerHour, netProfit,
       grossProfitPercent: pct(grossProfit),
       overheadPercentOfRevenue: pct(overhead),
       netProfitPercent: pct(netProfit),
-      salesSource, overheadSource, perHourSource, netSource,
+      salesSource, netSource,
     }
   }, [hydrated])
 
@@ -251,9 +247,9 @@ export default function OverviewPage() {
   const [showMoneyMap, setShowMoneyMap] = useState(false)
   const [highlightedBucket, setHighlightedBucket] = useState<string | null>(null)
 
-  // Earned green: Net Profit shows green ONLY when it's live AND positive; muted for
-  // sample/bid; destructive-red when negative. Green can't appear on unearned profit.
-  const netEarnedGreen = bossView.netLive && bossView.netProfit > 0
+  // Earned green: Net Profit shows green ONLY when earned AND positive; destructive-red when
+  // negative; muted otherwise. Green can't appear on unearned profit. (Only used when netEarned.)
+  const netEarnedGreen = bossView.netEarned && bossView.netProfit > 0
   const netClass = bossView.netProfit < 0 ? "text-destructive" : (netEarnedGreen ? "" : "text-muted-foreground")
   const netStyle = netEarnedGreen ? { color: BUCKET_COLORS["Net Profit"].fg } : undefined
 
@@ -263,9 +259,7 @@ export default function OverviewPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground mb-2">
-            {bossView.allLive
-              ? "Executive Dashboard • Live from your libraries"
-              : "Sample data shown — build bids and your overhead chart to see your own."}
+            Executive Dashboard • {bossView.banner}
           </div>
           <h1 className="text-3xl font-semibold tracking-[-0.02em]">Boss View / Quick Read</h1>
           <p className="text-muted-foreground mt-1 max-w-2xl">Your true P&amp;L at a glance. Click any card for details.</p>
@@ -275,7 +269,7 @@ export default function OverviewPage() {
         </Button>
       </div>
 
-      {/* The 6 Summary Cards — each earns LIVE or wears SAMPLE independently (Boss View honesty pass) */}
+      {/* The 6 Summary Cards — ONLY earned numbers; unearned cards show an instructive empty state */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {/* Revenue (Income) */}
         <div
@@ -285,45 +279,57 @@ export default function OverviewPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Revenue (Income)</div>
-              <SourceTag state={bossView.salesBadge} />
+              {bossView.salesEarned && <SourceTag state={bossView.salesBadge} />}
             </div>
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">click for breakdown →</span>
           </div>
-          <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
-            {formatMoney(bossView.revenue)}
-          </div>
-          <div className="text-[11px] text-muted-foreground mt-2">{bossView.salesSource}</div>
+          {bossView.salesEarned ? (
+            <>
+              <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">{formatMoney(bossView.revenue)}</div>
+              <div className="text-[11px] text-muted-foreground mt-2">{bossView.salesSource}</div>
+            </>
+          ) : (
+            <CardEmpty text="Save a bid in the Project Pricer to see this." />
+          )}
         </div>
 
         {/* Cost of Goods (COGS) */}
         <div
           className="group rounded-2xl border-2 border-border bg-white p-6 cursor-pointer hover:border-primary hover:shadow-lg transition-all active:scale-[0.985]"
-          onClick={() => alert('Cost of Goods (COGS) = direct + indirect COGS, summed from your invoiced quotes.\n\nUntil you have invoiced quotes it shows your latest bid or sample data. This reconciles with the Money Map’s Direct + Indirect rungs.')}
+          onClick={() => alert('Cost of Goods (COGS) = direct + indirect COGS, summed from your invoiced quotes.\n\nUntil you have invoiced quotes it shows your latest saved bid. This reconciles with the Money Map’s Direct + Indirect rungs.')}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Cost of Goods (COGS)</div>
-              <SourceTag state={bossView.salesBadge} />
+              {bossView.salesEarned && <SourceTag state={bossView.salesBadge} />}
             </div>
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">click for breakdown →</span>
           </div>
-          <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
-            {formatMoney(bossView.cogs)}
-          </div>
-          <div className="text-[11px] text-muted-foreground mt-2">{bossView.salesSource} · sums direct + indirect COGS</div>
+          {bossView.salesEarned ? (
+            <>
+              <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">{formatMoney(bossView.cogs)}</div>
+              <div className="text-[11px] text-muted-foreground mt-2">{bossView.salesSource} · sums direct + indirect COGS</div>
+            </>
+          ) : (
+            <CardEmpty text="Save a bid in the Project Pricer to see this." />
+          )}
         </div>
 
         {/* Gross Profit (Left After the Work) */}
         <div className="rounded-2xl border-2 border-border bg-white p-6">
           <div className="flex items-center gap-2">
             <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Gross Profit (Left After the Work)</div>
-            <SourceTag state={bossView.salesBadge} />
+            {bossView.grossEarned && <SourceTag state={bossView.salesBadge} />}
           </div>
-          <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
-            {formatMoney(bossView.grossProfit)}
-          </div>
-          <div className="text-sm text-muted-foreground mt-2 tabular-nums">{bossView.grossProfitPercent.toFixed(1)}%</div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">{bossView.salesSource}</div>
+          {bossView.grossEarned ? (
+            <>
+              <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">{formatMoney(bossView.grossProfit)}</div>
+              <div className="text-sm text-muted-foreground mt-2 tabular-nums">{bossView.grossProfitPercent.toFixed(1)}%</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{bossView.salesSource}</div>
+            </>
+          ) : (
+            <CardEmpty text="Needs your sales." />
+          )}
         </div>
 
         {/* Overhead (Running the Business) — Clickable to detailed page */}
@@ -334,48 +340,60 @@ export default function OverviewPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="text-xs uppercase tracking-[1.5px]" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Overhead (Running the Business)</div>
-              <SourceTag state={bossView.overheadBadge} />
+              {bossView.overheadEarned && <SourceTag state="LIVE" />}
             </div>
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">view details →</span>
           </div>
-          <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
-            {formatMoney(bossView.overhead)}
-          </div>
-          <div className="text-sm text-muted-foreground mt-2 tabular-nums">{bossView.overheadPercentOfRevenue.toFixed(1)}% of Revenue</div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">{bossView.overheadSource}</div>
+          {bossView.overheadEarned ? (
+            <>
+              <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">{formatMoney(bossView.overhead)}</div>
+              <div className="text-sm text-muted-foreground mt-2 tabular-nums">{bossView.overheadPercentOfRevenue.toFixed(1)}% of Revenue</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">from your Overhead chart</div>
+            </>
+          ) : (
+            <CardEmpty text="Enter your overhead chart to see this." />
+          )}
         </div>
 
         {/* Overhead per Billable Hour */}
         <div className="rounded-2xl border-2 border-border bg-white p-6">
           <div className="flex items-center gap-2">
             <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Overhead per Billable Hour</div>
-            <SourceTag state={bossView.perHourBadge} />
+            {bossView.perHourEarned && <SourceTag state="LIVE" />}
           </div>
-          <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
-            {formatMoney(bossView.overheadPerHour)}
-          </div>
-          <div className="text-[11px] text-muted-foreground mt-2">{bossView.perHourSource}</div>
+          {bossView.perHourEarned ? (
+            <>
+              <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">{formatMoney(bossView.overheadPerHour)}</div>
+              <div className="text-[11px] text-muted-foreground mt-2">from your Overhead chart</div>
+            </>
+          ) : (
+            <CardEmpty text="Add billable hours to your overhead chart." />
+          )}
         </div>
 
         {/* Net Profit (What You Keep) — earned green only */}
         <div className="rounded-2xl border-2 border-border bg-white p-6">
           <div className="flex items-center gap-2">
             <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Net Profit (What You Keep)</div>
-            <SourceTag state={bossView.netBadge} />
+            {bossView.netEarned && <SourceTag state={bossView.netBadge} />}
           </div>
-          <div className={`text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4 ${netClass}`} style={netStyle}>
-            {formatMoney(bossView.netProfit)}
-          </div>
-          <div className={`text-sm mt-2 tabular-nums ${netClass}`} style={netStyle}>{bossView.netProfitPercent.toFixed(1)}%</div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">{bossView.netSource}</div>
+          {bossView.netEarned ? (
+            <>
+              <div className={`text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4 ${netClass}`} style={netStyle}>{formatMoney(bossView.netProfit)}</div>
+              <div className={`text-sm mt-2 tabular-nums ${netClass}`} style={netStyle}>{bossView.netProfitPercent.toFixed(1)}%</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{bossView.netSource}</div>
+            </>
+          ) : (
+            <CardEmpty text="Needs your sales and overhead." />
+          )}
         </div>
       </div>
 
       {/* Quick note */}
       <div className="text-center text-xs text-muted-foreground">
-        {bossView.allLive
+        {bossView.fullyLive
           ? "Live from your invoiced quotes and Overhead chart. "
-          : "Some cards show sample data until you have invoiced quotes and an Overhead chart. "}
+          : "Cards fill in as you save bids, invoice quotes, and complete your overhead chart. "}
         Click Revenue or COGS cards above for breakdowns. Full drill-down editor lives in <Link href="/overhead-profit" className="text-primary underline">Overhead &amp; Profit</Link>.
       </div>
 
