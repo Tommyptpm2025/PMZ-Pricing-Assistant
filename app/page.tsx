@@ -69,6 +69,12 @@ function qualifyingQuotes(quotes: unknown): any[] {
   return Array.isArray(quotes) ? quotes.filter((q: any) => REALIZED_STATUSES.has(q?.status)) : [];
 }
 
+// The Money Map populates from FOREMAN-CONFIRMED jobs: Ready to Invoice or beyond. This gate is
+// one step earlier than the Boss View's invoiced gate — "Ready to Invoice" means the foreman has
+// confirmed real costs, so the Map can honestly map the job to profit reality. Draft / Sent for
+// Acceptance / Work Order Active never feed it.
+const MAP_CONFIRMED_STATUSES = new Set<string>(["Ready to Invoice", "Invoiced", "Paid", "Completed"]);
+
 // The only Boss View badge: LIVE — the number is earned from the owner's own realized data
 // (invoiced-tier sales / a filled overhead chart). There is no bid tier and no sample: a card
 // with no earned data shows an instructive empty state instead of a badge or a made-up number.
@@ -165,53 +171,47 @@ export default function OverviewPage() {
     }
   }, [hydrated])
 
-  // ── PMZ Money Map — one shared, honest source (Fix 3) ───────────────────────
-  // Every rung derives from the rungs above it: Gross = Revenue − Direct − Indirect,
-  // Net = Gross − Overhead. Every percentage is computed from the dollars, never
-  // typed in — no rung carries a hardcoded ratio.
-  //
-  // Live path: the last saved quote supplies Revenue / Direct / Indirect COGS, and
-  // the saved overhead chart supplies the overhead-of-revenue rate, allocated to
-  // this bid's revenue. Only when BOTH exist is the ladder fully sourced (isLive).
-  // Otherwise ONE clearly-labeled sample seed runs through the identical formula.
+  // ── PMZ Money Map — goes dark until facts exist (owner's ruling) ─────────────
+  // The Map populates ONLY from the latest FOREMAN-CONFIRMED job (Ready to Invoice or
+  // beyond). No qualifying quote ⇒ confirmed:false and the render shows an empty state;
+  // there is NO sample seed and NO latest-bid pull. When confirmed, the job supplies
+  // Revenue / Direct / Indirect COGS and the overhead chart supplies the overhead-of-
+  // revenue rate, allocated to this job. Every rung derives: Gross = Revenue − Direct −
+  // Indirect, Net = Gross − Overhead; every percentage is computed from the dollars.
   const moneyMapSnapshot = useMemo(() => {
-    // The ONE sample seed — raw inputs only (revenue + the three cost buckets).
-    // Illustrative; replaced wholesale the moment a live, fully-sourced bid exists.
-    const SAMPLE = { revenue: 185000, directCogs: 111000, indirectCogs: 14800, overhead: 22200 }
-
-    let input = SAMPLE
-    let isLive = false
+    let confirmed = false
+    let rev = 0, directCogs = 0, indirectCogs = 0, overhead = 0
 
     if (hydrated) { try {
-      const quotesRaw = localStorage.getItem("pmz_saved_quotes")
-      const quotes = quotesRaw ? JSON.parse(quotesRaw) : []
-      const overheadRaw = localStorage.getItem("pmz_overhead_chart")
-      const overheadChart = overheadRaw ? JSON.parse(overheadRaw) : null
+      const quotes = JSON.parse(localStorage.getItem("pmz_saved_quotes") || "[]")
+      const chartRaw = localStorage.getItem("pmz_overhead_chart")
+      const chart = chartRaw ? JSON.parse(chartRaw) : null
 
-      if (Array.isArray(quotes) && quotes.length > 0 && overheadChart) {
-        const last = quotes[quotes.length - 1]
-        const rev = Number(last.totalRevenue) || 0
-        const direct = Number(last.directCogsDollars) || 0
-        const indirect = Number(last.indirectCogsDollars) || 0
-        // Overhead as a real allocation: (company overhead ÷ company revenue) × this bid.
-        const totalOverhead = Array.isArray(overheadChart.items)
-          ? overheadChart.items.reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0)
-          : 0
-        const overheadRate = overheadChart.monthlyRevenue > 0 ? totalOverhead / overheadChart.monthlyRevenue : 0
-        if (rev > 0) {
-          input = { revenue: rev, directCogs: direct, indirectCogs: indirect, overhead: Math.round(rev * overheadRate) }
-          isLive = true
+      // Latest foreman-confirmed job (Ready to Invoice or beyond) — nothing earlier feeds it.
+      const mapJobs = Array.isArray(quotes) ? quotes.filter((q: any) => MAP_CONFIRMED_STATUSES.has(q?.status)) : []
+      if (mapJobs.length > 0) {
+        const latest = mapJobs[mapJobs.length - 1]
+        const r = Number(latest.totalRevenue) || 0
+        if (r > 0) {
+          rev = r
+          directCogs = Number(latest.directCogsDollars) || 0
+          indirectCogs = Number(latest.indirectCogsDollars) || 0
+          // Overhead as a real allocation: (company overhead ÷ company revenue) × this job.
+          const totalOverhead = chart && Array.isArray(chart.items)
+            ? chart.items.reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0)
+            : 0
+          const overheadRate = chart && chart.monthlyRevenue > 0 ? totalOverhead / chart.monthlyRevenue : 0
+          overhead = Math.round(rev * overheadRate)
+          confirmed = true
         }
       }
     } catch {} }
 
-    // The single ladder formula — identical for live data and the sample seed.
-    const { revenue: rev, directCogs, indirectCogs, overhead } = input
     const grossProfit = rev - directCogs - indirectCogs
     const netProfit = grossProfit - overhead
     const pct = (n: number) => (rev > 0 ? Math.round((n / rev) * 1000) / 10 : 0)
     return {
-      isLive,
+      confirmed,
       revenue: rev,
       directCogs, directPercent: pct(directCogs),
       indirectCogs, indirectPercent: pct(indirectCogs),
@@ -220,6 +220,9 @@ export default function OverviewPage() {
       netProfit, netPercent: pct(netProfit),
     }
   }, [hydrated])
+
+  // Empty-state copy shown when no foreman-confirmed job exists yet.
+  const MAP_EMPTY = "Move a job to Ready to Invoice — once your foreman confirms costs, this maps it to profit reality."
 
   const [showMoneyMap, setShowMoneyMap] = useState(false)
   const [highlightedBucket, setHighlightedBucket] = useState<string | null>(null)
@@ -381,16 +384,14 @@ export default function OverviewPage() {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-[#EB3300]" /> PMZ Money Map — Quick Snapshot
-                {moneyMapSnapshot.isLive ? (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}>LIVE</span>
-                ) : (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-muted text-muted-foreground">SAMPLE DATA</span>
+                {moneyMapSnapshot.confirmed && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}>CONFIRMED</span>
                 )}
               </CardTitle>
               <CardDescription>
-                {moneyMapSnapshot.isLive
-                  ? "How your latest bid (from Project Pricer) maps to profit reality."
-                  : "How a bid maps to profit reality. Build a bid in the Project Pricer to see your own numbers here."}
+                {moneyMapSnapshot.confirmed
+                  ? "How your latest foreman-confirmed job maps to profit reality."
+                  : "How a foreman-confirmed job maps to profit reality."}
               </CardDescription>
             </div>
             <Button size="sm" onClick={() => { setShowMoneyMap(true); setHighlightedBucket(null); }}>
@@ -399,6 +400,12 @@ export default function OverviewPage() {
           </div>
         </CardHeader>
         <CardContent className="pt-0">
+          {!moneyMapSnapshot.confirmed ? (
+            <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center">
+              <div className="text-sm font-medium text-muted-foreground">{MAP_EMPTY}</div>
+            </div>
+          ) : (
+          <>
           {/* Compact 6-rung ladder */}
           <div className="space-y-1 text-sm">
             <div className="flex items-center justify-between rounded border bg-muted/40 px-3 py-1.5">
@@ -431,14 +438,14 @@ export default function OverviewPage() {
           </div>
 
           <div className="mt-3 text-xs rounded px-3 py-2 border" style={{ color: BUCKET_COLORS["Indirect COGS"].fg, backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>
-            {moneyMapSnapshot.isLive ? "Your latest bid is" : "This sample bid is"} allocating <strong>{moneyMapSnapshot.indirectPercent}%</strong> to Indirect Cost of Goods (Hidden Job Costs) — the bucket that quietly kills margins.
+            This confirmed job is allocating <strong>{moneyMapSnapshot.indirectPercent}%</strong> to Indirect Cost of Goods (Hidden Job Costs) — the bucket that quietly kills margins.
           </div>
 
           <div className="mt-2 text-[10px] text-muted-foreground">
-            {moneyMapSnapshot.isLive
-              ? "Pulled live from your last saved Project Pricer bid; overhead allocated from your Overhead chart. Click the button for the full educational ladder."
-              : "Sample data — no saved bid yet. Build one in the Project Pricer (with an Overhead chart set) and it flows in here automatically. Click the button for the full educational ladder."}
+            From foreman-confirmed jobs; overhead allocated from your Overhead chart. Click the button for the full educational ladder.
           </div>
+          </>
+          )}
         </CardContent>
       </Card>
 
@@ -514,17 +521,16 @@ export default function OverviewPage() {
               <div className="max-w-lg mx-auto">
                 <div className="mb-2 flex items-center justify-center gap-2">
                   <div className="text-xs uppercase tracking-[1px] text-muted-foreground text-center">THE PROFIT LADDER (how every dollar flows)</div>
-                  {moneyMapSnapshot.isLive ? (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}>LIVE</span>
-                  ) : (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-muted text-muted-foreground">SAMPLE DATA</span>
+                  {moneyMapSnapshot.confirmed && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}>CONFIRMED</span>
                   )}
                 </div>
-                {!moneyMapSnapshot.isLive && (
-                  <div className="mb-2 text-center text-[11px] text-muted-foreground">
-                    Sample figures shown — build a bid in the Project Pricer (with an Overhead chart set) to see your own.
+                {!moneyMapSnapshot.confirmed ? (
+                  <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center text-sm font-medium text-muted-foreground">
+                    {MAP_EMPTY}
                   </div>
-                )}
+                ) : (
+                <>
 
                 {/* Rung 1: Revenue (neutral — not a bucket) */}
                 <div
@@ -603,6 +609,8 @@ export default function OverviewPage() {
                   </div>
                   <div className="text-right text-sm tabular-nums font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{formatMoney(moneyMapSnapshot.netProfit)} <span className="text-xs">({moneyMapSnapshot.netPercent}%)</span></div>
                 </div>
+                </>
+                )}
               </div>
 
               {/* Subtle interactivity explain box */}
