@@ -62,17 +62,38 @@ function formatMoney(amount: number | undefined | null): string {
   return `$${formatted}`;
 }
 
-// Per-card honesty chip — a card earns LIVE only when its own source exists; otherwise SAMPLE.
-// LIVE uses the Net Profit (green) token; SAMPLE is muted. Never shown without a real source.
-function SourceTag({ live }: { live: boolean }) {
-  return live ? (
-    <span
-      className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
-      style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}
-    >
-      LIVE
-    </span>
-  ) : (
+// The ONE qualifying set for realized performance — invoiced-is-terminal. Shared by every card
+// that reports sales performance (Revenue, COGS, Gross); no card computes its own set.
+const REALIZED_STATUSES = new Set<string>(["Invoiced", "Paid", "Completed"]);
+function qualifyingQuotes(quotes: unknown): any[] {
+  return Array.isArray(quotes) ? quotes.filter((q: any) => REALIZED_STATUSES.has(q?.status)) : [];
+}
+
+// Per-card honesty chip — three states:
+//   LIVE   = realized performance from qualifying quotes / a live chart (green, earned).
+//   BID    = your real latest-bid numbers, but not yet realized performance (neutral outline).
+//   SAMPLE = illustrative seed, not your data (muted fill).
+// LIVE can NEVER appear on a sales card with zero qualifying quotes.
+type CardState = "LIVE" | "BID" | "SAMPLE";
+function SourceTag({ state }: { state: CardState }) {
+  if (state === "LIVE") {
+    return (
+      <span
+        className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
+        style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}
+      >
+        LIVE
+      </span>
+    );
+  }
+  if (state === "BID") {
+    return (
+      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border border-border bg-transparent text-foreground">
+        BID
+      </span>
+    );
+  }
+  return (
     <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-muted text-muted-foreground">
       SAMPLE
     </span>
@@ -107,20 +128,20 @@ export default function OverviewPage() {
     if (hydrated) { try {
       const quotesRaw = localStorage.getItem("pmz_saved_quotes")
       const quotes: any[] = quotesRaw ? JSON.parse(quotesRaw) : []
-      if (Array.isArray(quotes) && quotes.length > 0) {
-        // Invoiced-is-terminal: only realized work (invoiced or beyond) counts as performance.
-        const REALIZED = new Set(["Invoiced", "Paid", "Completed"])
-        const invoiced = quotes.filter((q) => REALIZED.has(q?.status))
-        if (invoiced.length > 0) {
-          revenue = invoiced.reduce((s, q) => s + (Number(q.totalRevenue) || 0), 0)
-          cogs = invoiced.reduce((s, q) => s + (Number(q.directCogsDollars) || 0) + (Number(q.indirectCogsDollars) || 0), 0)
-          salesTier = 'invoiced'
-        } else {
-          const last = quotes[quotes.length - 1]
-          revenue = Number(last.totalRevenue) || 0
-          cogs = (Number(last.directCogsDollars) || 0) + (Number(last.indirectCogsDollars) || 0)
-          salesTier = 'bid'
-        }
+      // ONE shared qualifying set — Revenue, COGS, and Gross all read from exactly this list.
+      const qualifying = qualifyingQuotes(quotes)
+      if (qualifying.length > 0) {
+        // Realized performance: sum only the qualifying (invoiced-or-beyond) quotes.
+        revenue = qualifying.reduce((s, q) => s + (Number(q.totalRevenue) || 0), 0)
+        cogs = qualifying.reduce((s, q) => s + (Number(q.directCogsDollars) || 0) + (Number(q.indirectCogsDollars) || 0), 0)
+        salesTier = 'invoiced'
+      } else if (quotes.length > 0) {
+        // Zero qualifying quotes → fall back to the latest saved bid, explicitly labelled BID.
+        // A Draft / Work Order Active / Declined quote is a bid, never realized performance.
+        const last = quotes[quotes.length - 1]
+        revenue = Number(last.totalRevenue) || 0
+        cogs = (Number(last.directCogsDollars) || 0) + (Number(last.indirectCogsDollars) || 0)
+        salesTier = 'bid'
       }
       const overheadRaw = localStorage.getItem("pmz_overhead_chart")
       const chart = overheadRaw ? JSON.parse(overheadRaw) : null
@@ -144,8 +165,14 @@ export default function OverviewPage() {
     const netLive = salesLive && overheadLive
     const allLive = salesLive && overheadLive && perHourLive
 
+    // Explicit per-card badge states (LIVE can never show on a sales card with zero qualifying).
+    const salesBadge: CardState = salesTier === 'invoiced' ? 'LIVE' : salesTier === 'bid' ? 'BID' : 'SAMPLE'
+    const overheadBadge: CardState = overheadLive ? 'LIVE' : 'SAMPLE'
+    const perHourBadge: CardState = perHourLive ? 'LIVE' : 'SAMPLE'
+    const netBadge: CardState = netLive ? 'LIVE' : 'SAMPLE'
+
     const salesSource = salesTier === 'invoiced' ? 'from invoiced quotes'
-      : salesTier === 'bid' ? 'from your latest bid (not yet invoiced)'
+      : salesTier === 'bid' ? 'from latest bid'
       : 'Sample data'
     const overheadSource = overheadLive ? 'from your Overhead chart' : 'Sample data'
     const perHourSource = perHourLive ? 'from your Overhead chart'
@@ -156,6 +183,7 @@ export default function OverviewPage() {
 
     return {
       salesTier, salesLive, overheadLive, perHourLive, netLive, allLive,
+      salesBadge, overheadBadge, perHourBadge, netBadge,
       revenue, cogs, grossProfit, overhead, overheadPerHour, netProfit,
       grossProfitPercent: pct(grossProfit),
       overheadPercentOfRevenue: pct(overhead),
@@ -257,7 +285,7 @@ export default function OverviewPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Revenue (Income)</div>
-              <SourceTag live={bossView.salesLive} />
+              <SourceTag state={bossView.salesBadge} />
             </div>
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">click for breakdown →</span>
           </div>
@@ -275,7 +303,7 @@ export default function OverviewPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Cost of Goods (COGS)</div>
-              <SourceTag live={bossView.salesLive} />
+              <SourceTag state={bossView.salesBadge} />
             </div>
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">click for breakdown →</span>
           </div>
@@ -289,7 +317,7 @@ export default function OverviewPage() {
         <div className="rounded-2xl border-2 border-border bg-white p-6">
           <div className="flex items-center gap-2">
             <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Gross Profit (Left After the Work)</div>
-            <SourceTag live={bossView.salesLive} />
+            <SourceTag state={bossView.salesBadge} />
           </div>
           <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
             {formatMoney(bossView.grossProfit)}
@@ -306,7 +334,7 @@ export default function OverviewPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="text-xs uppercase tracking-[1.5px]" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Overhead (Running the Business)</div>
-              <SourceTag live={bossView.overheadLive} />
+              <SourceTag state={bossView.overheadBadge} />
             </div>
             <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100">view details →</span>
           </div>
@@ -321,7 +349,7 @@ export default function OverviewPage() {
         <div className="rounded-2xl border-2 border-border bg-white p-6">
           <div className="flex items-center gap-2">
             <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Overhead per Billable Hour</div>
-            <SourceTag live={bossView.perHourLive} />
+            <SourceTag state={bossView.perHourBadge} />
           </div>
           <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">
             {formatMoney(bossView.overheadPerHour)}
@@ -333,7 +361,7 @@ export default function OverviewPage() {
         <div className="rounded-2xl border-2 border-border bg-white p-6">
           <div className="flex items-center gap-2">
             <div className="text-xs uppercase tracking-[1.5px] text-muted-foreground">Net Profit (What You Keep)</div>
-            <SourceTag live={bossView.netLive} />
+            <SourceTag state={bossView.netBadge} />
           </div>
           <div className={`text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4 ${netClass}`} style={netStyle}>
             {formatMoney(bossView.netProfit)}
