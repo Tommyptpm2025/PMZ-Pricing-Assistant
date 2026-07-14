@@ -42,7 +42,10 @@ import {
   Check,
   X,
   ChevronRight,
+  ChevronDown,
   CheckCircle2,
+  Download,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
@@ -158,6 +161,12 @@ export default function QuotesPage() {
   const router = useRouter();
   const [allQuotes, setAllQuotes] = React.useState<SavedQuote[]>([]);
   const [deleteTarget, setDeleteTarget] = React.useState<SavedQuote | null>(null);
+  // Maintenance panel — review + safe delete of ALL stored entries (incl. legacy/untyped rows
+  // the two lists hide). Selection + a bulk-delete confirm; nothing deletes without a confirm.
+  const [showMaintenance, setShowMaintenance] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = React.useState(false);
+  const [exportedAt, setExportedAt] = React.useState<string | null>(null);
   const [previewTarget, setPreviewTarget] = React.useState<SavedQuote | null>(null);
   // Optional note captured with an acceptance decision (e.g. "10% deposit received 6/20")
   const [decisionNote, setDecisionNote] = React.useState("");
@@ -246,8 +255,21 @@ export default function QuotesPage() {
   const [fullDateFrom, setFullDateFrom] = React.useState("");
   const [fullDateTo, setFullDateTo] = React.useState("");
 
+  // Raw stored order (as persisted in pmz_saved_quotes), for the Maintenance table — so its
+  // row indices line up with a raw localStorage dump. The lists above use the sorted getAllQuotes.
+  const [rawQuotes, setRawQuotes] = React.useState<SavedQuote[]>([]);
+  function readRawQuotes(): SavedQuote[] {
+    try {
+      const parsed = JSON.parse(localStorage.getItem("pmz_saved_quotes") || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
   React.useEffect(() => {
     setAllQuotes(getAllQuotes());
+    setRawQuotes(readRawQuotes());
     try {
       const ids = loadJobs().map((j) => j.quoteId).filter((id): id is string => !!id);
       setWorkOrderQuoteIds(new Set(ids));
@@ -256,6 +278,7 @@ export default function QuotesPage() {
 
   function refresh() {
     setAllQuotes(getAllQuotes());
+    setRawQuotes(readRawQuotes());
   }
 
   const eppBase = React.useMemo(
@@ -265,6 +288,13 @@ export default function QuotesPage() {
   const fullBase = React.useMemo(
     () => allQuotes.filter((q) => q.quoteType === "Full"),
     [allQuotes]
+  );
+
+  // Legacy / untyped entries — rows whose quoteType is neither "EPP" nor "Full", so they appear
+  // in NEITHER list above (the reason 19 of 30 were invisible). Surfaced read-only in Maintenance.
+  const legacyBase = React.useMemo(
+    () => rawQuotes.filter((q) => q.quoteType !== "EPP" && q.quoteType !== "Full"),
+    [rawQuotes]
   );
 
   const eppWorkTypes = React.useMemo(() => {
@@ -669,6 +699,50 @@ export default function QuotesPage() {
     if (!deleteTarget) return;
     deleteQuote(deleteTarget.id);
     setDeleteTarget(null);
+    setSelectedIds((prev) => { const n = new Set(prev); n.delete(deleteTarget.id); return n; });
+    refresh();
+  }
+
+  // Export ALL stored quotes to a dated JSON backup — read-only, dumps the raw pmz_saved_quotes
+  // exactly as persisted (every row, incl. legacy/untyped). This is the safety net: back up
+  // before deleting a single row.
+  function exportAllQuotes() {
+    try {
+      const raw = localStorage.getItem("pmz_saved_quotes") || "[]";
+      const parsed = JSON.parse(raw);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const payload = JSON.stringify(
+        { __pmz_quotes_backup__: true, exportedAt: new Date().toISOString(), count: Array.isArray(parsed) ? parsed.length : 0, data: parsed },
+        null,
+        2
+      );
+      const blob = new Blob([payload], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pmz-quotes-backup-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setExportedAt(new Date().toISOString());
+    } catch {
+      // storage/parse failure — no download; leave exportedAt unchanged
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+
+  function handleBulkDelete() {
+    selectedIds.forEach((id) => deleteQuote(id));
+    setSelectedIds(new Set());
+    setBulkDeleteConfirm(false);
     refresh();
   }
 
@@ -704,7 +778,9 @@ export default function QuotesPage() {
           <div className="min-w-[240px]">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Status (multi-select)</div>
             <div className="flex flex-wrap gap-1">
-              {STATUS_OPTIONS.map((st) => {
+              {/* Filter chips = the active lifecycle, plus the retired "Completed" so any persisted
+                  Completed record is filterable here too (display-only; STATUS_ORDER is untouched). */}
+              {[...STATUS_OPTIONS, "Completed" as QuoteStatus].map((st) => {
                 const active = statusSel.includes(st);
                 const c = STATUS_COLORS[st] || STATUS_COLORS["Draft"];
                 const count = statusCounts[st] || 0;
@@ -1048,6 +1124,119 @@ export default function QuotesPage() {
         </div>
         {renderFilters("epp")}
         {renderTable(filteredEpp, "EPP")}
+      </div>
+
+      {/* Maintenance — review every stored entry (incl. legacy/untyped rows the lists hide),
+          back up, and safely delete junk. Collapsed by default. */}
+      <div className="rounded-xl border border-border bg-surface-2">
+        <button
+          type="button"
+          onClick={() => setShowMaintenance((v) => !v)}
+          className="flex w-full items-center justify-between px-4 py-3 text-left"
+        >
+          <div className="flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-muted-foreground" />
+            <span className="font-semibold tracking-tight">Maintenance — all stored entries</span>
+            <span className="text-sm text-muted-foreground">
+              {rawQuotes.length} total · {legacyBase.length} legacy/untyped (hidden from the lists above)
+            </span>
+          </div>
+          {showMaintenance ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+
+        {showMaintenance && (
+          <div className="border-t border-border p-4 space-y-4">
+            {/* Step 1 — back up first. Works standalone; read-only. */}
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" size="sm" onClick={exportAllQuotes}>
+                <Download className="h-4 w-4 mr-2" /> Export all quotes (backup)
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {exportedAt
+                  ? `Backed up ${formatDate(exportedAt)} → pmz-quotes-backup-${exportedAt.slice(0, 10)}.json`
+                  : "Downloads a dated JSON of all stored quotes. Back up before deleting anything."}
+              </span>
+            </div>
+
+            {/* Bulk actions — appear only with a selection; delete is always confirmed. */}
+            <div className="flex items-center gap-3">
+              <div className="text-sm text-muted-foreground">
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select rows to delete"}
+              </div>
+              {selectedIds.size > 0 && (
+                <>
+                  <Button variant="destructive" size="sm" onClick={() => setBulkDeleteConfirm(true)}>
+                    <Trash2 className="h-4 w-4 mr-2" /> Delete {selectedIds.size} selected
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                    Clear selection
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {/* Full entry table — every row, in stored order, with why-hidden context. */}
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
+                    <th className="w-8 px-3 py-2"></th>
+                    <th className="px-3 py-2">#</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Type</th>
+                    <th className="px-3 py-2">Job / Customer</th>
+                    <th className="px-3 py-2 text-right">Revenue</th>
+                    <th className="px-3 py-2">Created</th>
+                    <th className="px-3 py-2 text-right">Delete</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rawQuotes.map((q, i) => {
+                    const legacy = q.quoteType !== "EPP" && q.quoteType !== "Full";
+                    const sel = selectedIds.has(q.id);
+                    return (
+                      <tr key={q.id} className={cn("border-b border-border/60 last:border-0", sel && "bg-primary/5")}>
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={sel}
+                            onChange={() => toggleSelect(q.id)}
+                            aria-label={`Select ${q.jobName || "untitled"}`}
+                          />
+                        </td>
+                        <td className="px-3 py-2 tabular-nums text-muted-foreground">{i}</td>
+                        <td className="px-3 py-2"><StatusBadge status={q.status} /></td>
+                        <td className="px-3 py-2">
+                          {legacy ? (
+                            <span className="text-[11px] font-medium px-1.5 py-0.5 rounded border bg-muted text-muted-foreground">
+                              legacy / untyped
+                            </span>
+                          ) : (
+                            <span className="text-xs">{q.quoteType}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="font-medium">{q.jobName || <span className="text-muted-foreground">(untitled)</span>}</div>
+                          <div className="text-xs text-muted-foreground">{q.customer || q.customerName || <span className="italic">(blank customer)</span>}</div>
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">${formatMoney(q.totalRevenue || 0)}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">{q.createdAt ? formatDate(q.createdAt) : "—"}</td>
+                        <td className="px-3 py-2 text-right">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteTarget(q)} aria-label="Delete entry">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Every stored entry is shown here, including legacy/untyped rows the EPP/Full lists hide. Deleting is permanent — export a backup first.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Full Quotes — intentionally removed from the visible page flow (EPP-only).
@@ -1481,6 +1670,27 @@ export default function QuotesPage() {
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
               Delete Quote
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk delete confirm — names exactly how many rows will be removed. */}
+      <Dialog open={bulkDeleteConfirm} onOpenChange={(open) => !open && setBulkDeleteConfirm(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} selected {selectedIds.size === 1 ? "entry" : "entries"}?</DialogTitle>
+            <DialogDescription>
+              This permanently removes {selectedIds.size} stored {selectedIds.size === 1 ? "entry" : "entries"} from
+              this browser. The action cannot be undone — make sure you exported a backup first.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDelete}>
+              Delete {selectedIds.size} {selectedIds.size === 1 ? "entry" : "entries"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -401,6 +401,9 @@ export const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   "Ready to Invoice": { bg: "#0D9488", fg: "#FFFFFF" },   // teal
   "Invoiced": { bg: "#16A34A", fg: "#FFFFFF" },           // green
   "Paid": { bg: "#15803D", fg: "#FFFFFF" },               // dark green
+  // Legacy / retired — kept out of the active flow but given a real color so a persisted
+  // "Completed" record renders as its own badge (not the Draft fallback) in maintenance views.
+  "Completed": { bg: "#6B7280", fg: "#FFFFFF" },          // slate gray (retired terminal)
 };
 
 // Money-bucket colors — single source of truth (same pattern as STATUS_COLORS).
