@@ -38,7 +38,7 @@ const BUCKETS: { key: PnlBucket; title: string; hint: string }[] = [
   },
 ];
 
-export function PnlOrganizer() {
+export function PnlOrganizer({ onRequestApply }: { onRequestApply?: (ws: PnlWorksheet) => void } = {}) {
   // Start empty (deterministic) for SSR/first render; load the saved worksheet after mount.
   const [ws, setWs] = React.useState<PnlWorksheet>({ revenue: 0, lines: [] });
   const loaded = React.useRef(false);
@@ -222,6 +222,36 @@ export function PnlOrganizer() {
             );
           })()}
         </div>
+
+        {/* Overhead handoff (F2 Step 2) — one-way, explicit. Disabled until there's real overhead
+            to apply, so an empty Organizer can never wipe a real Overhead chart. */}
+        {onRequestApply && (() => {
+          const overheadTotal = bucketTotal(ws, "Overhead");
+          const canApply = overheadTotal > 0;
+          return (
+            <div className="rounded-xl border bg-surface-2 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-medium">Send your overhead to the Overhead chart</div>
+                  <div className="text-xs text-muted-foreground">
+                    {canApply
+                      ? <>Replaces the chart’s overhead lines with these ({formatMoney(overheadTotal)}). You’ll confirm first.</>
+                      : "Add overhead lines above to enable this — an empty Organizer can’t replace your chart."}
+                  </div>
+                </div>
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={!canApply}
+                  onClick={() => onRequestApply(ws)}
+                  className="shrink-0"
+                >
+                  Use these as my Overhead chart
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
       </CardContent>
     </Card>
   );

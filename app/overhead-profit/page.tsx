@@ -14,17 +14,32 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Calculator, Plus, RotateCcw, ArrowUp, ArrowDown, Trash2, Save } from "lucide-react";
+import { Calculator, Plus, RotateCcw, ArrowUp, ArrowDown, Trash2, Save, Download } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { BUCKET_COLORS, COUNTDOWN_UNCOVERED } from "@/lib/pmz-types";
 import { PnlOrganizer } from "@/components/PnlOrganizer";
+import { computeSummary, bucketTotal, type PnlWorksheet } from "@/lib/pnl-worksheet";
 
 const STORAGE_KEY = "pmz_overhead_chart";
 
 function createId() {
   return Math.random().toString(36).slice(2, 11);
+}
+
+// Any hand-edit to the chart's numbers/lines marks it manually sourced — provenance reverts to
+// "manual" so the Boss View honestly says "from your Overhead chart" once you've touched it.
+function markManual(c: OverheadChart): OverheadChart {
+  return { ...c, source: "manual", sourceAppliedAt: undefined };
 }
 
 // Every line carries a Fixed/Variable tag — muscle-memory education, not analysis.
@@ -44,6 +59,11 @@ interface OverheadChart {
   monthlyCogs: number;
   billableHours: number;
   notes: string;
+  // Provenance (F2 Step 2, additive/optional): where the current numbers came from.
+  // Absent ⇒ treated as "manual". Set to "pnl-organizer" only by an explicit handoff apply;
+  // any hand-edit reverts it to "manual".
+  source?: "manual" | "pnl-organizer";
+  sourceAppliedAt?: string;
 }
 
 // Standard construction contractor overhead categories (overhead is largely Fixed by nature;
@@ -136,7 +156,7 @@ export default function OverheadProfitPage() {
 
   // ==================== ACTIONS ====================
   function updateItemAmount(id: string, newAmount: number) {
-    setChart((prev) => ({
+    setChart((prev) => markManual({
       ...prev,
       items: prev.items.map((item) =>
         item.id === id ? { ...item, amount: Math.max(0, Math.round(newAmount * 100) / 100) } : item
@@ -145,7 +165,7 @@ export default function OverheadProfitPage() {
   }
 
   function updateItemCategory(id: string, newCategory: string) {
-    setChart((prev) => ({
+    setChart((prev) => markManual({
       ...prev,
       items: prev.items.map((item) =>
         item.id === id ? { ...item, category: newCategory } : item
@@ -154,7 +174,7 @@ export default function OverheadProfitPage() {
   }
 
   function toggleItemBehavior(id: string) {
-    setChart((prev) => ({
+    setChart((prev) => markManual({
       ...prev,
       items: prev.items.map((item) =>
         item.id === id
@@ -175,7 +195,7 @@ export default function OverheadProfitPage() {
       behavior: "Fixed",
     };
 
-    setChart((prev) => ({
+    setChart((prev) => markManual({
       ...prev,
       items: [...prev.items, newItem],
     }));
@@ -183,7 +203,7 @@ export default function OverheadProfitPage() {
   }
 
   function removeCategory(id: string) {
-    setChart((prev) => ({
+    setChart((prev) => markManual({
       ...prev,
       items: prev.items.filter((item) => item.id !== id),
     }));
@@ -196,7 +216,7 @@ export default function OverheadProfitPage() {
     const newItems = [...chart.items];
     [newItems[index], newItems[newIndex]] = [newItems[newIndex], newItems[index]];
 
-    setChart((prev) => ({
+    setChart((prev) => markManual({
       ...prev,
       items: newItems,
     }));
@@ -214,7 +234,7 @@ export default function OverheadProfitPage() {
   }
 
   function updateAssumption(field: "monthlyRevenue" | "monthlyCogs" | "billableHours", value: number) {
-    setChart((prev) => ({
+    setChart((prev) => markManual({
       ...prev,
       [field]: Math.max(0, value),
     }));
@@ -225,6 +245,58 @@ export default function OverheadProfitPage() {
       ...prev,
       notes: newNotes,
     }));
+  }
+
+  // ==================== F2 STEP 2 — OVERHEAD HANDOFF (one-way, explicit) ====================
+  // The P&L Organizer requests an apply; we confirm (naming exactly what's replaced), then map the
+  // worksheet's Overhead-bucket lines into the chart items and revenue/COGS assumptions. billableHours
+  // and notes are preserved. Provenance is stamped "pnl-organizer". Nothing flows without this action.
+  const [applyRequest, setApplyRequest] = React.useState<PnlWorksheet | null>(null);
+
+  // Called by the Organizer's "Use these as my Overhead chart" button. The button is disabled when the
+  // worksheet's overhead total is 0, so a real chart can never be wiped by an empty Organizer.
+  function requestApply(ws: PnlWorksheet) {
+    if (bucketTotal(ws, "Overhead") <= 0) return; // extra guard even if the button somehow fires
+    setApplyRequest(ws);
+  }
+
+  // Download the current chart as a dated JSON backup before replacing it.
+  function exportCurrentChart() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY) || JSON.stringify(chart);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const blob = new Blob([raw], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pmz-overhead-chart-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {}
+  }
+
+  function confirmApply() {
+    const ws = applyRequest;
+    if (!ws) return;
+    const summary = computeSummary(ws);
+    const overheadLines = ws.lines.filter((l) => l.bucket === "Overhead");
+    setChart((prev) => ({
+      ...prev,                                   // preserve billableHours + notes
+      items: overheadLines.map((l) => ({
+        id: createId(),
+        category: l.label.trim() || "Untitled overhead",
+        amount: Math.max(0, Math.round((l.amount || 0) * 100) / 100),
+        behavior: l.behavior,
+      })),
+      monthlyRevenue: Math.max(0, ws.revenue || 0),
+      monthlyCogs: Math.max(0, summary.costOfGoods),
+      source: "pnl-organizer",
+      sourceAppliedAt: new Date().toISOString(),
+    }));
+    setApplyRequest(null);
+    setActiveTab("manual"); // reveal the now-populated chart
   }
 
   // ==================== RENDER ====================
@@ -540,12 +612,44 @@ export default function OverheadProfitPage() {
 
       {/* P&L Organizer tab — manual entry + the five true numbers (Build F2) */}
       <div className={activeTab === 'import' ? '' : 'hidden'}>
-        <PnlOrganizer />
+        <PnlOrganizer onRequestApply={requestApply} />
       </div>
 
       <p className="text-center text-xs text-muted-foreground max-w-prose mx-auto">
         True overhead separation only. These values feed directly into accurate job costing in the Project Pricer.
       </p>
+
+      {/* Overhead handoff — confirm dialog. Names EXACTLY what's replaced (line count + $ total),
+          same standard as the delete confirms; offers a backup export first. */}
+      <Dialog open={!!applyRequest} onOpenChange={(open) => !open && setApplyRequest(null)}>
+        <DialogContent>
+          {applyRequest && (() => {
+            const inLines = applyRequest.lines.filter((l) => l.bucket === "Overhead");
+            const inTotal = bucketTotal(applyRequest, "Overhead");
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Replace your Overhead chart with the P&amp;L Organizer’s numbers?</DialogTitle>
+                  <DialogDescription>
+                    This replaces your current Overhead chart — <strong>{chart.items.length} {chart.items.length === 1 ? "line" : "lines"}, {formatMoney(totalOverhead)} total</strong> — with the
+                    Organizer’s overhead: <strong>{inLines.length} {inLines.length === 1 ? "line" : "lines"}, {formatMoney(inTotal)}</strong>. Revenue and Cost of Goods are updated too;
+                    billable hours and notes are kept. This can’t be undone — export a backup first.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter className="sm:justify-between gap-2">
+                  <Button variant="outline" onClick={exportCurrentChart}>
+                    <Download className="mr-2 h-4 w-4" /> Export current chart
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setApplyRequest(null)}>Cancel</Button>
+                    <Button variant="destructive" onClick={confirmApply}>Replace chart</Button>
+                  </div>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

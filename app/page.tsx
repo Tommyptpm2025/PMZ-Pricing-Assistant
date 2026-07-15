@@ -134,6 +134,7 @@ export default function OverviewPage() {
     let salesEarned = false
     let overhead = 0, billableHours = 0
     let overheadEarned = false, billableHoursEarned = false
+    let overheadFromPnl = false  // provenance: overhead applied from the P&L Organizer handoff
 
     if (hydrated) { try {
       const quotesRaw = localStorage.getItem("pmz_saved_quotes")
@@ -150,7 +151,7 @@ export default function OverviewPage() {
       const chart = overheadRaw ? JSON.parse(overheadRaw) : null
       if (chart && Array.isArray(chart.items)) {
         const total = chart.items.reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0)
-        if (total > 0) { overhead = total; overheadEarned = true }
+        if (total > 0) { overhead = total; overheadEarned = true; overheadFromPnl = chart.source === "pnl-organizer" }
         const bh = Number(chart.billableHours) || 0
         if (overheadEarned && bh > 0) { billableHours = bh; billableHoursEarned = true }
       }
@@ -168,6 +169,8 @@ export default function OverviewPage() {
 
     const salesSource = 'from invoiced quotes'
     const netSource = 'invoiced quotes · Overhead chart'
+    // Honesty: the overhead card names where its number came from (F2 Step 2 provenance).
+    const overheadSource = overheadFromPnl ? 'from your P&L Organizer' : 'from your Overhead chart'
 
     // Banner — describes what's earned and what's still waiting (references invoicing, not bids).
     const waiting: string[] = []
@@ -185,7 +188,7 @@ export default function OverviewPage() {
       grossProfitPercent: pct(grossProfit),
       overheadPercentOfRevenue: pct(overhead),
       netProfitPercent: pct(netProfit),
-      salesSource, netSource,
+      salesSource, netSource, overheadSource,
     }
   }, [hydrated])
 
@@ -352,7 +355,7 @@ export default function OverviewPage() {
             <>
               <div className="text-[48px] leading-none font-semibold tabular-nums tracking-[-2.5px] mt-4">{formatMoney(bossView.overhead)}</div>
               <div className="text-sm text-muted-foreground mt-2 tabular-nums">{bossView.overheadPercentOfRevenue.toFixed(1)}% of Revenue</div>
-              <div className="text-[11px] text-muted-foreground mt-0.5">from your Overhead chart</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{bossView.overheadSource}</div>
             </>
           ) : (
             <CardEmpty text="Enter your overhead chart to see this." />
