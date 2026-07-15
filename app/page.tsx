@@ -13,7 +13,6 @@ import {
   ArrowRight,
   AlertTriangle,
   X,
-  Info,
 } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { BUCKET_COLORS } from "@/lib/pmz-types"
@@ -93,6 +92,25 @@ function SourceTag() {
 function CardEmpty({ text }: { text: string }) {
   return <div className="mt-4 text-sm text-muted-foreground leading-snug">{text}</div>;
 }
+
+// Money Map — per-rung "Details" copy (Fix 4). Folds the old shared explain-box + decision-tree
+// guidance into the ladder itself: each rung expands its own definition in place, one level deep.
+const RUNG_INFO: Record<string, string> = {
+  revenue: "Revenue is the top line — what the customer pays you, from your Project Pricer bid total.",
+  direct: "Cost of Goods (Direct Job Costs) = the Labor + Equipment + Material you actively build in the Full Real LEM section of the Project Pricer — the obvious L+E+M you control per job.",
+  indirect: "Indirect Cost of Goods (Hidden Job Costs) hides in labor burden beyond base pay, shop supplies, small tools, unbillable time, mobilization “extras”, fuel surcharges not passed through, etc. It’s a subset of Cost of Goods — it rolls up to COGS on the P&L, but PMZ teaches the breakout. It rarely shows in your LEM table yet destroys your target margin. This is the bucket the Money Map exists to kill.",
+  gross: "Gross Profit = Revenue − (Direct + Indirect COGS). This is the number the Project Pricer’s Gross Profit % field is trying to protect.",
+  overhead: "Overhead (Running the Business) = fixed business costs (insurance, shop rent, admin salaries, etc.). Managed in the Overhead & Profit pillar.",
+  net: "Net Profit = Gross − Overhead. The true owner take-home. Everything else is just moving money between buckets.",
+};
+
+// Money Map — Quick Glossary (Fix 4): one term per row, each expands its definition in place.
+const GLOSSARY_TERMS: { term: string; def: string }[] = [
+  { term: "Cost of Goods (Direct Job Costs)", def: "Job-visible costs in your LEM — the Labor, Equipment, and Material you control per job." },
+  { term: "Indirect Cost of Goods (Hidden Job Costs)", def: "The invisible tax on every job — a subset of Cost of Goods that rolls up to COGS on the P&L, but PMZ teaches the breakout. Shrink this first; it’s the fastest lever most contractors have." },
+  { term: "Overhead (Running the Business)", def: "The price of being in business — fixed costs whether or not you have a job." },
+  { term: "Net Profit (What You Keep)", def: "The only number that pays the owner. Gross Profit minus Overhead." },
+];
 
 export default function OverviewPage() {
   // Boss View executive figures are computed honestly below (bossView) — no hardcoded constants.
@@ -225,7 +243,13 @@ export default function OverviewPage() {
   const MAP_EMPTY = "Move a job to Ready to Invoice — once your foreman confirms costs, this maps it to profit reality."
 
   const [showMoneyMap, setShowMoneyMap] = useState(false)
-  const [highlightedBucket, setHighlightedBucket] = useState<string | null>(null)
+  // Progressive disclosure (Fix 4) — per-rung and per-glossary-term expand-in-place state.
+  // Independent toggles: expanding one leaves siblings collapsed. One level deep, no navigation.
+  const [expandedRungs, setExpandedRungs] = useState<Set<string>>(new Set())
+  const [expandedTerms, setExpandedTerms] = useState<Set<string>>(new Set())
+  const toggleRung = (k: string) => setExpandedRungs((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const toggleTerm = (k: string) => setExpandedTerms((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const resetMapDisclosure = () => { setExpandedRungs(new Set()); setExpandedTerms(new Set()) }
 
   // Earned green: Net Profit shows green ONLY when earned AND positive; destructive-red when
   // negative; muted otherwise. Green can't appear on unearned profit. (Only used when netEarned.)
@@ -383,7 +407,7 @@ export default function OverviewPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-[#EB3300]" /> PMZ Money Map — Quick Snapshot
+                <AlertTriangle className="h-4 w-4 text-[#EB3300]" /> PMZ Money Map — {moneyMapSnapshot.confirmed ? "This Job" : "Quick Snapshot"}
                 {moneyMapSnapshot.confirmed && (
                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}>CONFIRMED</span>
                 )}
@@ -394,7 +418,7 @@ export default function OverviewPage() {
                   : "How a foreman-confirmed job maps to profit reality."}
               </CardDescription>
             </div>
-            <Button size="sm" onClick={() => { setShowMoneyMap(true); setHighlightedBucket(null); }}>
+            <Button size="sm" onClick={() => { setShowMoneyMap(true); resetMapDisclosure(); }}>
               View Full Money Map &amp; Glossary
             </Button>
           </div>
@@ -499,7 +523,7 @@ export default function OverviewPage() {
 
       {/* Layer 2: Full Money Map — modal (clean professional training view) */}
       {showMoneyMap && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => { setShowMoneyMap(false); setHighlightedBucket(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => { setShowMoneyMap(false); resetMapDisclosure(); }}>
           <div className="w-full max-w-4xl rounded-2xl bg-background shadow-2xl overflow-hidden border" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b px-6 py-4">
               <div className="flex items-center gap-3">
@@ -511,7 +535,7 @@ export default function OverviewPage() {
                   <div className="text-xs text-muted-foreground">Profit isn’t a number. It’s a culture.</div>
                 </div>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => { setShowMoneyMap(false); setHighlightedBucket(null); }}>
+              <Button variant="ghost" size="icon" onClick={() => { setShowMoneyMap(false); resetMapDisclosure(); }}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -533,145 +557,119 @@ export default function OverviewPage() {
                 <>
 
                 {/* Rung 1: Revenue (neutral — not a bucket) */}
-                <div
-                  onClick={() => setHighlightedBucket('revenue')}
-                  className="cursor-pointer rounded-xl border bg-muted/40 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
-                >
+                <div className="rounded-xl border bg-muted/40 p-4 mb-1 flex items-center justify-between">
                   <div>
                     <div className="font-semibold">1. Revenue (Income)</div>
                     <div className="text-xs text-muted-foreground">Top line — what the customer pays you</div>
+                    <button type="button" onClick={() => toggleRung('revenue')} className="mt-1 text-[11px] font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground">{expandedRungs.has('revenue') ? 'Hide details' : 'Details'}</button>
                   </div>
                   <div className="text-right text-sm font-semibold tabular-nums">{formatMoney(moneyMapSnapshot.revenue)}</div>
                 </div>
+                {expandedRungs.has('revenue') && (
+                  <div className="mb-1 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground leading-snug">{RUNG_INFO.revenue}</div>
+                )}
 
                 {/* Rung 2: Cost of Goods (Direct Job Costs) — slate */}
-                <div
-                  onClick={() => setHighlightedBucket('direct')}
-                  className="cursor-pointer rounded-xl border p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
-                  style={{ backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}
-                >
+                <div className="rounded-xl border p-4 mb-1 flex items-center justify-between" style={{ backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}>
                   <div>
                     <div className="font-semibold" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>2. Cost of Goods (Direct Job Costs)</div>
                     <div className="text-xs" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>Obvious job costs you see in the Pricer (L+E+M)</div>
+                    <button type="button" onClick={() => toggleRung('direct')} className="mt-1 text-[11px] font-medium underline underline-offset-2 opacity-80 hover:opacity-100" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>{expandedRungs.has('direct') ? 'Hide details' : 'Details'}</button>
                   </div>
                   <div className="text-right text-sm tabular-nums" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>{formatMoney(moneyMapSnapshot.directCogs)} <span className="text-xs">({moneyMapSnapshot.directPercent}%)</span></div>
                 </div>
+                {expandedRungs.has('direct') && (
+                  <div className="mb-1 rounded-lg border px-3 py-2 text-xs leading-snug" style={{ color: BUCKET_COLORS["Direct COGS"].fg, backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}>{RUNG_INFO.direct}</div>
+                )}
 
                 {/* Rung 3: Indirect Cost of Goods (Hidden Job Costs) — brand maroon, the killer */}
-                <div
-                  onClick={() => setHighlightedBucket('indirect')}
-                  className="cursor-pointer rounded-xl border-2 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
-                  style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}
-                >
+                <div className="rounded-xl border-2 p-4 mb-1 flex items-center justify-between" style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>
                   <div>
                     <div className="font-semibold flex items-center gap-1.5" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>
                       3. Indirect Cost of Goods (Hidden Job Costs) <span className="text-[10px] px-1.5 py-0 rounded text-white font-medium" style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].fg }}>SILENT KILLER</span>
                     </div>
                     <div className="text-xs" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>The hidden bucket: labor burden, shop supplies, small tools, untracked mobilization, admin creep, etc.</div>
+                    <button type="button" onClick={() => toggleRung('indirect')} className="mt-1 text-[11px] font-medium underline underline-offset-2 opacity-80 hover:opacity-100" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>{expandedRungs.has('indirect') ? 'Hide details' : 'Details'}</button>
                   </div>
                   <div className="text-right text-sm tabular-nums" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>{formatMoney(moneyMapSnapshot.indirectCogs)} <span className="text-xs">({moneyMapSnapshot.indirectPercent}%)</span></div>
                 </div>
+                {expandedRungs.has('indirect') && (
+                  <div className="mb-1 rounded-lg border-2 px-3 py-2 text-xs leading-snug" style={{ color: BUCKET_COLORS["Indirect COGS"].fg, backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>{RUNG_INFO.indirect}</div>
+                )}
 
                 {/* Rung 4: Gross Profit — neutral (green reserved for kept money) */}
-                <div
-                  onClick={() => setHighlightedBucket('gross')}
-                  className="cursor-pointer rounded-xl border bg-muted/40 p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
-                >
+                <div className="rounded-xl border bg-muted/40 p-4 mb-1 flex items-center justify-between">
                   <div>
                     <div className="font-semibold">4. Gross Profit (Left After the Work)</div>
                     <div className="text-xs text-muted-foreground">What’s left after all job costs (Direct + Indirect COGS)</div>
+                    <button type="button" onClick={() => toggleRung('gross')} className="mt-1 text-[11px] font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground">{expandedRungs.has('gross') ? 'Hide details' : 'Details'}</button>
                   </div>
                   <div className="text-right text-sm tabular-nums">{formatMoney(moneyMapSnapshot.grossProfit)} <span className="text-xs">({moneyMapSnapshot.grossPercent}%)</span></div>
                 </div>
+                {expandedRungs.has('gross') && (
+                  <div className="mb-1 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground leading-snug">{RUNG_INFO.gross}</div>
+                )}
 
                 {/* Rung 5: Overhead (Running the Business) — indigo */}
-                <div
-                  onClick={() => setHighlightedBucket('overhead')}
-                  className="cursor-pointer rounded-xl border p-4 mb-1 flex items-center justify-between hover:shadow-sm transition"
-                  style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}
-                >
+                <div className="rounded-xl border p-4 mb-1 flex items-center justify-between" style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}>
                   <div>
                     <div className="font-semibold" style={{ color: BUCKET_COLORS["Overhead"].fg }}>5. Overhead (Running the Business)</div>
                     <div className="text-xs" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Fixed cost of running the business (see Overhead &amp; Profit pillar)</div>
+                    <button type="button" onClick={() => toggleRung('overhead')} className="mt-1 text-[11px] font-medium underline underline-offset-2 opacity-80 hover:opacity-100" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{expandedRungs.has('overhead') ? 'Hide details' : 'Details'}</button>
                   </div>
                   <div className="text-right text-sm tabular-nums" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(moneyMapSnapshot.overhead)} <span className="text-xs">({moneyMapSnapshot.overheadPercent}%)</span></div>
                 </div>
+                {expandedRungs.has('overhead') && (
+                  <div className="mb-1 rounded-lg border px-3 py-2 text-xs leading-snug" style={{ color: BUCKET_COLORS["Overhead"].fg, backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}>{RUNG_INFO.overhead}</div>
+                )}
 
                 {/* Rung 6: Net Profit — green (kept money) */}
-                <div
-                  onClick={() => setHighlightedBucket('net')}
-                  className="cursor-pointer rounded-xl border-2 p-4 flex items-center justify-between hover:shadow-sm transition"
-                  style={{ backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}
-                >
+                <div className="rounded-xl border-2 p-4 flex items-center justify-between" style={{ backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}>
                   <div>
                     <div className="font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>6. Net Profit (What You Keep)</div>
                     <div className="text-xs" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>True owner profit after everything. The culture goal.</div>
+                    <button type="button" onClick={() => toggleRung('net')} className="mt-1 text-[11px] font-medium underline underline-offset-2 opacity-80 hover:opacity-100" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{expandedRungs.has('net') ? 'Hide details' : 'Details'}</button>
                   </div>
                   <div className="text-right text-sm tabular-nums font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{formatMoney(moneyMapSnapshot.netProfit)} <span className="text-xs">({moneyMapSnapshot.netPercent}%)</span></div>
                 </div>
+                {expandedRungs.has('net') && (
+                  <div className="mt-1 rounded-lg border-2 px-3 py-2 text-xs leading-snug" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}>{RUNG_INFO.net}</div>
+                )}
                 </>
                 )}
               </div>
 
-              {/* Subtle interactivity explain box */}
-              {highlightedBucket && (
-                <div className="mx-auto max-w-lg rounded-lg border bg-muted/60 p-4 text-sm">
-                  <div className="flex items-start gap-2">
-                    <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
-                    <div>
-                      {highlightedBucket === 'revenue' && "Revenue is the top line from your Project Pricer bid items total."}
-                      {highlightedBucket === 'direct' && "Cost of Goods (Direct Job Costs) = the Labor + Equipment + Material costs you actively build in the Full Real LEM section of the Project Pricer."}
-                      {highlightedBucket === 'indirect' && "Indirect Cost of Goods (Hidden Job Costs) hides in: labor burden rates (beyond base pay), shop supplies, small tools, unbillable time, mobilization “extras”, fuel surcharges not passed through, etc. It’s a subset of Cost of Goods — it rolls up to COGS on the P&L, but PMZ teaches the breakout. These rarely appear explicitly in your LEM table but destroy your target margin. This is the bucket the Money Map exists to kill."}
-                      {highlightedBucket === 'gross' && "Gross Profit = Revenue minus (Direct + Indirect COGS). This is the number the Project Pricer’s Gross Profit % field is trying to protect."}
-                      {highlightedBucket === 'overhead' && "Overhead (Running the Business) = fixed business costs (insurance, shop rent, admin salaries, etc.). Managed in the Overhead &amp; Profit pillar."}
-                      {highlightedBucket === 'net' && "Net Profit = Gross minus Overhead. This is the true owner take-home. Everything else is just moving money between buckets."}
-                    </div>
-                  </div>
-                  <button className="mt-2 text-xs text-muted-foreground underline" onClick={() => setHighlightedBucket(null)}>clear highlight</button>
+              {/* Quick Glossary — one term per row, each expands in place (one level deep, Fix 4) */}
+              <div className="border-t pt-4">
+                <div className="text-sm font-semibold mb-2">Quick Glossary</div>
+                <div className="divide-y divide-border/60 rounded-lg border">
+                  {GLOSSARY_TERMS.map((g) => {
+                    const open = expandedTerms.has(g.term);
+                    return (
+                      <div key={g.term}>
+                        <button
+                          type="button"
+                          onClick={() => toggleTerm(g.term)}
+                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium hover:bg-muted/40"
+                          aria-expanded={open}
+                        >
+                          <span>{g.term}</span>
+                          <span aria-hidden className="text-muted-foreground text-xs">{open ? '▾' : '▸'}</span>
+                        </button>
+                        {open && (
+                          <div className="px-3 pb-3 text-xs text-muted-foreground leading-snug">{g.def}</div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
-
-              {/* Decision tree */}
-              <div className="pt-2">
-                <div className="text-sm font-semibold mb-2">Which bucket? Ask a question</div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                  <div
-                    onClick={() => setHighlightedBucket('direct')}
-                    className="cursor-pointer rounded-lg border p-3 transition hover:shadow-sm"
-                    style={{ backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}
-                  >
-                    <div className="font-medium" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>Cost of Goods (Direct Job Costs)</div>
-                    <div className="text-xs mt-0.5" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>The obvious L+E+M you control per job in the Project Pricer Real LEM.</div>
-                  </div>
-                  <div
-                    onClick={() => setHighlightedBucket('indirect')}
-                    className="cursor-pointer rounded-lg border-2 p-3 transition hover:shadow-sm"
-                    style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}
-                  >
-                    <div className="font-medium" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>Indirect Cost of Goods (Hidden Job Costs) <span className="text-[10px] align-super">(the killer)</span></div>
-                    <div className="text-xs mt-0.5" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>Burden, supplies, unbillable, hidden mobilization. Where your margin quietly disappears.</div>
-                  </div>
-                  <div
-                    onClick={() => setHighlightedBucket('overhead')}
-                    className="cursor-pointer rounded-lg border p-3 transition hover:shadow-sm"
-                    style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}
-                  >
-                    <div className="font-medium" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Overhead (Running the Business)</div>
-                    <div className="text-xs mt-0.5" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Fixed cost of running the business. See the Overhead &amp; Profit tool for details.</div>
-                  </div>
-                </div>
-                <p className="mt-3 text-center text-[11px] text-muted-foreground">Click any bucket above (or in the ladder) for a quick explanation of where it lives in your Project Pricer workflow.</p>
-              </div>
-
-              {/* Mini glossary / culture note */}
-              <div className="text-[11px] text-muted-foreground border-t pt-4">
-                <strong>Quick Glossary:</strong> Cost of Goods (Direct Job Costs) = job-visible costs in LEM. Indirect Cost of Goods (Hidden Job Costs) = the invisible tax on every job — a subset of Cost of Goods that rolls up to COGS on the P&amp;L, but PMZ teaches the breakout. Overhead (Running the Business) = the price of being in business. Net Profit = the only number that pays the owner. The culture is to shrink Indirect Cost of Goods (Hidden Job Costs) first — it’s the fastest lever most contractors have.
+                <p className="mt-2 text-[11px] text-muted-foreground">Tap any rung’s <span className="font-medium">Details</span> above, or a term here, to expand it in place.</p>
               </div>
             </div>
 
             <div className="border-t bg-muted/30 px-6 py-3 text-xs flex items-center justify-between text-muted-foreground">
               <div>Close this anytime — it’s here to build the habit, not slow you down.</div>
-              <Button size="sm" variant="outline" onClick={() => { setShowMoneyMap(false); setHighlightedBucket(null); }}>Close</Button>
+              <Button size="sm" variant="outline" onClick={() => { setShowMoneyMap(false); resetMapDisclosure(); }}>Close</Button>
             </div>
           </div>
         </div>
