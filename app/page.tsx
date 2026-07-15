@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { BUCKET_COLORS } from "@/lib/pmz-types"
+import { qualifyingQuotes } from "@/lib/qualifying"
 
 interface ToolCardProps {
   href: string
@@ -61,12 +62,8 @@ function formatMoney(amount: number | undefined | null): string {
   return `$${formatted}`;
 }
 
-// The ONE qualifying set for realized performance — invoiced-is-terminal. Shared by every card
-// that reports sales performance (Revenue, COGS, Gross); no card computes its own set.
-const REALIZED_STATUSES = new Set<string>(["Invoiced", "Paid", "Completed"]);
-function qualifyingQuotes(quotes: unknown): any[] {
-  return Array.isArray(quotes) ? quotes.filter((q: any) => REALIZED_STATUSES.has(q?.status)) : [];
-}
+// Realized-performance qualifying set + rollup now live in lib/qualifying (shared with the P&L
+// Organizer). REALIZED_STATUSES / qualifyingQuotes are imported above — behavior unchanged.
 
 // The Money Map populates from FOREMAN-CONFIRMED jobs: Ready to Invoice or beyond. This gate is
 // one step earlier than the Boss View's invoiced gate — "Ready to Invoice" means the foreman has
