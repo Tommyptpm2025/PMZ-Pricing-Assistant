@@ -27,6 +27,7 @@ import {
   confirmedJobs,
   moneyMapForJob,
 } from "../lib/pipeline.ts";
+import { netProfitColors, NET_LOSS_COLORS, BUCKET_COLORS } from "../lib/pmz-types.ts";
 
 const sortedMembers = (set) => [...set].sort();
 
@@ -135,6 +136,13 @@ assert.equal(byKey.realized.jobs.find((j) => j.id === "cp").value, 9000, "PhaseJ
 assert.equal(roll.dead.jobs.length, 2, "dead lane jobs listed");
 assert.deepEqual(roll.dead.jobs.map((j) => j.id).sort(), ["dec", "lost"], "dead lane jobs list");
 
+// ── Color law — Net Profit green ONLY when kept (>= 0); a loss renders destructive-red. The Analyze
+// ladder (hero + rung 6, both tiers) and the Boss View share this SSOT (netProfitColors). ─────────
+assert.deepEqual(netProfitColors(1500), BUCKET_COLORS["Net Profit"], "positive net → green");
+assert.deepEqual(netProfitColors(0), BUCKET_COLORS["Net Profit"], "zero net → green (not a loss)");
+assert.deepEqual(netProfitColors(-500), NET_LOSS_COLORS, "negative net → destructive-red (never green on a loss)");
+assert.notEqual(NET_LOSS_COLORS.fg, BUCKET_COLORS["Net Profit"].fg, "loss red is not the kept-money green");
+
 // ── 3 — Money Map math byte-identical to the FORMER Overview inline formula ───────────────────
 // Frozen reference: the exact pre-build moneyMapSnapshot arithmetic (app/page.tsx, lines ~211-238).
 function oldMoneyMap(latest, chart) {
@@ -191,3 +199,4 @@ assert.deepEqual(confirmedJobs("nonsense"), [], "confirmedJobs tolerates junk in
 console.log("PASS: Profit Pipeline fence — both gates byte-identical, Completed in money set, Money Map port byte-identical");
 console.log("PASS: rollup per-phase subtotals, vocabulary law, reconciliation invariant (realized === salesFromInvoiced), iron guard (no grand total)");
 console.log("PASS: drill-down — each phase lists the jobs behind its count; realized jobs === qualifyingQuotes members; dead lane lists its jobs");
+console.log("PASS: color law — Net Profit green when kept, destructive-red on a loss (netProfitColors SSOT)");

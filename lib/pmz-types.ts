@@ -423,6 +423,14 @@ export const BUCKET_COLORS: Record<string, { fg: string; bg: string; border: str
 // "not covered" state. Never used for bucket identity.
 export const COUNTDOWN_UNCOVERED = { fg: "#B45309", bg: "#FFFBEB", border: "#FDE68A" };
 
+// Net Profit color law — green ONLY when the number is kept money (>= 0); a loss renders
+// destructive-red. Single source of truth for the Boss View's earned-green rule and the Analyze
+// ladder (hero band + rung 6, both tiers). Green never sits on a loss.
+export const NET_LOSS_COLORS = { fg: "#DC2626", bg: "#FEF2F2", border: "#FCA5A5" };
+export function netProfitColors(net: number): { fg: string; bg: string; border: string } {
+  return net < 0 ? NET_LOSS_COLORS : BUCKET_COLORS["Net Profit"];
+}
+
 /** Whole days elapsed since the most recent statusHistory entry's `at`. */
 export function getDaysInCurrentStatus(quote: SavedQuote): number {
   const history = quote.statusHistory;

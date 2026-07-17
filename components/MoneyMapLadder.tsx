@@ -5,7 +5,7 @@
 // the numbers come in as a MoneyMapSnapshot (computed once in lib/pipeline.moneyMapForJob); this
 // file moves NO math. Tier badge is always shown — never blended, never unlabeled.
 import React from "react";
-import { BUCKET_COLORS } from "@/lib/pmz-types";
+import { BUCKET_COLORS, netProfitColors } from "@/lib/pmz-types";
 import type { MoneyMapSnapshot, PipelineTier } from "@/lib/pipeline";
 
 // Local money formatter (mirrors the Overview's — 2 decimals + thousands separators).
@@ -60,6 +60,7 @@ function rung1Label(tier: PipelineTier): string {
 // Compact 6-rung ladder (the Overview card view). Byte-identical markup to the former inline block
 // when tier is CONFIRMED (the Money Map's only tier).
 export function MoneyMapLadderCompact({ snap, tier = "CONFIRMED" }: { snap: MoneyMapSnapshot; tier?: PipelineTier }) {
+  const netCol = netProfitColors(snap.netProfit); // green when kept, destructive-red on a loss
   return (
     <div className="space-y-1 text-sm">
       <div className="flex items-center justify-between rounded border bg-muted/40 px-3 py-1.5">
@@ -85,9 +86,9 @@ export function MoneyMapLadderCompact({ snap, tier = "CONFIRMED" }: { snap: Mone
         <div className="font-medium" style={{ color: BUCKET_COLORS["Overhead"].fg }}>5. Overhead (Running the Business)</div>
         <div className="tabular-nums" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(snap.overhead)} <span className="text-xs">({snap.overheadPercent}%)</span></div>
       </div>
-      <div className="flex items-center justify-between rounded border-2 px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}>
-        <div className="font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>6. Net Profit (What You Keep)</div>
-        <div className="tabular-nums font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{formatMoney(snap.netProfit)} <span className="text-xs">({snap.netPercent}%)</span></div>
+      <div className="flex items-center justify-between rounded border-2 px-3 py-1.5" style={{ backgroundColor: netCol.bg, borderColor: netCol.border }}>
+        <div className="font-semibold" style={{ color: netCol.fg }}>6. Net Profit (What You Keep)</div>
+        <div className="tabular-nums font-semibold" style={{ color: netCol.fg }}>{formatMoney(snap.netProfit)} <span className="text-xs">({snap.netPercent}%)</span></div>
       </div>
     </div>
   );
@@ -118,6 +119,7 @@ export function MoneyMapLadderExpanded({ snap, tier = "CONFIRMED" }: { snap: Mon
   const toggle = (k: string) => setOpenRung((cur) => (cur === k ? null : k));
   const planning = tier === "PLANNING";
   const netLabel = planning ? "Projected Net Profit" : "Net Profit";
+  const netCol = netProfitColors(snap.netProfit); // color law: green when kept, destructive-red on a loss (both tiers)
   const revBreakdown = planning
     ? "This is your BID total (projected) — what you’d collect if you win the job. It only becomes Revenue once the job is foreman-confirmed at Ready to Invoice."
     : RUNG_INFO.revenue;
@@ -133,16 +135,17 @@ export function MoneyMapLadderExpanded({ snap, tier = "CONFIRMED" }: { snap: Mon
     { key: "indirect", label: "3. Indirect Cost of Goods (Hidden Job Costs)", value: snap.indirectCogs, pct: snap.indirectPercent, color: BUCKET_COLORS["Indirect COGS"], emphasized: true, breakdown: RUNG_INFO.indirect, silentKiller: true },
     { key: "gross", label: "4. Gross Profit (Left After the Work)", value: snap.grossProfit, pct: snap.grossPercent, breakdown: RUNG_INFO.gross },
     { key: "overhead", label: "5. Overhead (Running the Business)", value: snap.overhead, pct: snap.overheadPercent, color: BUCKET_COLORS["Overhead"], breakdown: RUNG_INFO.overhead },
-    { key: "net", label: planning ? "6. Projected Net Profit" : "6. Net Profit (What You Keep)", value: snap.netProfit, pct: snap.netPercent, color: BUCKET_COLORS["Net Profit"], emphasized: true, breakdown: RUNG_INFO.net },
+    { key: "net", label: planning ? "6. Projected Net Profit" : "6. Net Profit (What You Keep)", value: snap.netProfit, pct: snap.netPercent, color: netCol, emphasized: true, breakdown: RUNG_INFO.net },
   ];
 
   return (
     <div>
-      {/* Net Profit hero band — tier-aware label (Projected Net Profit in PLANNING). */}
-      <div className="rounded-2xl border-2 p-6 mb-4 text-center" style={{ backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}>
-        <div className="text-xs uppercase tracking-[1.5px]" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{netLabel}</div>
-        <div className="text-[44px] leading-none font-semibold tabular-nums tracking-[-2px] mt-2" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{formatMoney(snap.netProfit)}</div>
-        <div className="text-sm tabular-nums mt-1" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{snap.netPercent}%</div>
+      {/* Net Profit hero band — tier-aware label (Projected Net Profit in PLANNING); color law:
+          green when positive, destructive-red on a loss (both tiers). */}
+      <div className="rounded-2xl border-2 p-6 mb-4 text-center" style={{ backgroundColor: netCol.bg, borderColor: netCol.border }}>
+        <div className="text-xs uppercase tracking-[1.5px]" style={{ color: netCol.fg }}>{netLabel}</div>
+        <div className="text-[44px] leading-none font-semibold tabular-nums tracking-[-2px] mt-2" style={{ color: netCol.fg }}>{formatMoney(snap.netProfit)}</div>
+        <div className="text-sm tabular-nums mt-1" style={{ color: netCol.fg }}>{snap.netPercent}%</div>
       </div>
 
       {/* Six stacked rungs — accordion, one open at a time. */}

@@ -37,7 +37,7 @@ export interface PipelinePhaseDef {
 export const PIPELINE_PHASES: PipelinePhaseDef[] = [
   {
     key: "bidding",
-    label: "Bidding",
+    label: "Draft · Sent for Acceptance",
     tier: "PLANNING",
     statuses: ["Draft", "Ready for Approval"],
     moneyLabel: "bid value",
@@ -45,7 +45,7 @@ export const PIPELINE_PHASES: PipelinePhaseDef[] = [
   },
   {
     key: "production",
-    label: "Won · In Production",
+    label: "Accepted · Scheduled · Work Order Active",
     tier: "PLANNING",
     statuses: ["Approved", "Scheduled", "In Progress"],
     moneyLabel: "contract value",
@@ -61,7 +61,7 @@ export const PIPELINE_PHASES: PipelinePhaseDef[] = [
   },
   {
     key: "realized",
-    label: "Realized",
+    label: "Invoiced · Paid · Completed",
     tier: "CONFIRMED",
     // Explicitly Invoiced + Paid + Completed (legacy). Completed is realized money and must count.
     statuses: ["Invoiced", "Paid", "Completed"],

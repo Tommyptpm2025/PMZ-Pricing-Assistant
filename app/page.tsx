@@ -176,7 +176,7 @@ function DeadLaneRow({ dead, onAnalyze }: { dead: { count: number; jobs: PhaseJo
   return (
     <div className="rounded border border-dashed px-3 py-1.5 text-xs text-muted-foreground">
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center justify-between gap-2 text-left">
-        <span className="flex items-center gap-1.5"><span aria-hidden className="w-3">{open ? "▾" : "▸"}</span> Declined / Lost — dead lane, never in the pipeline</span>
+        <span className="flex items-center gap-1.5"><span aria-hidden className="w-3">{open ? "▾" : "▸"}</span> Declined · Lost <span className="opacity-70">— never in the pipeline</span></span>
         <span className="tabular-nums">{dead.count} {dead.count === 1 ? "job" : "jobs"}</span>
       </button>
       {open && (
@@ -584,7 +584,7 @@ export default function OverviewPage() {
               )}
               <p className="text-[10px] text-muted-foreground pt-1 leading-snug">
                 Per-phase subtotals only — no grand total. “Revenue” means Ready-to-Invoice or beyond;
-                earlier phases are bid / contract value. The Realized row ties to your Boss View revenue.
+                earlier phases are bid / contract value. The Invoiced · Paid · Completed row ties to your Boss View revenue.
               </p>
             </>
           )}
