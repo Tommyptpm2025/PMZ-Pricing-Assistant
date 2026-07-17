@@ -12,7 +12,6 @@ import {
   TrendingUp,
   ArrowRight,
   AlertTriangle,
-  X,
 } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { BUCKET_COLORS } from "@/lib/pmz-types"
@@ -23,7 +22,7 @@ import {
   rollupPipeline,
   type PhaseRoll,
 } from "@/lib/pipeline"
-import { MoneyMapLadderCompact, MoneyMapLadderFull, MoneyMapGlossary, TierBadge } from "@/components/MoneyMapLadder"
+import { MoneyMapLadderCompact, TierBadge } from "@/components/MoneyMapLadder"
 
 interface ToolCardProps {
   href: string
@@ -270,14 +269,9 @@ export default function OverviewPage() {
   // Empty-state copy shown when no foreman-confirmed job exists yet.
   const MAP_EMPTY = "Move a job to Ready to Invoice — once your foreman confirms costs, this maps it to profit reality."
 
-  const [showMoneyMap, setShowMoneyMap] = useState(false)
-  // Progressive disclosure (Fix 4) — per-rung and per-glossary-term expand-in-place state.
-  // Independent toggles: expanding one leaves siblings collapsed. One level deep, no navigation.
-  const [expandedRungs, setExpandedRungs] = useState<Set<string>>(new Set())
-  const [expandedTerms, setExpandedTerms] = useState<Set<string>>(new Set())
-  const toggleRung = (k: string) => setExpandedRungs((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
-  const toggleTerm = (k: string) => setExpandedTerms((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
-  const resetMapDisclosure = () => { setExpandedRungs(new Set()); setExpandedTerms(new Set()) }
+  // The Money Map's full view is the app's ONE full-screen ladder at /analyze/[id] (Call 5 Option A).
+  // The old Layer-2 modal + its per-rung/glossary disclosure state were retired here; "View Full
+  // Money Map" now routes to /analyze for the picked confirmed job.
 
   // Earned green: Net Profit shows green ONLY when earned AND positive; destructive-red when
   // negative; muted otherwise. Green can't appear on unearned profit. (Only used when netEarned.)
@@ -463,9 +457,11 @@ export default function OverviewPage() {
                 </div>
               )}
             </div>
-            <Button size="sm" onClick={() => { setShowMoneyMap(true); resetMapDisclosure(); }}>
-              View Full Money Map &amp; Glossary
-            </Button>
+            {moneyMapSnapshot.confirmed && selectedMapJob && (
+              <Button asChild size="sm">
+                <Link href={`/analyze/${selectedMapJob.id}`}>View Full Money Map</Link>
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="pt-0">
@@ -575,56 +571,6 @@ export default function OverviewPage() {
         </div>
       </section>
 
-      {/* Layer 2: Full Money Map — modal (clean professional training view) */}
-      {showMoneyMap && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => { setShowMoneyMap(false); resetMapDisclosure(); }}>
-          <div className="w-full max-w-4xl rounded-2xl bg-background shadow-2xl overflow-hidden border" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded-lg bg-primary/10 p-2 text-primary">
-                  <AlertTriangle className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-xl font-semibold tracking-tight">PMZ Money Map — Full View &amp; Glossary</div>
-                  <div className="text-xs text-muted-foreground">Profit isn’t a number. It’s a culture.</div>
-                </div>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => { setShowMoneyMap(false); resetMapDisclosure(); }}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="p-6 space-y-6 max-h-[80vh] overflow-auto">
-              {/* The Ladder — 6 rungs (shared component; identical to the Quotes "Analyze" modal) */}
-              <div className="max-w-lg mx-auto">
-                <div className="mb-2 flex items-center justify-center gap-2">
-                  <div className="text-xs uppercase tracking-[1px] text-muted-foreground text-center">THE PROFIT LADDER (how every dollar flows)</div>
-                  {moneyMapSnapshot.confirmed && <TierBadge tier="CONFIRMED" />}
-                </div>
-                {!moneyMapSnapshot.confirmed ? (
-                  <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center text-sm font-medium text-muted-foreground">
-                    {MAP_EMPTY}
-                  </div>
-                ) : (
-                  <MoneyMapLadderFull snap={moneyMapSnapshot} expandedRungs={expandedRungs} toggleRung={toggleRung} />
-                )}
-              </div>
-
-              {/* Quick Glossary — one term per row, each expands in place (one level deep, Fix 4) */}
-              <div className="border-t pt-4">
-                <div className="text-sm font-semibold mb-2">Quick Glossary</div>
-                <MoneyMapGlossary expandedTerms={expandedTerms} toggleTerm={toggleTerm} />
-                <p className="mt-2 text-[11px] text-muted-foreground">Tap any rung’s <span className="font-medium">Details</span> above, or a term here, to expand it in place.</p>
-              </div>
-            </div>
-
-            <div className="border-t bg-muted/30 px-6 py-3 text-xs flex items-center justify-between text-muted-foreground">
-              <div>Close this anytime — it’s here to build the habit, not slow you down.</div>
-              <Button size="sm" variant="outline" onClick={() => { setShowMoneyMap(false); resetMapDisclosure(); }}>Close</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
