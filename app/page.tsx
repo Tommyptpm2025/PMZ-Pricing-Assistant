@@ -17,6 +17,13 @@ import {
 import React, { useEffect, useMemo, useState } from "react"
 import { BUCKET_COLORS } from "@/lib/pmz-types"
 import { qualifyingQuotes } from "@/lib/qualifying"
+import {
+  confirmedJobs,
+  moneyMapForJob,
+  rollupPipeline,
+  type PhaseRoll,
+} from "@/lib/pipeline"
+import { MoneyMapLadderCompact, MoneyMapLadderFull, MoneyMapGlossary, TierBadge } from "@/components/MoneyMapLadder"
 
 interface ToolCardProps {
   href: string
@@ -65,11 +72,9 @@ function formatMoney(amount: number | undefined | null): string {
 // Realized-performance qualifying set + rollup now live in lib/qualifying (shared with the P&L
 // Organizer). REALIZED_STATUSES / qualifyingQuotes are imported above — behavior unchanged.
 
-// The Money Map populates from FOREMAN-CONFIRMED jobs: Ready to Invoice or beyond. This gate is
-// one step earlier than the Boss View's invoiced gate — "Ready to Invoice" means the foreman has
-// confirmed real costs, so the Map can honestly map the job to profit reality. Draft / Sent for
-// Acceptance / Work Order Active never feed it.
-const MAP_CONFIRMED_STATUSES = new Set<string>(["Ready to Invoice", "Invoiced", "Paid", "Completed"]);
+// The Money Map populates from FOREMAN-CONFIRMED jobs: Ready to Invoice or beyond. That facts gate
+// now lives in lib/pipeline (CONFIRMED_STATUSES) — the single birthplace shared with the Profit
+// Pipeline — so the Map and the Pipeline can never disagree on what "confirmed" means.
 
 // The only Boss View badge: LIVE — the number is earned from the owner's own realized data
 // (invoiced-tier sales / a filled overhead chart). There is no bid tier and no sample: a card
@@ -90,24 +95,49 @@ function CardEmpty({ text }: { text: string }) {
   return <div className="mt-4 text-sm text-muted-foreground leading-snug">{text}</div>;
 }
 
-// Money Map — per-rung "Details" copy (Fix 4). Folds the old shared explain-box + decision-tree
-// guidance into the ladder itself: each rung expands its own definition in place, one level deep.
-const RUNG_INFO: Record<string, string> = {
-  revenue: "Revenue is the top line — what the customer pays you, from your Project Pricer bid total.",
-  direct: "Cost of Goods (Direct Job Costs) = the Labor + Equipment + Material you actively build in the Full Real LEM section of the Project Pricer — the obvious L+E+M you control per job.",
-  indirect: "Indirect Cost of Goods (Hidden Job Costs) hides in labor burden beyond base pay, shop supplies, small tools, unbillable time, mobilization “extras”, fuel surcharges not passed through, etc. It’s a subset of Cost of Goods — it rolls up to COGS on the P&L, but PMZ teaches the breakout. It rarely shows in your LEM table yet destroys your target margin. This is the bucket the Money Map exists to kill.",
-  gross: "Gross Profit = Revenue − (Direct + Indirect COGS). This is the number the Project Pricer’s Gross Profit % field is trying to protect.",
-  overhead: "Overhead (Running the Business) = fixed business costs (insurance, shop rent, admin salaries, etc.). Managed in the Overhead & Profit pillar.",
-  net: "Net Profit = Gross − Overhead. The true owner take-home. Everything else is just moving money between buckets.",
+// Money Map per-rung copy + glossary now live in components/MoneyMapLadder (shared with the Quotes
+// "Analyze" modal). RUNG_INFO / GLOSSARY_TERMS were relocated there verbatim.
+
+// Empty-state action per pipeline phase — "earned numbers only; empty states name the action".
+const PHASE_EMPTY_ACTION: Record<string, string> = {
+  bidding: "Build a bid in the Project Pricer.",
+  production: "Win a bid to fill this.",
+  ready: "Move a job to Ready to Invoice.",
+  realized: "Invoice a quote to see realized revenue.",
 };
 
-// Money Map — Quick Glossary (Fix 4): one term per row, each expands its definition in place.
-const GLOSSARY_TERMS: { term: string; def: string }[] = [
-  { term: "Cost of Goods (Direct Job Costs)", def: "Job-visible costs in your LEM — the Labor, Equipment, and Material you control per job." },
-  { term: "Indirect Cost of Goods (Hidden Job Costs)", def: "The invisible tax on every job — a subset of Cost of Goods that rolls up to COGS on the P&L, but PMZ teaches the breakout. Shrink this first; it’s the fastest lever most contractors have." },
-  { term: "Overhead (Running the Business)", def: "The price of being in business — fixed costs whether or not you have a job." },
-  { term: "Net Profit (What You Keep)", def: "The only number that pays the owner. Gross Profit minus Overhead." },
-];
+// One Profit Pipeline phase row. Per-phase subtotals only — the value carries its vocabulary-law
+// label (bid value / contract value / Revenue) and its source; PLANNING vs CONFIRMED is always
+// badged so the tier is never ambiguous. No row ever sums into another (iron guard).
+function PhaseRow({ ph }: { ph: PhaseRoll }) {
+  const empty = ph.count === 0;
+  return (
+    <div className="rounded-lg border px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <TierBadge tier={ph.tier} />
+          <span className="font-medium text-sm truncate">{ph.label}</span>
+          <span className="text-[11px] text-muted-foreground whitespace-nowrap">{ph.count} {ph.count === 1 ? "job" : "jobs"}</span>
+        </div>
+        {!empty && (
+          <div className="text-right shrink-0">
+            <div className="tabular-nums font-semibold text-sm">{formatMoney(ph.value)}</div>
+            <div className="text-[10px] text-muted-foreground">{ph.moneyLabel} · {ph.source}</div>
+          </div>
+        )}
+      </div>
+      {empty ? (
+        <div className="mt-1 text-xs text-muted-foreground">{PHASE_EMPTY_ACTION[ph.key]}</div>
+      ) : (
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground tabular-nums">
+          <span>Direct {formatMoney(ph.directCogs)}</span>
+          <span style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>Indirect {formatMoney(ph.indirectCogs)}</span>
+          <span>Gross {formatMoney(ph.gross)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function OverviewPage() {
   // Boss View executive figures are computed honestly below (bossView) — no hardcoded constants.
@@ -189,54 +219,52 @@ export default function OverviewPage() {
     }
   }, [hydrated])
 
-  // ── PMZ Money Map — goes dark until facts exist (owner's ruling) ─────────────
-  // The Map populates ONLY from the latest FOREMAN-CONFIRMED job (Ready to Invoice or
-  // beyond). No qualifying quote ⇒ confirmed:false and the render shows an empty state;
-  // there is NO sample seed and NO latest-bid pull. When confirmed, the job supplies
-  // Revenue / Direct / Indirect COGS and the overhead chart supplies the overhead-of-
-  // revenue rate, allocated to this job. Every rung derives: Gross = Revenue − Direct −
-  // Indirect, Net = Gross − Overhead; every percentage is computed from the dollars.
-  const moneyMapSnapshot = useMemo(() => {
-    let confirmed = false
-    let rev = 0, directCogs = 0, indirectCogs = 0, overhead = 0
+  // ── PMZ Money Map — dark until facts exist; now points at ANY confirmed job (picker) ────────
+  // The Map populates ONLY from FOREMAN-CONFIRMED jobs (CONFIRMED_STATUSES, from lib/pipeline — the
+  // single facts-gate birthplace). No confirmed job ⇒ confirmed:false and the render shows an empty
+  // state; NO sample, NO bid pull. The picker points the lens at any confirmed job; default = the
+  // latest (byte-identical to the pre-picker behavior). moneyMapForJob is the one ported allocation
+  // formula (fence-guarded byte-identical): overhead = (company overhead ÷ company revenue) × job.
+  const [selectedMapJobId, setSelectedMapJobId] = useState<string | null>(null)
 
+  const mapData = useMemo(() => {
+    let jobs: any[] = []
+    let chart: any = null
     if (hydrated) { try {
       const quotes = JSON.parse(localStorage.getItem("pmz_saved_quotes") || "[]")
+      jobs = confirmedJobs(quotes)
       const chartRaw = localStorage.getItem("pmz_overhead_chart")
-      const chart = chartRaw ? JSON.parse(chartRaw) : null
-
-      // Latest foreman-confirmed job (Ready to Invoice or beyond) — nothing earlier feeds it.
-      const mapJobs = Array.isArray(quotes) ? quotes.filter((q: any) => MAP_CONFIRMED_STATUSES.has(q?.status)) : []
-      if (mapJobs.length > 0) {
-        const latest = mapJobs[mapJobs.length - 1]
-        const r = Number(latest.totalRevenue) || 0
-        if (r > 0) {
-          rev = r
-          directCogs = Number(latest.directCogsDollars) || 0
-          indirectCogs = Number(latest.indirectCogsDollars) || 0
-          // Overhead as a real allocation: (company overhead ÷ company revenue) × this job.
-          const totalOverhead = chart && Array.isArray(chart.items)
-            ? chart.items.reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0)
-            : 0
-          const overheadRate = chart && chart.monthlyRevenue > 0 ? totalOverhead / chart.monthlyRevenue : 0
-          overhead = Math.round(rev * overheadRate)
-          confirmed = true
-        }
-      }
+      chart = chartRaw ? JSON.parse(chartRaw) : null
     } catch {} }
+    return { jobs, chart }
+  }, [hydrated])
 
-    const grossProfit = rev - directCogs - indirectCogs
-    const netProfit = grossProfit - overhead
-    const pct = (n: number) => (rev > 0 ? Math.round((n / rev) * 1000) / 10 : 0)
-    return {
-      confirmed,
-      revenue: rev,
-      directCogs, directPercent: pct(directCogs),
-      indirectCogs, indirectPercent: pct(indirectCogs),
-      grossProfit, grossPercent: pct(grossProfit),
-      overhead, overheadPercent: pct(overhead),
-      netProfit, netPercent: pct(netProfit),
+  // The confirmed job the lens is pointed at: the picked one if still present, else the latest.
+  const selectedMapJob = useMemo(() => {
+    const jobs = mapData.jobs
+    if (jobs.length === 0) return null
+    if (selectedMapJobId) {
+      const found = jobs.find((j) => j.id === selectedMapJobId)
+      if (found) return found
     }
+    return jobs[jobs.length - 1]
+  }, [mapData, selectedMapJobId])
+
+  const moneyMapSnapshot = useMemo(() => {
+    const snap = moneyMapForJob(selectedMapJob || {}, mapData.chart)
+    // confirmed only when a real job with revenue > 0 is in view (matches the pre-picker gate).
+    const confirmed = !!selectedMapJob && snap.revenue > 0
+    return { confirmed, ...snap }
+  }, [selectedMapJob, mapData.chart])
+
+  // ── Profit Pipeline — the phase accumulator. Per-phase subtotals ONLY (iron guard: no grand
+  // total). Realized ties to the Boss View revenue by the same birthplace (fence-reconciled). ────
+  const pipeline = useMemo(() => {
+    if (!hydrated) return null
+    try {
+      const quotes = JSON.parse(localStorage.getItem("pmz_saved_quotes") || "[]")
+      return rollupPipeline(quotes)
+    } catch { return null }
   }, [hydrated])
 
   // Empty-state copy shown when no foreman-confirmed job exists yet.
@@ -408,15 +436,32 @@ export default function OverviewPage() {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-[#EB3300]" /> PMZ Money Map — {moneyMapSnapshot.confirmed ? "This Job" : "Quick Snapshot"}
-                {moneyMapSnapshot.confirmed && (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}>CONFIRMED</span>
-                )}
+                {moneyMapSnapshot.confirmed && <TierBadge tier="CONFIRMED" />}
               </CardTitle>
               <CardDescription>
                 {moneyMapSnapshot.confirmed
-                  ? "How your latest foreman-confirmed job maps to profit reality."
+                  ? "How this foreman-confirmed job maps to profit reality."
                   : "How a foreman-confirmed job maps to profit reality."}
               </CardDescription>
+              {/* Job picker — point the lens at any confirmed job (default = latest). Confirmed-only:
+                  the Map stays dark until a foreman-confirmed job exists, so PLANNING jobs never list here. */}
+              {mapData.jobs.length > 0 && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <label className="text-[11px] text-muted-foreground">Job:</label>
+                  <select
+                    value={selectedMapJob?.id ?? ""}
+                    onChange={(e) => setSelectedMapJobId(e.target.value)}
+                    className="h-7 rounded border bg-white px-2 text-xs max-w-[260px]"
+                  >
+                    {mapData.jobs.map((j: any, i: number) => (
+                      <option key={j.id} value={j.id}>
+                        {(j.jobName?.trim() || j.customerName || j.customer || "Untitled")}{i === mapData.jobs.length - 1 ? " (latest)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-muted-foreground">confirmed jobs only</span>
+                </div>
+              )}
             </div>
             <Button size="sm" onClick={() => { setShowMoneyMap(true); resetMapDisclosure(); }}>
               View Full Money Map &amp; Glossary
@@ -430,36 +475,8 @@ export default function OverviewPage() {
             </div>
           ) : (
           <>
-          {/* Compact 6-rung ladder */}
-          <div className="space-y-1 text-sm">
-            <div className="flex items-center justify-between rounded border bg-muted/40 px-3 py-1.5">
-              <div className="font-medium">1. Revenue (Income)</div>
-              <div className="tabular-nums font-semibold">{formatMoney(moneyMapSnapshot.revenue)}</div>
-            </div>
-            <div className="flex items-center justify-between rounded border px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}>
-              <div className="font-medium" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>2. Cost of Goods (Direct Job Costs)</div>
-              <div className="tabular-nums" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>{formatMoney(moneyMapSnapshot.directCogs)} <span className="text-xs">({moneyMapSnapshot.directPercent}%)</span></div>
-            </div>
-            <div className="flex items-center justify-between rounded border-2 px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>
-              <div>
-                <span className="font-medium" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>3. Indirect Cost of Goods (Hidden Job Costs)</span>
-                <span className="ml-1 text-[10px] font-semibold" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>SILENT PROFIT KILLER</span>
-              </div>
-              <div className="tabular-nums" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>{formatMoney(moneyMapSnapshot.indirectCogs)} <span className="text-xs">({moneyMapSnapshot.indirectPercent}%)</span></div>
-            </div>
-            <div className="flex items-center justify-between rounded border bg-muted/40 px-3 py-1.5">
-              <div className="font-medium">4. Gross Profit (Left After the Work)</div>
-              <div className="tabular-nums">{formatMoney(moneyMapSnapshot.grossProfit)} <span className="text-xs text-muted-foreground">({moneyMapSnapshot.grossPercent}%)</span></div>
-            </div>
-            <div className="flex items-center justify-between rounded border px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}>
-              <div className="font-medium" style={{ color: BUCKET_COLORS["Overhead"].fg }}>5. Overhead (Running the Business)</div>
-              <div className="tabular-nums" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(moneyMapSnapshot.overhead)} <span className="text-xs">({moneyMapSnapshot.overheadPercent}%)</span></div>
-            </div>
-            <div className="flex items-center justify-between rounded border-2 px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}>
-              <div className="font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>6. Net Profit (What You Keep)</div>
-              <div className="tabular-nums font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{formatMoney(moneyMapSnapshot.netProfit)} <span className="text-xs">({moneyMapSnapshot.netPercent}%)</span></div>
-            </div>
-          </div>
+          {/* Compact 6-rung ladder (shared component — identical to the Analyze modal) */}
+          <MoneyMapLadderCompact snap={moneyMapSnapshot} />
 
           <div className="mt-3 text-xs rounded px-3 py-2 border" style={{ color: BUCKET_COLORS["Indirect COGS"].fg, backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>
             This confirmed job is allocating <strong>{moneyMapSnapshot.indirectPercent}%</strong> to Indirect Cost of Goods (Hidden Job Costs) — the bucket that quietly kills margins.
@@ -469,6 +486,43 @@ export default function OverviewPage() {
             From foreman-confirmed jobs; overhead allocated from your Overhead chart. Click the button for the full educational ladder.
           </div>
           </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* PMZ Profit Pipeline — capacity + pricing-power view. Per-phase subtotals ONLY (iron guard:
+          no grand total). PLANNING (bid / contract value) and CONFIRMED (Revenue) never share a total. */}
+      <Card className="card border-2 border-primary/10">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-primary" /> Profit Pipeline
+          </CardTitle>
+          <CardDescription>
+            Every saved job by phase — your capacity at a glance. A full pipeline is pricing power:
+            price the next bid at a higher margin instead of giving work away and taxing the crews.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-2">
+          {!pipeline ? (
+            <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+              Save a job in the Project Pricer to start filling the pipeline.
+            </div>
+          ) : (
+            <>
+              {pipeline.phases.map((ph) => (
+                <PhaseRow key={ph.key} ph={ph} />
+              ))}
+              {pipeline.dead.count > 0 && (
+                <div className="flex items-center justify-between rounded border border-dashed px-3 py-1.5 text-xs text-muted-foreground">
+                  <span>Declined / Lost — dead lane, never in the pipeline</span>
+                  <span className="tabular-nums">{pipeline.dead.count} {pipeline.dead.count === 1 ? "job" : "jobs"}</span>
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground pt-1 leading-snug">
+                Per-phase subtotals only — no grand total. “Revenue” means Ready-to-Invoice or beyond;
+                earlier phases are bid / contract value. The Realized row ties to your Boss View revenue.
+              </p>
+            </>
           )}
         </CardContent>
       </Card>
@@ -541,128 +595,25 @@ export default function OverviewPage() {
             </div>
 
             <div className="p-6 space-y-6 max-h-[80vh] overflow-auto">
-              {/* The Ladder - 6 rungs, clean stacked design */}
+              {/* The Ladder — 6 rungs (shared component; identical to the Quotes "Analyze" modal) */}
               <div className="max-w-lg mx-auto">
                 <div className="mb-2 flex items-center justify-center gap-2">
                   <div className="text-xs uppercase tracking-[1px] text-muted-foreground text-center">THE PROFIT LADDER (how every dollar flows)</div>
-                  {moneyMapSnapshot.confirmed && (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, border: `1px solid ${BUCKET_COLORS["Net Profit"].border}` }}>CONFIRMED</span>
-                  )}
+                  {moneyMapSnapshot.confirmed && <TierBadge tier="CONFIRMED" />}
                 </div>
                 {!moneyMapSnapshot.confirmed ? (
                   <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center text-sm font-medium text-muted-foreground">
                     {MAP_EMPTY}
                   </div>
                 ) : (
-                <>
-
-                {/* Rung 1: Revenue (neutral — not a bucket) */}
-                <div className="rounded-xl border bg-muted/40 p-4 mb-1 flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold">1. Revenue (Income)</div>
-                    <div className="text-xs text-muted-foreground">Top line — what the customer pays you</div>
-                    <button type="button" onClick={() => toggleRung('revenue')} className="mt-1 text-[11px] font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground">{expandedRungs.has('revenue') ? 'Hide details' : 'Details'}</button>
-                  </div>
-                  <div className="text-right text-sm font-semibold tabular-nums">{formatMoney(moneyMapSnapshot.revenue)}</div>
-                </div>
-                {expandedRungs.has('revenue') && (
-                  <div className="mb-1 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground leading-snug">{RUNG_INFO.revenue}</div>
-                )}
-
-                {/* Rung 2: Cost of Goods (Direct Job Costs) — slate */}
-                <div className="rounded-xl border p-4 mb-1 flex items-center justify-between" style={{ backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}>
-                  <div>
-                    <div className="font-semibold" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>2. Cost of Goods (Direct Job Costs)</div>
-                    <div className="text-xs" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>Obvious job costs you see in the Pricer (L+E+M)</div>
-                    <button type="button" onClick={() => toggleRung('direct')} className="mt-1 text-[11px] font-medium underline underline-offset-2 opacity-80 hover:opacity-100" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>{expandedRungs.has('direct') ? 'Hide details' : 'Details'}</button>
-                  </div>
-                  <div className="text-right text-sm tabular-nums" style={{ color: BUCKET_COLORS["Direct COGS"].fg }}>{formatMoney(moneyMapSnapshot.directCogs)} <span className="text-xs">({moneyMapSnapshot.directPercent}%)</span></div>
-                </div>
-                {expandedRungs.has('direct') && (
-                  <div className="mb-1 rounded-lg border px-3 py-2 text-xs leading-snug" style={{ color: BUCKET_COLORS["Direct COGS"].fg, backgroundColor: BUCKET_COLORS["Direct COGS"].bg, borderColor: BUCKET_COLORS["Direct COGS"].border }}>{RUNG_INFO.direct}</div>
-                )}
-
-                {/* Rung 3: Indirect Cost of Goods (Hidden Job Costs) — brand maroon, the killer */}
-                <div className="rounded-xl border-2 p-4 mb-1 flex items-center justify-between" style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>
-                  <div>
-                    <div className="font-semibold flex items-center gap-1.5" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>
-                      3. Indirect Cost of Goods (Hidden Job Costs) <span className="text-[10px] px-1.5 py-0 rounded text-white font-medium" style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].fg }}>SILENT KILLER</span>
-                    </div>
-                    <div className="text-xs" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>The hidden bucket: labor burden, shop supplies, small tools, untracked mobilization, admin creep, etc.</div>
-                    <button type="button" onClick={() => toggleRung('indirect')} className="mt-1 text-[11px] font-medium underline underline-offset-2 opacity-80 hover:opacity-100" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>{expandedRungs.has('indirect') ? 'Hide details' : 'Details'}</button>
-                  </div>
-                  <div className="text-right text-sm tabular-nums" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>{formatMoney(moneyMapSnapshot.indirectCogs)} <span className="text-xs">({moneyMapSnapshot.indirectPercent}%)</span></div>
-                </div>
-                {expandedRungs.has('indirect') && (
-                  <div className="mb-1 rounded-lg border-2 px-3 py-2 text-xs leading-snug" style={{ color: BUCKET_COLORS["Indirect COGS"].fg, backgroundColor: BUCKET_COLORS["Indirect COGS"].bg, borderColor: BUCKET_COLORS["Indirect COGS"].border }}>{RUNG_INFO.indirect}</div>
-                )}
-
-                {/* Rung 4: Gross Profit — neutral (green reserved for kept money) */}
-                <div className="rounded-xl border bg-muted/40 p-4 mb-1 flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold">4. Gross Profit (Left After the Work)</div>
-                    <div className="text-xs text-muted-foreground">What’s left after all job costs (Direct + Indirect COGS)</div>
-                    <button type="button" onClick={() => toggleRung('gross')} className="mt-1 text-[11px] font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground">{expandedRungs.has('gross') ? 'Hide details' : 'Details'}</button>
-                  </div>
-                  <div className="text-right text-sm tabular-nums">{formatMoney(moneyMapSnapshot.grossProfit)} <span className="text-xs">({moneyMapSnapshot.grossPercent}%)</span></div>
-                </div>
-                {expandedRungs.has('gross') && (
-                  <div className="mb-1 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground leading-snug">{RUNG_INFO.gross}</div>
-                )}
-
-                {/* Rung 5: Overhead (Running the Business) — indigo */}
-                <div className="rounded-xl border p-4 mb-1 flex items-center justify-between" style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}>
-                  <div>
-                    <div className="font-semibold" style={{ color: BUCKET_COLORS["Overhead"].fg }}>5. Overhead (Running the Business)</div>
-                    <div className="text-xs" style={{ color: BUCKET_COLORS["Overhead"].fg }}>Fixed cost of running the business (see Overhead &amp; Profit pillar)</div>
-                    <button type="button" onClick={() => toggleRung('overhead')} className="mt-1 text-[11px] font-medium underline underline-offset-2 opacity-80 hover:opacity-100" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{expandedRungs.has('overhead') ? 'Hide details' : 'Details'}</button>
-                  </div>
-                  <div className="text-right text-sm tabular-nums" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(moneyMapSnapshot.overhead)} <span className="text-xs">({moneyMapSnapshot.overheadPercent}%)</span></div>
-                </div>
-                {expandedRungs.has('overhead') && (
-                  <div className="mb-1 rounded-lg border px-3 py-2 text-xs leading-snug" style={{ color: BUCKET_COLORS["Overhead"].fg, backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}>{RUNG_INFO.overhead}</div>
-                )}
-
-                {/* Rung 6: Net Profit — green (kept money) */}
-                <div className="rounded-xl border-2 p-4 flex items-center justify-between" style={{ backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}>
-                  <div>
-                    <div className="font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>6. Net Profit (What You Keep)</div>
-                    <div className="text-xs" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>True owner profit after everything. The culture goal.</div>
-                    <button type="button" onClick={() => toggleRung('net')} className="mt-1 text-[11px] font-medium underline underline-offset-2 opacity-80 hover:opacity-100" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{expandedRungs.has('net') ? 'Hide details' : 'Details'}</button>
-                  </div>
-                  <div className="text-right text-sm tabular-nums font-semibold" style={{ color: BUCKET_COLORS["Net Profit"].fg }}>{formatMoney(moneyMapSnapshot.netProfit)} <span className="text-xs">({moneyMapSnapshot.netPercent}%)</span></div>
-                </div>
-                {expandedRungs.has('net') && (
-                  <div className="mt-1 rounded-lg border-2 px-3 py-2 text-xs leading-snug" style={{ color: BUCKET_COLORS["Net Profit"].fg, backgroundColor: BUCKET_COLORS["Net Profit"].bg, borderColor: BUCKET_COLORS["Net Profit"].border }}>{RUNG_INFO.net}</div>
-                )}
-                </>
+                  <MoneyMapLadderFull snap={moneyMapSnapshot} expandedRungs={expandedRungs} toggleRung={toggleRung} />
                 )}
               </div>
 
               {/* Quick Glossary — one term per row, each expands in place (one level deep, Fix 4) */}
               <div className="border-t pt-4">
                 <div className="text-sm font-semibold mb-2">Quick Glossary</div>
-                <div className="divide-y divide-border/60 rounded-lg border">
-                  {GLOSSARY_TERMS.map((g) => {
-                    const open = expandedTerms.has(g.term);
-                    return (
-                      <div key={g.term}>
-                        <button
-                          type="button"
-                          onClick={() => toggleTerm(g.term)}
-                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium hover:bg-muted/40"
-                          aria-expanded={open}
-                        >
-                          <span>{g.term}</span>
-                          <span aria-hidden className="text-muted-foreground text-xs">{open ? '▾' : '▸'}</span>
-                        </button>
-                        {open && (
-                          <div className="px-3 pb-3 text-xs text-muted-foreground leading-snug">{g.def}</div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                <MoneyMapGlossary expandedTerms={expandedTerms} toggleTerm={toggleTerm} />
                 <p className="mt-2 text-[11px] text-muted-foreground">Tap any rung’s <span className="font-medium">Details</span> above, or a term here, to expand it in place.</p>
               </div>
             </div>

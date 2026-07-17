@@ -60,6 +60,8 @@ import {
 } from "@/lib/quote-storage";
 import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
 import { canTransition, applyStatusChange as libApplyStatusChange } from "@/lib/quote-lifecycle";
+import { moneyMapForJob, tierOf } from "@/lib/pipeline";
+import { MoneyMapLadderFull, MoneyMapGlossary, TierBadge } from "@/components/MoneyMapLadder";
 
 // Status filter chips — the full lifecycle in canonical order (Declined sits right after
 // Accepted, not at the end). Shared single source of truth with the jump menu below.
@@ -168,6 +170,11 @@ export default function QuotesPage() {
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = React.useState(false);
   const [exportedAt, setExportedAt] = React.useState<string | null>(null);
   const [previewTarget, setPreviewTarget] = React.useState<SavedQuote | null>(null);
+  // "Analyze" — open the PMZ profit ladder for any quote, tier-labeled (CONFIRMED at
+  // Ready-to-Invoice+, else PLANNING). Read-only lens; never mutates the quote.
+  const [analyzeTarget, setAnalyzeTarget] = React.useState<SavedQuote | null>(null);
+  const [analyzeRungs, setAnalyzeRungs] = React.useState<Set<string>>(new Set());
+  const [analyzeTerms, setAnalyzeTerms] = React.useState<Set<string>>(new Set());
   // Optional note captured with an acceptance decision (e.g. "10% deposit received 6/20")
   const [decisionNote, setDecisionNote] = React.useState("");
   // Quote pending a forward lifecycle advance (confirm dialog target)
@@ -1041,11 +1048,13 @@ export default function QuotesPage() {
                               if (v === "preview") openPreviewWithExport(quote);
                               else if (v === "edit") openQuote(quote);
                               else if (v === "duplicate") duplicateQuote(quote);
+                              else if (v === "analyze") openAnalyze(quote);
                             }}
                             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                           >
                             <option value="" disabled>Actions…</option>
                             <option value="preview">Preview</option>
+                            <option value="analyze">Analyze</option>
                             <option value="edit">Edit</option>
                             <option value="duplicate">Duplicate</option>
                           </select>
@@ -1076,6 +1085,21 @@ export default function QuotesPage() {
   // The Accepted gate is currently blocking the quote shown in the preview dialog — drives the
   // entry-level callout and the "Edit in Pricer (primary) / Send muted" emphasis swap below.
   const gateBlockActive = !!(lemGateBlock && previewTarget && lemGateBlock.quoteId === previewTarget.id);
+
+  // Analyze — the profit ladder for the selected quote, from the shared allocation formula
+  // (lib/pipeline.moneyMapForJob) + the saved overhead chart. Tier gates the labels so a PLANNING
+  // ladder never prints "Revenue". Read-only: opening Analyze never writes to the quote.
+  const analyzeSnap = React.useMemo(() => {
+    if (!analyzeTarget) return null;
+    let chart: any = null;
+    try { const raw = localStorage.getItem("pmz_overhead_chart"); chart = raw ? JSON.parse(raw) : null; } catch {}
+    return moneyMapForJob(analyzeTarget, chart);
+  }, [analyzeTarget]);
+  const analyzeTier = analyzeTarget ? tierOf(analyzeTarget.status) : "CONFIRMED";
+  function openAnalyze(q: SavedQuote) { setAnalyzeTarget(q); setAnalyzeRungs(new Set()); setAnalyzeTerms(new Set()); }
+  function closeAnalyze() { setAnalyzeTarget(null); setAnalyzeRungs(new Set()); setAnalyzeTerms(new Set()); }
+  const toggleAnalyzeRung = (k: string) => setAnalyzeRungs((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const toggleAnalyzeTerm = (k: string) => setAnalyzeTerms((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   return (
     <div className="max-w-6xl space-y-8 pb-12">
@@ -1625,6 +1649,34 @@ export default function QuotesPage() {
               <Button variant="outline" onClick={() => { setPreviewTarget(null); setLemGateBlock(null); }}>Close</Button>
             </div>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Analyze — read-only PMZ profit ladder for any quote, tier-labeled. CONFIRMED (Ready-to-
+          Invoice+) shows foreman-confirmed reality; PLANNING (below) is a bid projection whose top
+          line reads "Bid Value", never "Revenue". Never blended, never unlabeled. */}
+      <Dialog open={!!analyzeTarget} onOpenChange={(open) => !open && closeAnalyze()}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Analyze — {analyzeTarget?.jobName || analyzeTarget?.customer || "Quote"}
+              {analyzeTarget && <TierBadge tier={analyzeTier} />}
+            </DialogTitle>
+            <DialogDescription>
+              {analyzeTier === "CONFIRMED"
+                ? "Foreman-confirmed — how this job maps to profit reality."
+                : "PLANNING — a bid projection. These are bid / contract dollars, not revenue; the job isn’t foreman-confirmed yet."}
+            </DialogDescription>
+          </DialogHeader>
+          {analyzeSnap && (
+            <div className="space-y-4">
+              <MoneyMapLadderFull snap={analyzeSnap} tier={analyzeTier} expandedRungs={analyzeRungs} toggleRung={toggleAnalyzeRung} />
+              <div className="border-t pt-3">
+                <div className="text-sm font-semibold mb-2">Quick Glossary</div>
+                <MoneyMapGlossary expandedTerms={analyzeTerms} toggleTerm={toggleAnalyzeTerm} />
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

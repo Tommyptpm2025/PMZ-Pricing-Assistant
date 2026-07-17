@@ -2,6 +2,11 @@
 
 **Scoping & Architecture · Rev 3 (FINAL — all 10 rulings applied · F1 green-lit) · Written build plan**
 
+> **Rev 4 addendum — Profit Pipeline (accumulator + Money Map picker + Analyze):** see
+> [`BUILD-F-PIPELINE-SPEC.md`](./BUILD-F-PIPELINE-SPEC.md), the addendum of record for the last major
+> Build F item. It governs the pipeline accumulator, the two-gate/tier laws, and the vocabulary +
+> iron-guard rulings that post-date this Rev 3 document.
+
 ---
 
 ## 0. Mission (governs everything)
