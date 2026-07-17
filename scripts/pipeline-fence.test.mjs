@@ -16,7 +16,7 @@
  * (.mjs so tsc's "**\/*.ts" include doesn't pull it in; Node strips the imported .ts types.)
  */
 import assert from "node:assert/strict";
-import { REALIZED_STATUSES, salesFromInvoiced } from "../lib/qualifying.ts";
+import { REALIZED_STATUSES, salesFromInvoiced, qualifyingQuotes } from "../lib/qualifying.ts";
 import {
   CONFIRMED_STATUSES,
   DEAD_STATUSES,
@@ -117,6 +117,24 @@ const planningStatuses = new Set(roll.phases.filter((p) => p.tier === "PLANNING"
 const confirmedStatuses = new Set(roll.phases.filter((p) => p.tier === "CONFIRMED").flatMap((p) => p.statuses));
 for (const s of planningStatuses) assert.ok(!confirmedStatuses.has(s), `${s} is PLANNING-only, never CONFIRMED`);
 
+// ── Story A — drill-down: each phase carries the JOBS behind its count (counted-means-visible) ──
+for (const p of roll.phases) assert.equal(p.jobs.length, p.count, `${p.key}: jobs.length === count`);
+assert.deepEqual(byKey.bidding.jobs.map((j) => j.id).sort(), ["d", "s"], "Bidding jobs list");
+assert.deepEqual(byKey.production.jobs.map((j) => j.id).sort(), ["a", "ip", "sc"], "Production jobs list");
+assert.deepEqual(byKey.ready.jobs.map((j) => j.id), ["rti"], "Ready-to-Invoice jobs list");
+assert.deepEqual(byKey.realized.jobs.map((j) => j.id).sort(), ["cp", "inv", "pd"], "Realized jobs list");
+// List-level reconciliation: realized jobs === the qualifying (invoiced-tier) members, by id — the
+// drill-down can never show a job the earned-sales total didn't count, or vice versa.
+assert.deepEqual(
+  realizedRoll(seed).jobs.map((j) => j.id).sort(),
+  qualifyingQuotes(seed).map((q) => q.id).sort(),
+  "RECONCILE: realized jobs === qualifyingQuotes members");
+// PhaseJob projection carries the job's own value (drill-down row content).
+assert.equal(byKey.realized.jobs.find((j) => j.id === "cp").value, 9000, "PhaseJob.value === totalRevenue");
+// Dead lane lists its jobs (they route to PLANNING Analyze — never to the Map).
+assert.equal(roll.dead.jobs.length, 2, "dead lane jobs listed");
+assert.deepEqual(roll.dead.jobs.map((j) => j.id).sort(), ["dec", "lost"], "dead lane jobs list");
+
 // ── 3 — Money Map math byte-identical to the FORMER Overview inline formula ───────────────────
 // Frozen reference: the exact pre-build moneyMapSnapshot arithmetic (app/page.tsx, lines ~211-238).
 function oldMoneyMap(latest, chart) {
@@ -172,3 +190,4 @@ assert.deepEqual(confirmedJobs("nonsense"), [], "confirmedJobs tolerates junk in
 
 console.log("PASS: Profit Pipeline fence — both gates byte-identical, Completed in money set, Money Map port byte-identical");
 console.log("PASS: rollup per-phase subtotals, vocabulary law, reconciliation invariant (realized === salesFromInvoiced), iron guard (no grand total)");
+console.log("PASS: drill-down — each phase lists the jobs behind its count; realized jobs === qualifyingQuotes members; dead lane lists its jobs");

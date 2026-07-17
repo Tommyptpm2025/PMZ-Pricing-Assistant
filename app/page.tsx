@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { BUCKET_COLORS } from "@/lib/pmz-types"
 import { qualifyingQuotes } from "@/lib/qualifying"
 import {
@@ -21,6 +22,7 @@ import {
   moneyMapForJob,
   rollupPipeline,
   type PhaseRoll,
+  type PhaseJob,
 } from "@/lib/pipeline"
 import { MoneyMapLadderCompact, TierBadge } from "@/components/MoneyMapLadder"
 
@@ -105,19 +107,31 @@ const PHASE_EMPTY_ACTION: Record<string, string> = {
   realized: "Invoice a quote to see realized revenue.",
 };
 
-// One Profit Pipeline phase row. Per-phase subtotals only — the value carries its vocabulary-law
-// label (bid value / contract value / Revenue) and its source; PLANNING vs CONFIRMED is always
-// badged so the tier is never ambiguous. No row ever sums into another (iron guard).
-function PhaseRow({ ph }: { ph: PhaseRoll }) {
+// One Profit Pipeline phase row — expandable to the jobs behind its count (drill-down, Story A).
+// The value carries its vocabulary-law label (bid value / contract value / Revenue) + source;
+// PLANNING vs CONFIRMED is always badged. A drilled job routes by the phase's tier: CONFIRMED →
+// the Money Map lens (onPick, in-page); PLANNING → full-screen Analyze (onAnalyze). That tier split
+// IS the picker-confirmed-only guard. No row ever sums into another (iron guard).
+function PhaseRow({ ph, onPick, onAnalyze }: { ph: PhaseRoll; onPick: (id: string) => void; onAnalyze: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
   const empty = ph.count === 0;
+  const routeJob = (id: string) => (ph.tier === "CONFIRMED" ? onPick(id) : onAnalyze(id));
+  const jobActionHint = ph.tier === "CONFIRMED" ? "open in Money Map" : "Analyze";
   return (
     <div className="rounded-lg border px-3 py-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+        <button
+          type="button"
+          disabled={empty}
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex items-center gap-2 min-w-0 text-left disabled:cursor-default"
+        >
+          {!empty && <span aria-hidden className="w-3 text-xs text-muted-foreground">{open ? "▾" : "▸"}</span>}
           <TierBadge tier={ph.tier} />
           <span className="font-medium text-sm truncate">{ph.label}</span>
           <span className="text-[11px] text-muted-foreground whitespace-nowrap">{ph.count} {ph.count === 1 ? "job" : "jobs"}</span>
-        </div>
+        </button>
         {!empty && (
           <div className="text-right shrink-0">
             <div className="tabular-nums font-semibold text-sm">{formatMoney(ph.value)}</div>
@@ -128,10 +142,56 @@ function PhaseRow({ ph }: { ph: PhaseRoll }) {
       {empty ? (
         <div className="mt-1 text-xs text-muted-foreground">{PHASE_EMPTY_ACTION[ph.key]}</div>
       ) : (
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground tabular-nums">
-          <span>Direct {formatMoney(ph.directCogs)}</span>
-          <span style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>Indirect {formatMoney(ph.indirectCogs)}</span>
-          <span>Gross {formatMoney(ph.gross)}</span>
+        <>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground tabular-nums">
+            <span>Direct {formatMoney(ph.directCogs)}</span>
+            <span style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>Indirect {formatMoney(ph.indirectCogs)}</span>
+            <span>Gross {formatMoney(ph.gross)}</span>
+          </div>
+          {open && (
+            <div className="mt-2 border-t pt-2 space-y-1">
+              {ph.jobs.map((j) => (
+                <button
+                  key={j.id}
+                  type="button"
+                  onClick={() => routeJob(j.id)}
+                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/50"
+                >
+                  <span className="truncate">{j.name}</span>
+                  <span className="tabular-nums text-muted-foreground shrink-0">{formatMoney(j.value)} <span className="opacity-70">· {jobActionHint}</span></span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Dead lane — Declined / Lost. Lists its jobs; each opens the PLANNING Analyze as a failed-bid
+// post-mortem (gavel 2). NEVER routes to the Money Map, and never prints the word "Revenue".
+function DeadLaneRow({ dead, onAnalyze }: { dead: { count: number; jobs: PhaseJob[] }; onAnalyze: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded border border-dashed px-3 py-1.5 text-xs text-muted-foreground">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center justify-between gap-2 text-left">
+        <span className="flex items-center gap-1.5"><span aria-hidden className="w-3">{open ? "▾" : "▸"}</span> Declined / Lost — dead lane, never in the pipeline</span>
+        <span className="tabular-nums">{dead.count} {dead.count === 1 ? "job" : "jobs"}</span>
+      </button>
+      {open && (
+        <div className="mt-1.5 border-t pt-1.5 space-y-1">
+          {dead.jobs.map((j) => (
+            <button
+              key={j.id}
+              type="button"
+              onClick={() => onAnalyze(j.id)}
+              className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left hover:bg-muted/50"
+            >
+              <span className="truncate">{j.name}</span>
+              <span className="tabular-nums shrink-0">{formatMoney(j.value)} <span className="opacity-70">· Analyze</span></span>
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -265,6 +325,17 @@ export default function OverviewPage() {
       return rollupPipeline(quotes)
     } catch { return null }
   }, [hydrated])
+
+  const router = useRouter()
+  // Route a drilled-down pipeline job by its phase tier. CONFIRMED (Ready to Invoice / Realized) →
+  // point the Money Map lens at it in-page and scroll to it — the picker is confirmed-only, so a
+  // CONFIRMED-phase job is always a valid target. PLANNING and dead-lane → open the full-screen
+  // Analyze. This tier split IS the picker-confirmed-only guard: a PLANNING job can't reach the Map.
+  const pickInMoneyMap = (id: string) => {
+    setSelectedMapJobId(id)
+    document.getElementById("money-map")?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
+  const openAnalyze = (id: string) => router.push(`/analyze/${id}`)
 
   // Empty-state copy shown when no foreman-confirmed job exists yet.
   const MAP_EMPTY = "Move a job to Ready to Invoice — once your foreman confirms costs, this maps it to profit reality."
@@ -424,7 +495,7 @@ export default function OverviewPage() {
       </div>
 
       {/* NEW: PMZ Money Map — Layer 1 Quick Snapshot (always visible, at-a-glance training tool) */}
-      <Card className="card border-2 border-primary/10">
+      <Card id="money-map" className="card border-2 border-primary/10 scroll-mt-6">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div>
@@ -506,13 +577,10 @@ export default function OverviewPage() {
           ) : (
             <>
               {pipeline.phases.map((ph) => (
-                <PhaseRow key={ph.key} ph={ph} />
+                <PhaseRow key={ph.key} ph={ph} onPick={pickInMoneyMap} onAnalyze={openAnalyze} />
               ))}
               {pipeline.dead.count > 0 && (
-                <div className="flex items-center justify-between rounded border border-dashed px-3 py-1.5 text-xs text-muted-foreground">
-                  <span>Declined / Lost — dead lane, never in the pipeline</span>
-                  <span className="tabular-nums">{pipeline.dead.count} {pipeline.dead.count === 1 ? "job" : "jobs"}</span>
-                </div>
+                <DeadLaneRow dead={pipeline.dead} onAnalyze={openAnalyze} />
               )}
               <p className="text-[10px] text-muted-foreground pt-1 leading-snug">
                 Per-phase subtotals only — no grand total. “Revenue” means Ready-to-Invoice or beyond;

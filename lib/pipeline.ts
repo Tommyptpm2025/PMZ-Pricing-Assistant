@@ -73,6 +73,17 @@ export const PIPELINE_PHASES: PipelinePhaseDef[] = [
 // The dead lane — quotes written off. Counted (for visibility) but NEVER summed into the pipeline.
 export const DEAD_STATUSES = new Set<string>(["Declined", "Lost"]);
 
+// A single job surfaced under its phase (drill-down, Story A). Minimal projection — the rollup
+// already holds these quote objects; this is exactly them, not a re-filter (counted-means-visible).
+// `value` is totalRevenue; its LABEL is governed by the phase's moneyLabel (vocab law) and never
+// says "Revenue" for a PLANNING phase or the dead lane at render.
+export interface PhaseJob {
+  id: string;
+  name: string;
+  value: number;
+  status: string;
+}
+
 export interface PhaseRoll {
   key: PipelinePhaseDef["key"];
   label: string;
@@ -85,11 +96,20 @@ export interface PhaseRoll {
   directCogs: number;
   indirectCogs: number;
   gross: number;         // value − direct − indirect (per-phase aggregate)
+  jobs: PhaseJob[];      // the jobs behind the count — surfaced for drill-down (counted-means-visible)
 }
 
 function num(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+// The jobs behind a count, as minimal projections. Reuses the quote objects the rollup already
+// filtered — one birthplace, no second pass.
+function toPhaseJob(q: any): PhaseJob {
+  const name = (typeof q?.jobName === "string" && q.jobName.trim())
+    || q?.customerName || q?.customer || "Untitled";
+  return { id: String(q?.id ?? ""), name, value: num(q?.totalRevenue), status: String(q?.status ?? "") };
 }
 
 /** Roll one phase up from the raw quotes. Per-phase subtotals only — no cross-phase math. */
@@ -111,6 +131,7 @@ function rollPhase(def: PipelinePhaseDef, quotes: any[]): PhaseRoll {
     directCogs,
     indirectCogs,
     gross: value - directCogs - indirectCogs,
+    jobs: inPhase.map(toPhaseJob),
   };
 }
 
@@ -118,14 +139,15 @@ function rollPhase(def: PipelinePhaseDef, quotes: any[]): PhaseRoll {
 // the iron guard forbids any field that sums PLANNING and CONFIRMED dollars together.
 export interface PipelineRollup {
   phases: PhaseRoll[];
-  dead: { count: number };
+  dead: { count: number; jobs: PhaseJob[] };
 }
 
 export function rollupPipeline(quotes: unknown): PipelineRollup {
   const list = Array.isArray(quotes) ? quotes : [];
+  const deadList = list.filter((q: any) => DEAD_STATUSES.has(q?.status));
   return {
     phases: PIPELINE_PHASES.map((def) => rollPhase(def, list)),
-    dead: { count: list.filter((q: any) => DEAD_STATUSES.has(q?.status)).length },
+    dead: { count: deadList.length, jobs: deadList.map(toPhaseJob) },
   };
 }
 
