@@ -15,7 +15,7 @@ import {
 } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { BUCKET_COLORS, STATUS_COLORS, STATUS_LABELS, type QuoteStatus } from "@/lib/pmz-types"
+import { BUCKET_COLORS, STATUS_COLORS, STATUS_LABELS, NET_LOSS_COLORS, type QuoteStatus } from "@/lib/pmz-types"
 import { qualifyingQuotes } from "@/lib/qualifying"
 import {
   confirmedJobs,
@@ -157,7 +157,10 @@ function PhaseRow({ ph, onAnalyze }: { ph: PhaseRoll; onAnalyze: (id: string) =>
                   onClick={() => routeJob(j.id)}
                   className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/50"
                 >
-                  <span className="truncate">{j.name}</span>
+                  <span className="flex items-center gap-2 min-w-0">
+                    <StatusChip status={j.status} />
+                    <span className="truncate">{j.name}</span>
+                  </span>
                   <span className="tabular-nums text-muted-foreground shrink-0">{formatMoney(j.value)} <span className="opacity-70">· {jobActionHint}</span></span>
                 </button>
               ))}
@@ -188,7 +191,7 @@ function DeadLaneRow({ dead, onAnalyze }: { dead: { count: number; jobs: PhaseJo
   return (
     <div className="rounded border border-dashed px-3 py-1.5 text-xs text-muted-foreground">
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center justify-between gap-2 text-left">
-        <span className="flex items-center gap-1.5"><span aria-hidden className="w-3">{open ? "▾" : "▸"}</span> Declined · Lost <span className="opacity-70">— never in the pipeline</span></span>
+        <span className="flex items-center gap-1.5"><span aria-hidden className="w-3">{open ? "▾" : "▸"}</span> <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: NET_LOSS_COLORS.fg, backgroundColor: NET_LOSS_COLORS.bg, border: `1px solid ${NET_LOSS_COLORS.border}` }}>DEAD LANE</span> Declined · Lost <span className="opacity-70">— never in the pipeline</span></span>
         <span className="tabular-nums">{dead.count} {dead.count === 1 ? "job" : "jobs"}</span>
       </button>
       {open && (
