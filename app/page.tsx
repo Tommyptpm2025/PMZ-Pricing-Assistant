@@ -15,7 +15,7 @@ import {
 } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { BUCKET_COLORS } from "@/lib/pmz-types"
+import { BUCKET_COLORS, STATUS_COLORS, STATUS_LABELS, type QuoteStatus } from "@/lib/pmz-types"
 import { qualifyingQuotes } from "@/lib/qualifying"
 import {
   confirmedJobs,
@@ -169,6 +169,18 @@ function PhaseRow({ ph, onAnalyze }: { ph: PhaseRoll; onAnalyze: (id: string) =>
   );
 }
 
+// Canonical status chip — identical style + color to the Quotes-page status pills. Color comes only
+// from STATUS_COLORS (Law 32, the single source of color truth; no new hex); label from STATUS_LABELS.
+function StatusChip({ status }: { status: string }) {
+  const c = STATUS_COLORS[status] || STATUS_COLORS["Draft"];
+  const label = STATUS_LABELS[status as QuoteStatus] || status;
+  return (
+    <Badge variant="outline" title={label} className="font-medium text-xs shrink-0" style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.bg }}>
+      {label}
+    </Badge>
+  );
+}
+
 // Dead lane — Declined / Lost. Lists its jobs; each opens the PLANNING Analyze as a failed-bid
 // post-mortem (gavel 2). NEVER routes to the Money Map, and never prints the word "Revenue".
 function DeadLaneRow({ dead, onAnalyze }: { dead: { count: number; jobs: PhaseJob[] }; onAnalyze: (id: string) => void }) {
@@ -188,7 +200,10 @@ function DeadLaneRow({ dead, onAnalyze }: { dead: { count: number; jobs: PhaseJo
               onClick={() => onAnalyze(j.id)}
               className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left hover:bg-muted/50"
             >
-              <span className="truncate">{j.name}</span>
+              <span className="flex items-center gap-2 min-w-0">
+                <StatusChip status={j.status} />
+                <span className="truncate">{j.name}</span>
+              </span>
               <span className="tabular-nums shrink-0">{formatMoney(j.value)} <span className="opacity-70">· Analyze</span></span>
             </button>
           ))}
