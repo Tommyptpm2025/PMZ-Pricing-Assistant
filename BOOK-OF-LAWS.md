@@ -1,6 +1,6 @@
-# TPM BOOK OF LAWS — v0.2 FINAL
+# TPM BOOK OF LAWS — v0.2.1
 
-**Status: v0.2 FINAL — Tom's red-pen applied Jul 17, 2026. All merge conflicts gaveled closed (see RESOLVED). No open conflicts.**
+**Status: v0.2.1 — amended Jul 18, 2026 (Law 78 Edition Citation Law added; Law 19 DEAD LANE surface term noted). Built on v0.2 FINAL — Tom's red-pen Jul 17, 2026. All merge conflicts gaveled closed (see RESOLVED). No open conflicts.**
 **Home: repo root, beside CLAUDE.md, committed as `BOOK-OF-LAWS.md`. Named or nonexistent. The maintenance rule is ACTIVE from the first commit.**
 **Maintenance rule:** any commit that changes a law changes its line here, in the same commit.
 **Merge inputs:** BOOK-OF-LAWS-v0.1.md (40 laws) · BOOK-OF-LAWS-SWEEP.md (101 rules, groups A–G, cites verified @ commit `1d6a89c`) · PMZ Session Rulings Jul 13–17, 2026 (37 rulings + gavels + standing process laws) · Tom's red-pen gavels (Jul 17).
@@ -32,7 +32,7 @@ One line per law, dated. 🔓 = see LAW-WITHOUT-A-FENCE.
 
 ## II. VOCABULARY LAWS
 
-19. **Status Lifecycle Language** — Canonical lifecycle: Draft → Sent for Acceptance → Accepted → Scheduled → Work Order Active → Ready to Invoice → Invoiced → Paid → Completed; Declined and Lost terminal dead-lane. These words are the only permitted status and phase vocabulary on any product surface; invented groupings ("Won," "In Production," "Bidding," "Realized") are barred from headers and labels. "Sent" is informal shorthand only. Header vocabulary is FENCED as of `86f7066` — phase headers renamed to canonical status groupings, the vocabulary fence updated with them and green. Stored status keys are not a product surface: canonical labels map onto every surface now; the stored-key rename ships later as an additive migration (law 48) at a natural touch — no forced data migration. *(Jul 17, gaveled — see RESOLVED R-2/R-3/R-4)*
+19. **Status Lifecycle Language** — Canonical lifecycle: Draft → Sent for Acceptance → Accepted → Scheduled → Work Order Active → Ready to Invoice → Invoiced → Paid → Completed; Declined and Lost terminal dead-lane. These words are the only permitted status and phase vocabulary on any product surface; invented groupings ("Won," "In Production," "Bidding," "Realized") are barred from headers and labels. "Sent" is informal shorthand only. Header vocabulary is FENCED as of `86f7066` — phase headers renamed to canonical status groupings, the vocabulary fence updated with them and green. Stored status keys are not a product surface: canonical labels map onto every surface now; the stored-key rename ships later as an additive migration (law 48) at a natural touch — no forced data migration. "DEAD LANE" is gaveled a permitted surface term for the terminal lane (Tom, Jul 18; grounded in ruling 37's "terminal dead-lane"), rendered as a tier-style header pill — header wording otherwise byte-unchanged. *(Jul 17, gaveled — see RESOLVED R-2/R-3/R-4; DEAD LANE surface term Jul 18 — `dba8616`)*
 20. **Revenue Reserved (D5)** — The word "Revenue" and any revenue total belong to Ready-to-Invoice+ tiers only. Below that: "Bid Value" / "Contract Value" — everywhere, including ladders and pipeline rows. *(Jul 17)* — `BUILD-F-PIPELINE-SPEC.md:43-45,197-201`; `pipeline-fence.test.mjs:96-99`
 21. **Projected, Not Net** — The PLANNING hero band reads "Projected Net Profit" — never "Net Profit" unqualified; PLANNING mode drops the word "Revenue" everywhere; percentages read "of bid value." *(Jul 17)* — `SEGMENT-2-SPEC.md` (Ruled §, Call 7)
 22. **Copy Law** — "If we didn't state it, we don't print it." No product teaching string ships without Tom's approval; unapproved rung slots render nothing; approved strings ship as working text, adjustable over time, not locked verbatim; one draft, one check, then Tom's call — no further AI review loops. *(Jul 17)* — `SEGMENT-2-SPEC.md` (Ruled §, COPY LAW)
@@ -102,6 +102,7 @@ One line per law, dated. 🔓 = see LAW-WITHOUT-A-FENCE.
 71. **One Prompt at a Time** — CC receives one prompt, cut fresh from the actual current state. Never a prompt held for later. *(Standing)*
 72. **Fence Discipline** — Any build outside a surface must prove that surface byte-identical via regression suite — "proven, not assumed." *(Jul 15–17)*
 73. **Named or Nonexistent** — A deliverable that is not a named file in the repo does not exist. *(Jul 17 — this Book lives under it as `BOOK-OF-LAWS.md` at repo root)*
+78. **Edition Citation Law** — Every law reference states edition + number ("v0.2 Law 11"); a citation without an edition is incomplete. Reviewers are handed the canon file itself, never a summary or a stale copy; a mismatched edition surfaces version drift on sight. *(Jul 18, gaveled)*
 
 ## VIII. BRAND LAWS
 
