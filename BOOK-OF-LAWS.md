@@ -1,6 +1,6 @@
 # TPM BOOK OF LAWS — v0.2.1
 
-**Status: v0.2.1 — amended Jul 18, 2026 (Law 78 Edition Citation Law added; Law 19 DEAD LANE surface term noted). Built on v0.2 FINAL — Tom's red-pen Jul 17, 2026. All merge conflicts gaveled closed (see RESOLVED). No open conflicts.**
+**Status: v0.2.1 — amended Jul 18, 2026 (Law 78 Edition Citation Law added; Law 19 DEAD LANE surface term noted; Law 62 Roles Fixed refined). Built on v0.2 FINAL — Tom's red-pen Jul 17, 2026. All merge conflicts gaveled closed (see RESOLVED). No open conflicts.**
 **Home: repo root, beside CLAUDE.md, committed as `BOOK-OF-LAWS.md`. Named or nonexistent. The maintenance rule is ACTIVE from the first commit.**
 **Maintenance rule:** any commit that changes a law changes its line here, in the same commit.
 **Merge inputs:** BOOK-OF-LAWS-v0.1.md (40 laws) · BOOK-OF-LAWS-SWEEP.md (101 rules, groups A–G, cites verified @ commit `1d6a89c`) · PMZ Session Rulings Jul 13–17, 2026 (37 rulings + gavels + standing process laws) · Tom's red-pen gavels (Jul 17).
@@ -90,7 +90,7 @@ One line per law, dated. 🔓 = see LAW-WITHOUT-A-FENCE.
 
 ## VII. BUILD DISCIPLINE LAWS
 
-62. **Roles Fixed** — Tom drives and approves; Claude-in-chat is Project Lead; Claude Code is the builder. *(Standing)* — `CLAUDE.md:3`
+62. **Roles Fixed** — Tom drives and gavels; Claude-in-chat is Project Lead — the synthesis point, and every CC prompt ships from its cut; Claude Code is the builder; Grok is the reviewer — input and triangulation only, never a prompt source. *(Standing; amended Jul 18, gaveled)*
 63. **Two-Tier Change Control** — Tier 1 (layout/CSS/styling/labels/copy): apply freely, one consolidated diff + typecheck before commit. Tier 2 (values, math, cost/GP calc, handlers, state, data models, business logic, shared stores, cross-surface effects, destructive/irreversible commands): STOP, show the diff, WAIT. When the tier is unclear, treat as Tier 2 and stop. *(Standing)* — `CLAUDE.md:13-21`
 64. **Stay In Scope** — A layout pass is layout-only; logic is its own pass; scope expansion is flagged before proceeding. *(Standing)* — `CLAUDE.md:25,32`
 65. **Zero TypeScript Errors** — Enforced on every commit, no exceptions; never raise a file's existing error count (project-pricer ~50 pre-existing). *(Standing)* — `CLAUDE.md:26`
