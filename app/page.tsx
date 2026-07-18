@@ -109,14 +109,14 @@ const PHASE_EMPTY_ACTION: Record<string, string> = {
 
 // One Profit Pipeline phase row — expandable to the jobs behind its count (drill-down, Story A).
 // The value carries its vocabulary-law label (bid value / contract value / Revenue) + source;
-// PLANNING vs CONFIRMED is always badged. A drilled job routes by the phase's tier: CONFIRMED →
-// the Money Map lens (onPick, in-page); PLANNING → full-screen Analyze (onAnalyze). That tier split
-// IS the picker-confirmed-only guard. No row ever sums into another (iron guard).
-function PhaseRow({ ph, onPick, onAnalyze }: { ph: PhaseRoll; onPick: (id: string) => void; onAnalyze: (id: string) => void }) {
+// PLANNING vs CONFIRMED is always badged. Every drilled job — both tiers — opens the one full-screen
+// ladder at /analyze/[id] (Jul-17 gavel; supersedes Part A's CONFIRMED→Money-Map routing), so the
+// same click yields the same shape of page regardless of job count. No row sums into another.
+function PhaseRow({ ph, onAnalyze }: { ph: PhaseRoll; onAnalyze: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const empty = ph.count === 0;
-  const routeJob = (id: string) => (ph.tier === "CONFIRMED" ? onPick(id) : onAnalyze(id));
-  const jobActionHint = ph.tier === "CONFIRMED" ? "open in Money Map" : "Analyze";
+  const routeJob = (id: string) => onAnalyze(id);
+  const jobActionHint = "Analyze";
   return (
     <div className="rounded-lg border px-3 py-2">
       <div className="flex items-center justify-between gap-2">
@@ -327,14 +327,9 @@ export default function OverviewPage() {
   }, [hydrated])
 
   const router = useRouter()
-  // Route a drilled-down pipeline job by its phase tier. CONFIRMED (Ready to Invoice / Realized) →
-  // point the Money Map lens at it in-page and scroll to it — the picker is confirmed-only, so a
-  // CONFIRMED-phase job is always a valid target. PLANNING and dead-lane → open the full-screen
-  // Analyze. This tier split IS the picker-confirmed-only guard: a PLANNING job can't reach the Map.
-  const pickInMoneyMap = (id: string) => {
-    setSelectedMapJobId(id)
-    document.getElementById("money-map")?.scrollIntoView({ behavior: "smooth", block: "start" })
-  }
+  // Every drilled pipeline job — both tiers, and the dead lane — opens the one full-screen ladder at
+  // /analyze/[id] (Jul-17 gavel reversing Part A's CONFIRMED→Money-Map routing). The Money Map keeps
+  // its own CONFIRMED-only picker (Law 40); the drill-down no longer feeds it.
   const openAnalyze = (id: string) => router.push(`/analyze/${id}`)
 
   // Empty-state copy shown when no foreman-confirmed job exists yet.
@@ -495,7 +490,7 @@ export default function OverviewPage() {
       </div>
 
       {/* NEW: PMZ Money Map — Layer 1 Quick Snapshot (always visible, at-a-glance training tool) */}
-      <Card id="money-map" className="card border-2 border-primary/10 scroll-mt-6">
+      <Card className="card border-2 border-primary/10">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div>
@@ -577,7 +572,7 @@ export default function OverviewPage() {
           ) : (
             <>
               {pipeline.phases.map((ph) => (
-                <PhaseRow key={ph.key} ph={ph} onPick={pickInMoneyMap} onAnalyze={openAnalyze} />
+                <PhaseRow key={ph.key} ph={ph} onAnalyze={openAnalyze} />
               ))}
               {pipeline.dead.count > 0 && (
                 <DeadLaneRow dead={pipeline.dead} onAnalyze={openAnalyze} />

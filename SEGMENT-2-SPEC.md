@@ -57,6 +57,10 @@ Today `rollPhase` computes `inPhase` then throws it away, returning only aggrega
 - Dead-lane row (`app/page.tsx:515-519`) becomes expandable too, listing its jobs.
 
 ### A.3 Routing per tier (the core of Story A)
+> **SUPERSEDED (Tom's gavel, Jul 17):** the CONFIRMED-phase → Money-Map routing clause below is
+> retired — **every** drilled job, both tiers, now opens `/analyze/[id]` (same click, same shape of
+> page regardless of job count). The Money Map keeps its own CONFIRMED-only picker (Law 40). Book
+> laws 39/40/13 unchanged; this line is the routing clause's natural touch.
 - **CONFIRMED-phase job** (Ready to Invoice, Realized) → `setSelectedMapJobId(job.id)`
   (`app/page.tsx:228`) **+ scroll/focus the Money Map card**. Fully in-page (drill-down and Map both
   live on the Overview). Reuses the picker that already exists — no new lens computation.
