@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { STATUS_COLORS } from "@/lib/pmz-types";
 import { useCompanySettings, companyProfileComplete } from "@/lib/company-settings";
 import { resolveTokens, buildTokenValues } from "@/lib/document-tokens";
 import { TC_SECTIONS } from "@/lib/document-blocks";
@@ -96,24 +95,8 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
   // matches the PDF header behavior so the on-screen preview is no longer logo-blind.
   const logoDataUrl = q.logoDataUrl || null;
 
-  // Status badge for the document — clean customer-facing label, with the shared lifecycle zone
-  // color (STATUS_COLORS) as the accent so the document pill matches the app's status pills.
-  const STATUS_LABELS: Record<string, string> = {
-    "Draft": "Draft",
-    "Ready for Approval": "Awaiting acceptance",
-    "Approved": "Accepted",
-    "Declined": "Declined",
-    "Lost": "Lost",
-    "In Progress": "In progress",
-    "Completed": "Completed",
-    "Ready to Invoice": "Ready to invoice",
-    "Invoiced": "Invoiced",
-    "Paid": "Paid",
-  };
-  const statusLabel = STATUS_LABELS[q.status as string] || null;
-  // Outlined pill: text + border use the zone background hex (saturated enough to read on white).
-  const statusColor = STATUS_COLORS[q.status as string]?.bg || "#7D1424";
-
+  // No lifecycle/status vocabulary on customer paper (Tom, Jul 20): internal language stays
+  // internal. The document being a Quote (or Estimate) is its own status — see docLabel.
   // Customer block (normalized by buildCustomerBlock): full address lines, contact.
   // Access notes + GPS are Foreman Work Order data only — never rendered on this
   // customer-facing document (suppressed entirely, regardless of any export option).
@@ -284,25 +267,6 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             <div style={{ textAlign: 'right', fontSize: 9, color: '#333' }}>
               {docLabel} #{q.quoteNumber || Date.now().toString().slice(-7)}<br />
               {q.date || new Date().toLocaleDateString()}
-              {statusLabel && (
-                <div style={{ marginTop: 4 }}>
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      fontSize: 8,
-                      fontWeight: 'bold',
-                      letterSpacing: 0.5,
-                      textTransform: 'uppercase',
-                      color: statusColor,
-                      border: `1px solid ${statusColor}`,
-                      borderRadius: 3,
-                      padding: '1px 5px',
-                    }}
-                  >
-                    {statusLabel}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
 

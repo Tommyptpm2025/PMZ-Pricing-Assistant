@@ -21,7 +21,6 @@
 import * as React from "react";
 import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 import type { CompanySettings } from "@/lib/company-settings";
-import { STATUS_COLORS } from "@/lib/pmz-types";
 import { resolveTokens, buildTokenValues } from "@/lib/document-tokens";
 import { TC_SECTIONS } from "@/lib/document-blocks";
 import { formatPhone } from "@/lib/phone";
@@ -43,20 +42,6 @@ function formatWhole(amount: number | undefined | null): string {
   if (amount === undefined || amount === null || isNaN(amount)) return "0";
   return Number(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
-
-// Clean customer-facing lifecycle labels (mirrors QuotePreview).
-const STATUS_LABELS: Record<string, string> = {
-  "Draft": "Draft",
-  "Ready for Approval": "Awaiting acceptance",
-  "Approved": "Accepted",
-  "Declined": "Declined",
-  "Lost": "Lost",
-  "In Progress": "In progress",
-  "Completed": "Completed",
-  "Ready to Invoice": "Ready to invoice",
-  "Invoiced": "Invoiced",
-  "Paid": "Paid",
-};
 
 // Charcoal is the document body color. In a real PDF there is no browser auto-linkification to
 // fight, so a plain color is final — no -webkit-text-fill-color override needed.
@@ -91,14 +76,6 @@ const styles = StyleSheet.create({
   docTitle: { fontSize: 28, fontWeight: "bold", letterSpacing: 2, color: CHARCOAL },
   headerRight: { width: "28%", alignItems: "flex-end" },
   docMeta: { fontSize: 9, color: CHARCOAL, textAlign: "right" },
-  statusPill: {
-    marginTop: 4,
-    borderWidth: 1,
-    borderRadius: 3,
-    paddingVertical: 1,
-    paddingHorizontal: 5,
-  },
-  statusPillText: { fontSize: 8, fontWeight: "bold", letterSpacing: 0.5, textTransform: "uppercase" },
   // --- Three-column block (Customer | Job Site | Project) ---
   cols: { flexDirection: "row", justifyContent: "space-between", marginBottom: 16 },
   col: { width: "31%" },
@@ -221,9 +198,8 @@ export default function QuotePdfDocument({ quote, company }: QuotePdfDocumentPro
   const termsText = q.termsText || null;
   const logoDataUrl = q.logoDataUrl || null;
 
-  const statusLabel = STATUS_LABELS[q.status as string] || null;
-  const statusColor = STATUS_COLORS[q.status as string]?.bg || "#7D1424";
-
+  // No lifecycle/status vocabulary on customer paper (Tom, Jul 20): internal language stays
+  // internal. The document being a Quote (or Estimate) is its own status — see docLabel.
   const billToLines: string[] = Array.isArray(customer.billToLines) ? customer.billToLines : [];
   const jobSiteLines: string[] = Array.isArray(customer.jobSiteLines) ? customer.jobSiteLines : [];
   const contact = customer.contact || {};
@@ -268,11 +244,6 @@ export default function QuotePdfDocument({ quote, company }: QuotePdfDocumentPro
               {docLabel} #{docNumber || "—"}
             </Text>
             {docDate ? <Text style={styles.docMeta}>{docDate}</Text> : null}
-            {statusLabel ? (
-              <View style={[styles.statusPill, { borderColor: statusColor }]}>
-                <Text style={[styles.statusPillText, { color: statusColor }]}>{statusLabel}</Text>
-              </View>
-            ) : null}
           </View>
         </View>
 
