@@ -350,7 +350,7 @@ export default function QuotePdfDocument({ quote, company }: QuotePdfDocumentPro
                       <Text style={[styles.td, { width: "15%", textAlign: "right" }]}>${formatMoney(item.unitPrice || 0)}</Text>
                     ) : null}
                     {showLineItemPrices ? (
-                      <Text style={[styles.td, { width: "15%", textAlign: "right" }]}>${formatWhole(lt)}</Text>
+                      <Text style={[styles.td, { width: "15%", textAlign: "right" }]}>${formatMoney(lt)}</Text>
                     ) : null}
                   </View>
                   {lemOn ? (
@@ -387,7 +387,7 @@ export default function QuotePdfDocument({ quote, company }: QuotePdfDocumentPro
         {/* TOTAL */}
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>TOTAL</Text>
-          <Text style={styles.totalValue}>${formatWhole(grandTotal)}</Text>
+          <Text style={styles.totalValue}>${formatMoney(grandTotal)}</Text>
         </View>
 
         {/* Terms & Conditions — only ready sections render (incomplete are omitted, matching print). */}

@@ -62,7 +62,7 @@ import {
 import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer, QuoteStatus } from "@/lib/pmz-types";
 import { sendQuoteForAcceptance } from "@/lib/quote-lifecycle";
 import { updateQuote } from "@/lib/quote-storage";
-import { serializeEppLine, eppTotalRevenue } from "@/lib/epp-line";
+import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
 import { useEstimators } from "@/lib/estimators";
@@ -1985,10 +1985,14 @@ export default function ProjectPricerPage() {
     };
     const lineItems = bidItems.map((item: any) => {
       const qty = Number(item.quantity || 0);
-      // Customer document shows the marked-up recommended bid, not the break-even cost (item.unitPrice).
-      // Round the line total for the customer document (presentation only). Per-unit = rounded total / qty.
-      const lineTotal = roundToQuote(qty * customerUnitPrice(item));
-      const unitPrice = qty > 0 ? lineTotal / qty : customerUnitPrice(item);
+      // Law 56 — ONE PRICE PATH. The customer document prints the QUOTED price: the same
+      // numbers the worksheet shows and save persists, via lib/epp-line. The Golden Formula
+      // recommendation is owner-facing coaching only and never reaches this document.
+      // A directly-entered line total is already encoded in unitPrice (Line Total / Qty at
+      // entry, :2588-2589), so qty x unitPrice reproduces it exactly. Printed === persisted:
+      // no presentation-only rounding anywhere on the customer document.
+      const unitPrice = Number(item.unitPrice || 0);
+      const lineTotal = eppLineTotal(item);
       return {
         description: item.description || "—",
         qty,
@@ -1998,8 +2002,9 @@ export default function ProjectPricerPage() {
         lemDetail: buildLineLemDetail(item, lemCats),
       };
     });
-    // Grand total = sum of the ROUNDED line totals, so the printed document always foots.
-    const total = lineItems.reduce((sum: number, li: any) => sum + li.lineTotal, 0);
+    // Same helper the worksheet total (:1017-1019) and save (:1662) use — the printed TOTAL
+    // is byte-identical to the persisted totalRevenue by construction, not by coincidence.
+    const total = eppTotalRevenue(bidItems);
     // Resolve the selected estimator's full record (Tier B token source). The quote stores the
     // estimator NAME (mirrors salesperson); title/email/phone come from the Estimator Registry.
     const estimatorName = s.estimator || estimate.estimator || "";
@@ -2021,8 +2026,9 @@ export default function ProjectPricerPage() {
     const projectName = s.jobName || estimate.jobName || "";
     const quoteDate = new Date().toLocaleDateString();
     const quoteNumber = Date.now().toString().slice(-7);
-    const money0 = (n: number) => `$${Math.round(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-    const quoteTotalDisplay = money0(total);
+    // Customer-facing amounts print to the cent (Law 57) so the document ties to the quote.
+    const moneyDoc = (n: number) => `$${formatMoney(n || 0)}`;
+    const quoteTotalDisplay = moneyDoc(total);
     const sectionLabel = s.workTypeName || s.workType || estimate.workTypeName || "";
 
     return {
@@ -2073,7 +2079,7 @@ export default function ProjectPricerPage() {
         // EPP has one work type per estimate, so a single section = the work type + grand total.
         lineItems: lineItems.map((li: any) => ({
           description: li.description,
-          amount: money0(li.lineTotal),
+          amount: moneyDoc(li.lineTotal),
         })),
         sections: [
           { label: sectionLabel, amount: quoteTotalDisplay },

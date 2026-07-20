@@ -363,7 +363,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
                     {showQuantities && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'right' }}>{item.quantity || 0}</div>}
                     {showUnits && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '10%', textAlign: 'center' }}>{item.unit || ''}</div>}
                     {showPerUnitPrice && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '15%', textAlign: 'right' }}>${formatMoney(item.unitPrice || 0)}</div>}
-                    {showLineItemPrices && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '15%', textAlign: 'right' }}>${formatWhole(lt)}</div>}
+                    {showLineItemPrices && <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '15%', textAlign: 'right' }}>${formatMoney(lt)}</div>}
                   </div>
                   {lemOn && (
                     <>
@@ -415,7 +415,7 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
           {/* TOTAL row */}
           <div className="pmz-total pmz-charcoal" style={{ display: 'flex', marginTop: 4, borderTop: '1px solid #111', paddingTop: 4, color: '#333' }}>
             <div style={{ fontSize: 11, fontWeight: 'bold', flexBasis: '70%' }}>TOTAL</div>
-            <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'right', flexBasis: '30%' }}>${formatWhole(grandTotal)}</div>
+            <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'right', flexBasis: '30%' }}>${formatMoney(grandTotal)}</div>
           </div>
 
           {/* Terms & Conditions — six tokenized sections (Payment Terms is section 1, folded in
