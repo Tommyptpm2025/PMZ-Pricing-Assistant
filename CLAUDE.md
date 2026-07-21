@@ -23,7 +23,7 @@ When unsure which tier a change is, treat it as the second tier and stop.
 ## Engineering guardrails
 
 - **Stay in scope.** A layout pass is layout-only — never change values, math, calc, handlers, or dropdown logic inside one. Logic changes are their own pass.
-- **Typecheck every change.** Run the type checker; do not raise the file's existing error count. `project-pricer/page.tsx` currently carries ~50 pre-existing errors — don't add to them, don't try to "fix" them as a side quest, don't be alarmed by them.
+- **Typecheck every change.** Run the type checker (`npm run typecheck`); never introduce an error. **The repo currently measures 0 TypeScript errors — `project-pricer/page.tsx` included** (measured Jul 20, 2026 at `c357b0f`). A clean typecheck is the baseline; any error you see is yours. *(This line previously claimed ~50 pre-existing errors in project-pricer; that was stale — corrected per v0.2.2 Law 65.)*
 - **Commit discipline.**
   - One concern per commit. Never bundle layout with logic, or either with unrelated work.
   - This repo carries **pre-existing uncommitted work in several files.** Before committing, run `git status` and `git show --stat` and confirm only the intended file(s) are included.
