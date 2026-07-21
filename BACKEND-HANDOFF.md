@@ -3,7 +3,7 @@
 **Audience:** Kennedy — backend engineer building the production backend for PMZ Pricing Assistant.
 **Purpose:** an accurate map of what exists today, written from the code, so a backend snaps in rather than fights the front end.
 
-**Verified against commit `8203f31`, Jul 20 2026.** Every claim below carries a `file:line` cite. Law references cite edition + number per **v0.2.1 Law 78 (Edition Citation Law)**; the canon is `BOOK-OF-LAWS.md` at repo root — read it directly, never a summary.
+**Originally verified against commit `8203f31`, Jul 20 2026; §10.1 and §10.2 updated at `d246303` the same day.** Every claim below carries a `file:line` cite. Law references cite edition + number per **Law 78 (Edition Citation Law)**; the canon is `BOOK-OF-LAWS.md` at repo root, now at **v0.2.2** — read it directly, never a summary. Cites written as "v0.2.1 Law N" below were correct at the time of writing and remain valid for laws unchanged in v0.2.2; Laws 19, 56 and 65 were amended Jul 20 — read those at v0.2.2.
 
 **Accuracy discipline:** anything I could not confirm from the code is marked **TODO** and left open. Nothing here is inferred from a name. Where the code contradicts the intent, §10 says so plainly.
 
@@ -633,7 +633,7 @@ Call sites, both in `app/project-pricer/page.tsx`: display `:1017-1019`, save `:
 
 **Backend rule:** persist `unitPrice` as entered. Never recompute a stored price from cost on read or write.
 
-🔴 **See §10.2 — this law is CONFIRMED VIOLATED on the print path.** The Quote Preview / PDF prints the cost-derived Golden Formula *recommendation* instead of the persisted quoted price (owner walk, Jul 20 2026; one case printed **$0** on a $75,495.28 quote). The fence above covers save/reload only and is correctly green — **the print path is unfenced.** Persist and serve the entered `unitPrice`; never treat the recommendation as a price.
+✅ **See §10.2 — this law WAS violated on the print path and is now fixed and fenced.** The Quote Preview / PDF printed the cost-derived Golden Formula *recommendation* instead of the persisted quoted price (owner walk, Jul 20 2026; one case printed **$0** on a $75,495.28 quote). Fixed `0196a9a`, fenced `d246303`, verified on production. Persist and serve the entered `unitPrice`; never treat the recommendation as a price.
 
 ### 4.7 Other invariants worth knowing
 
@@ -648,7 +648,9 @@ Call sites, both in `app/project-pricer/page.tsx`: display `:1017-1019`, save `:
 
 ## 5. TEST FENCES
 
-Three suites — and only three (verified against `git ls-files`; everything else matching `*.test.*` is inside `node_modules`). **Plain Node + `node:assert/strict` — no Jest, no Vitest, no runner dependency.** They are `.mjs` so `tsc`'s `**/*.ts` include doesn't pull them in.
+Four suites (three at the time of writing; `quote-document-fence.test.mjs` added Jul 20 in `d246303` — see §10.2). Verified against `git ls-files`; everything else matching `*.test.*` is inside `node_modules`.
+
+**The fourth suite:** `scripts/quote-document-fence.test.mjs` — run `node scripts/quote-document-fence.test.mjs` (no `--import` hook needed). Asserts the customer document's printed total equals the persisted `totalRevenue` across every priced shape, pins the two owner-walk regressions, and structurally bars the cost-derived path from `buildQuoteData`. **Plain Node + `node:assert/strict` — no Jest, no Vitest, no runner dependency.** They are `.mjs` so `tsc`'s `**/*.ts` include doesn't pull them in.
 
 ⚠️ **There is no `test` script in `package.json`** (`package.json:6-13` — only `dev`, `build`, `start`, `lint`, `format`, `typecheck`). Every suite must be invoked by explicit path, and the fence suite silently requires a flag the other two don't (§5.1). Nothing runs these in CI. **A `"test"` script chaining all three with `--import` applied uniformly (harmless for the two that don't need it) would remove that footgun** — worth proposing to Tom.
 
@@ -734,7 +736,7 @@ Runs the **real** save-serialization through an actual `JSON.parse(JSON.stringif
 
 `BOOK-OF-LAWS.md:138-154` maintains an explicit **LAW-WITHOUT-A-FENCE** list. Highlights relevant to you: **Law 27 (Rule M-1)** — the headline gap, fence queued not built; **Law 6 (Counted-Means-Visible)**; **Law 48 (Additive Migrations)** — no migration test exists, *"the pending status-key rename will need one"*; **Law 50 (LEM Gate)** — no test blocks Accepted with zero-quantity lines; **Laws 41–42 (audience tiers)** — testable and untested.
 
-🔴 **Add to that list from this document's own findings: the quote document / PDF render path is entirely unfenced.** `epp-roundtrip.test.mjs` proves **v0.2.1 Law 56** for save/reload and nothing proves it for output — which is exactly where the confirmed defect in §10.2 lives. A fence asserting *rendered document total === persisted `totalRevenue`* would have caught it.
+✅ **Closed Jul 20 2026:** the quote document / PDF render path was entirely unfenced — `epp-roundtrip.test.mjs` proved Law 56 for save/reload and nothing proved it for output, which is exactly where the §10.2 defect lived. Now fenced by `scripts/quote-document-fence.test.mjs` (`d246303`), asserting *rendered document total === persisted `totalRevenue`*, mutation-tested. Residual edge: `buildQuoteData` is a closure and cannot be imported, so its call sites are pinned structurally rather than executed — extracting the mapping into `lib/` would close that.
 
 **And note §6 is entirely unfenced today.** If you build role enforcement, you are building the first fence for it — write the tests.
 
@@ -920,9 +922,21 @@ Roadmap context — **v0.2.1 Law 61 (Overhead Intake Roadmap):** Phase 2 = chart
 
 ## 10. KNOWN DRIFT AND OPEN QUESTIONS
 
-Found while writing this doc. **These are reported, not fixed** — several are Tier 2 under **v0.2.1 Law 63** and need Tom's ruling. Listed so you don't inherit them blind.
+Found while writing this doc. Several are Tier 2 under **v0.2.2 Law 63** and need Tom's ruling. Listed so you don't inherit them blind.
 
-### 10.1 🔴 Three shadow `STATUS_LABELS` maps disagree with the shared one
+**§10.1 and §10.2 were resolved on Jul 20 2026** — both are marked below with their fixing commits, and each keeps its original finding as history so the reasoning survives. Everything from §10.3 down is still open.
+
+### 10.1 ✅ RESOLVED (`c8c05c7`, Jul 20 2026) — shadow `STATUS_LABELS` maps deleted
+
+**Outcome:** superseded by a stronger gavel than the one this finding anticipated. Rather than pointing the documents at the canonical label map, Tom ruled that **customer-facing documents carry no lifecycle vocabulary at all** — *"we do not want our internal language on the street"* (v0.2.2 Law 19). Both shadow maps are deleted, both status pills removed, and the orphaned `STATUS_COLORS` imports and PDF pill styles went with them. The canonical-labels version was never committed.
+
+**For the backend:** do not add status vocabulary to any customer document surface you build. The document being a Quote (or Estimate) is its own status. Lifecycle words are internal-surface only.
+
+The original finding is preserved below as history.
+
+---
+
+#### (historical) Three shadow `STATUS_LABELS` maps disagree with the shared one
 
 The shared map is `lib/pmz-types.ts:366-378` (§3.2). But **two local consts shadow that name** and do **not** import from it:
 
@@ -937,9 +951,25 @@ A **third** duplication: `PIPELINE_PHASES` labels are hand-written display strin
 
 **Recommend:** one shared label map, imported everywhere; a fence asserting no local `STATUS_LABELS` exists. **Tom's call — Tier 2, touches customer-facing output.**
 
-### 10.2 🔴 CONFIRMED DEFECT — Law 56 violation: the PDF prints the recommendation, not the quoted price
+### 10.2 ✅ RESOLVED AND FENCED (`0196a9a` + `d246303`, Jul 20 2026) — Law 56 print-path violation
 
-**Status: CONFIRMED by owner walk, Jul 20 2026 (Tom), two cases. Mechanism identified. Fix is a separate Tier 2 pass — not this commit.**
+**Fixed:** `0196a9a` — `buildQuoteData` now takes `unitPrice` as persisted and derives line totals and the grand total from `lib/epp-line` (`eppLineTotal` / `eppTotalRevenue`), the same helpers the worksheet and the save path use. Printed === persisted by construction. All presentation-only rounding was removed from customer paper; amounts print to the cent (v0.2.2 Law 56, Law 57).
+
+**Fenced:** `d246303` — `scripts/quote-document-fence.test.mjs` asserts printed total === persisted totalRevenue across manual line totals, overridden unit prices, cents, fractional quantities, a no-cost quote, scope-only and empty quotes; pins both owner-walk cases as regressions; and structurally bars `customerUnitPrice` / `roundToQuote` from `buildQuoteData`. Both halves were mutation-tested — each confirmed to FAIL when the defect is reintroduced.
+
+**Verified on production Jul 20 2026.** The "print path is unfenced" note in §5.5 is superseded.
+
+**Gavel of record (Tom, Jul 20):** the customer document prints the **QUOTED** price, never the Golden Formula recommendation; the recommendation is owner-facing coaching only. Round-dollar quoting, if ever wanted, rounds the **saved** price at entry — parked for a future gavel, never a print-time transform.
+
+**For the backend, unchanged and still binding:** persist and serve the entered `unitPrice` and the `totalRevenue` derived from it. Never persist a recommendation as a price, never sum one into a document total, never return one as a quote's value. If you expose a recommendation, name it so it cannot be mistaken for the quote (`recommendedUnitPrice`, `recommendedTotal`).
+
+The original finding is preserved below as history.
+
+---
+
+#### (historical) CONFIRMED DEFECT — the PDF prints the recommendation, not the quoted price
+
+**Status at time of writing: CONFIRMED by owner walk, Jul 20 2026 (Tom), two cases. Mechanism identified.**
 
 This is a **customer-facing** defect: the Quote Preview / PDF prints a **cost-derived Golden Formula recommended price** instead of the **persisted quoted price**. What the customer receives is not what was quoted.
 
