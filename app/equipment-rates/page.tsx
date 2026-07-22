@@ -25,6 +25,7 @@ import {
   type EquipmentRateInputs,
   type EquipmentRateResult,
 } from "@/lib/calculations";
+import { goldenFormula } from "@/lib/pricing";
 import { useRateStore } from "@/lib/rate-store";
 
 function createId() {
@@ -1024,7 +1025,7 @@ export default function EquipmentRateBuilder() {
                     const totalAnn = annDep + own + op;
                     const hours = Math.max(1, profile.estimatedHours || 1000);
                     const cph = totalAnn / hours;
-                    const rec = cph / (1 - (profile.targetMargin || 0) / 100);
+                    const rec = goldenFormula(cph, profile.targetMargin || 0);
 
                     const isSelected = selectedId === profile.id;
                     const isActivelyEditing = editingId === profile.id;

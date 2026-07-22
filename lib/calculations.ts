@@ -5,6 +5,9 @@
  * Model is designed to be transparent and defensible to contractors.
  */
 
+// Relative import so the plain-node fences can load this module.
+import { goldenFormula } from "./pricing";
+
 export interface LaborRateInputs {
   role: string;
   baseWage: number;                    // $ per hour the employee is paid (union base or open-shop wage)
@@ -128,7 +131,7 @@ export function calculateLaborRate(inputs: LaborRateInputs): LaborRateResult {
 
   // --- Recommended billable rate (what you invoice the customer) ---
   const recommendedBillableRate = round2(
-    trueCostPerBillableHour / (1 - targetMargin / 100)
+    goldenFormula(trueCostPerBillableHour, targetMargin)
   );
 
   // --- Legacy % fields (for table compatibility) ---
@@ -389,7 +392,7 @@ export function calculateEquipmentRate(inputs: EquipmentRateInputs): EquipmentRa
   const totalCostPerHour = totalAnnualCost / hoursForRate;
 
   // Recommended rate with target margin
-  const recommendedRate = totalCostPerHour / (1 - targetMargin / 100);
+  const recommendedRate = goldenFormula(totalCostPerHour, targetMargin);
 
   // For the "actual use" view
   const actualHoursForCalc = Math.max(1, actualHours);

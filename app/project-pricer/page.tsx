@@ -59,6 +59,7 @@ import {
   calculateLaborRate,
   type LaborRateInputs,
 } from "@/lib/calculations";
+import { goldenFormula } from "@/lib/pricing";
 import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer, QuoteStatus } from "@/lib/pmz-types";
 import { sendQuoteForAcceptance } from "@/lib/quote-lifecycle";
 import { updateQuote } from "@/lib/quote-storage";
@@ -1007,7 +1008,7 @@ export default function ProjectPricerPage() {
     if (cost <= 0) return getTargetMarginForSize(totalRevenue || 0);
     let m = getTargetMarginForSize(cost);
     for (let i = 0; i < 12; i++) {
-      const bid = m < 100 ? cost / (1 - m / 100) : cost;
+      const bid = goldenFormula(cost, m);
       const m2 = getTargetMarginForSize(bid);
       if (m2 === m) break;
       m = m2;
@@ -1888,9 +1889,12 @@ export default function ProjectPricerPage() {
   // so the headline reflects the owner's actual bid and GP/margin are computed on real revenue vs cost.
   // eppRecommendedBid (break-even cost ÷ (1 − target margin), the Golden Formula) is retained as
   // secondary guidance only. Actual Cost = eppRealCost (above).
+  // The outer guard mirrors goldenFormula's own range check on purpose: pre-consolidation this
+  // rounded to cents ONLY when the formula applied, returning eppRealCost untouched otherwise.
+  // Kept exactly, so the Recommended line is byte-identical at every margin including 0.
   const eppRecommendedBid = (targetMargin > 0 && targetMargin < 100)
-    ? Math.round((eppRealCost / (1 - targetMargin / 100)) * 100) / 100
-    : eppRealCost;
+    ? Math.round(goldenFormula(eppRealCost, targetMargin) * 100) / 100
+    : goldenFormula(eppRealCost, targetMargin);
   const eppSellingPrice = totalRevenue;   // sum of entered line-item line totals
   const eppGrossProfitDollars = eppSellingPrice - eppRealCost;
   const eppGrossProfitPercent = eppSellingPrice > 0
@@ -2310,8 +2314,10 @@ export default function ProjectPricerPage() {
                     // Option B: job-level target margin (overall quote required GP / selling price, then per-line contribution)
                     const targetForJob = targetMargin;
                     const totalRealCostForJob = eppRealCost;
+                    // The 0 fallback is deliberate and stays OUTSIDE the shared formula: with no
+                    // target set, this guidance must stay blank rather than coach a break-even sale.
                     const totalRequiredSellingForJob = totalRealCostForJob > 0 && targetForJob > 0
-                      ? Math.round((totalRealCostForJob / (1 - targetForJob / 100)) * 100) / 100
+                      ? Math.round(goldenFormula(totalRealCostForJob, targetForJob) * 100) / 100
                       : 0;
                     const targetPctForGuidance = targetForJob;
                     const hasEnteredCosts = hasCosts && computedItemCost > 0;
