@@ -53,10 +53,8 @@ export interface LaborRateResult {
   // The three numbers that actually matter to the owner
   employerCostPerWorkedHour: number;     // True loaded cost while the person is on the clock
   trueCostPerBillableHour: number;       // Real internal cost per hour you can actually invoice
-  recommendedBillableRate: number;       // What you should charge the customer to hit target margin
-
-  // Convenience / display
-  marginOnRecommendedRate: number;
+  breakEvenBillableRate: number;         // The rate you build a bid FROM — break-even cost per
+                                         // billable hour. Never "recommended": no margin lives here.
 }
 
 /**
@@ -129,8 +127,11 @@ export function calculateLaborRate(inputs: LaborRateInputs): LaborRateResult {
     employerCostPerWorkedHour / billableFraction
   );
 
-  // --- Recommended billable rate (what you invoice the customer) ---
-  const recommendedBillableRate = round2(
+  // --- Break-even billable rate ---
+  // Stored rates are TRUE BREAK-EVEN COST (v0.2.2 Law 29): no overhead, no profit, no markup.
+  // targetMargin has no UI in this builder and is 0 for every profile, so goldenFormula is an
+  // identity here and this equals trueCostPerBillableHour. Profit is added when you BID.
+  const breakEvenBillableRate = round2(
     goldenFormula(trueCostPerBillableHour, targetMargin)
   );
 
@@ -147,8 +148,7 @@ export function calculateLaborRate(inputs: LaborRateInputs): LaborRateResult {
     totalBurdenPercent,
     employerCostPerWorkedHour,
     trueCostPerBillableHour,
-    recommendedBillableRate,
-    marginOnRecommendedRate: round2(targetMargin),
+    breakEvenBillableRate,
   };
 }
 
@@ -161,7 +161,7 @@ export function calculateSensitivity(
   baseInputs: LaborRateInputs,
   baseWageDelta: number
 ): {
-  newRecommendedRate: number;
+  newBreakEvenRate: number;
   delta: number;
   percentChange: number;
 } {
@@ -173,14 +173,14 @@ export function calculateSensitivity(
   const original = calculateLaborRate(baseInputs);
   const modifiedResult = calculateLaborRate(modified);
 
-  const delta = modifiedResult.recommendedBillableRate - original.recommendedBillableRate;
+  const delta = modifiedResult.breakEvenBillableRate - original.breakEvenBillableRate;
   const percentChange =
-    original.recommendedBillableRate > 0
-      ? (delta / original.recommendedBillableRate) * 100
+    original.breakEvenBillableRate > 0
+      ? (delta / original.breakEvenBillableRate) * 100
       : 0;
 
   return {
-    newRecommendedRate: round2(modifiedResult.recommendedBillableRate),
+    newBreakEvenRate: round2(modifiedResult.breakEvenBillableRate),
     delta: round2(delta),
     percentChange: round2(percentChange),
   };
@@ -326,7 +326,8 @@ export interface EquipmentRateResult {
   totalCostPerHour: number;       // the true total cost per billable hour (utilization-adjusted)
   utilizationPct: number;         // normalized utilization applied to the budgeted-hours rate
   effectiveBudgetedHours: number; // budgeted hours × utilization% — the productive-hours divisor
-  recommendedRate: number;        // with target margin applied
+  // NOTE: no "recommended rate" here by law (v0.2.2, Jul 22 2026). Equipment rates are true
+  // break-even cost; margin is added when you BID, not in the rate. totalCostPerHour is the rate.
   // "Actual use" view (uses actualHours instead of estimatedHours)
   actualDepreciationPerHour: number;
   actualOwnershipPerHour: number;
@@ -391,9 +392,6 @@ export function calculateEquipmentRate(inputs: EquipmentRateInputs): EquipmentRa
   const totalAnnualCost = annualDepreciation + ownershipAnnual + operatingAnnual;
   const totalCostPerHour = totalAnnualCost / hoursForRate;
 
-  // Recommended rate with target margin
-  const recommendedRate = goldenFormula(totalCostPerHour, targetMargin);
-
   // For the "actual use" view
   const actualHoursForCalc = Math.max(1, actualHours);
 
@@ -410,7 +408,6 @@ export function calculateEquipmentRate(inputs: EquipmentRateInputs): EquipmentRa
     totalCostPerHour: round2(totalCostPerHour),
     utilizationPct: utilization,
     effectiveBudgetedHours,
-    recommendedRate: round2(recommendedRate),
     actualDepreciationPerHour: round2(annualDepreciation / actualHoursForCalc),
     actualOwnershipPerHour: round2(ownershipAnnual / actualHoursForCalc),
     actualOperatingPerHour: round2(operatingAnnual / actualHoursForCalc),

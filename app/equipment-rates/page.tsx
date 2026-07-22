@@ -25,7 +25,6 @@ import {
   type EquipmentRateInputs,
   type EquipmentRateResult,
 } from "@/lib/calculations";
-import { goldenFormula } from "@/lib/pricing";
 import { useRateStore } from "@/lib/rate-store";
 
 function createId() {
@@ -1011,7 +1010,6 @@ export default function EquipmentRateBuilder() {
                     <TableHead className="text-right">Depreciation /yr</TableHead>
                     <TableHead className="text-right">Total Annual</TableHead>
                     <TableHead className="text-right font-semibold">Cost per Hour</TableHead>
-                    <TableHead className="text-right font-semibold">Recommended Rate</TableHead>
                     <TableHead className="w-px" />
                   </TableRow>
                 </TableHeader>
@@ -1025,7 +1023,6 @@ export default function EquipmentRateBuilder() {
                     const totalAnn = annDep + own + op;
                     const hours = Math.max(1, profile.estimatedHours || 1000);
                     const cph = totalAnn / hours;
-                    const rec = goldenFormula(cph, profile.targetMargin || 0);
 
                     const isSelected = selectedId === profile.id;
                     const isActivelyEditing = editingId === profile.id;
@@ -1053,9 +1050,8 @@ export default function EquipmentRateBuilder() {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{formatCurrency(annDep)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatCurrency(totalAnn)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{formatCurrency(cph)}</TableCell>
                         <TableCell className="text-right font-semibold tabular-nums text-lg text-primary">
-                          {formatCurrency(rec)}
+                          {formatCurrency(cph)}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">

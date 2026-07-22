@@ -856,7 +856,7 @@ export default function LaborRateBuilder() {
               <TrendingUp className="h-4 w-4" /> What-if Sensitivity
             </CardTitle>
             <CardDescription>
-              See instantly how a wage increase (or decrease) flows through to your recommended rate.
+              See instantly how a wage increase (or decrease) flows through to your break-even rate.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -892,7 +892,7 @@ export default function LaborRateBuilder() {
                   <span className="text-muted-foreground"> base wage</span>
                 </div>
                 <div className="font-semibold tabular-nums text-lg">
-                  {formatCurrency(sensitivity.newRecommendedRate)}
+                  {formatCurrency(sensitivity.newBreakEvenRate)}
                 </div>
                 <div className={sensitivity.delta >= 0 ? "text-emerald-600" : "text-red-600"}>
                   {sensitivity.delta >= 0 ? "+" : ""}{formatCurrency(sensitivity.delta)}
@@ -900,7 +900,8 @@ export default function LaborRateBuilder() {
                 </div>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                This is the new recommended billable rate if base wages moved by ${sensitivityDelta}.
+                This is your new break-even rate if base wages moved by ${sensitivityDelta} — your true
+                cost per hour at that wage. Profit gets added when you bid, not here.
               </p>
             </div>
           </CardContent>
