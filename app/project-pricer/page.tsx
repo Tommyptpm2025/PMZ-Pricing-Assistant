@@ -60,6 +60,7 @@ import {
   type LaborRateInputs,
 } from "@/lib/calculations";
 import { goldenFormula } from "@/lib/pricing";
+import { formatMoney } from "@/lib/format";
 import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer, QuoteStatus } from "@/lib/pmz-types";
 import { sendQuoteForAcceptance } from "@/lib/quote-lifecycle";
 import { updateQuote } from "@/lib/quote-storage";
@@ -195,17 +196,6 @@ const BID_GRID = "grid grid-cols-[minmax(0,1fr)_7rem_5rem_9rem_10rem_8rem] gap-0
 // (Description min 300px + 112 + 80 + 144 + 160 + 128 = 924px).
 const BID_ROW_MINW = "min-w-[924px]";
 const LEM_GRID = `${BID_GRID} mb-1`;
-
-// Consistent currency formatter: always exactly 2 decimal places + thousands separators
-function formatMoney(amount: number | undefined | null): string {
-  if (amount === undefined || amount === null || isNaN(amount)) {
-    return "$0.00";
-  }
-  return amount.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 // --- Independent save helpers for EPP and Pro (using separate localStorage keys) ---
 
@@ -2568,7 +2558,7 @@ export default function ProjectPricerPage() {
                                                   </div>
                                                   <div></div>
                                                   <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/hr</div>
-                                                  <div className="text-right tabular-nums">${formatMoney(rowCost)}</div>
+                                                  <div className="text-right tabular-nums">{formatMoney(rowCost)}</div>
                                                   <div></div>
                                                 </div>
                                               );
@@ -2719,7 +2709,7 @@ export default function ProjectPricerPage() {
                                           <div className="text-right tabular-nums text-muted-foreground">—</div>
                                         )}
                                       <div className="text-right">
-                                        <span className="text-sm">${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">{formatMoney(entryCost)}</span>
                                       </div>
                                       <div className="flex items-center justify-end">
                                         {!isReadOnly && (
@@ -2818,7 +2808,7 @@ export default function ProjectPricerPage() {
                                                   </div>
                                                   <div></div>
                                                   <div className="text-right tabular-nums text-muted-foreground">${rate.toFixed(2)}/hr</div>
-                                                  <div className="text-right tabular-nums">${formatMoney(rowCost)}</div>
+                                                  <div className="text-right tabular-nums">{formatMoney(rowCost)}</div>
                                                   <div></div>
                                                 </div>
                                               );
@@ -2955,7 +2945,7 @@ export default function ProjectPricerPage() {
                                           <div className="text-right tabular-nums text-muted-foreground">—</div>
                                         )}
                                       <div className="text-right">
-                                        <span className="text-sm">${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">{formatMoney(entryCost)}</span>
                                       </div>
                                       <div className="flex items-center justify-end">
                                         {!isReadOnly && (
@@ -3131,7 +3121,7 @@ export default function ProjectPricerPage() {
                                           <div className="text-right tabular-nums text-muted-foreground">—</div>
                                         )}
                                       <div className="text-right">
-                                        <span className="text-sm">${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">{formatMoney(entryCost)}</span>
                                       </div>
                                       <div className="flex items-center justify-end">
                                         {!isReadOnly && (
@@ -3332,7 +3322,7 @@ export default function ProjectPricerPage() {
                                         <div className="text-right tabular-nums text-muted-foreground">—</div>
                                       )}
                                       <div className="text-right">
-                                        <span className="text-sm">${formatMoney(entryCost)}</span>
+                                        <span className="text-sm">{formatMoney(entryCost)}</span>
                                       </div>
                                       <div className="flex items-center justify-end">
                                         {!isReadOnly && (
@@ -3355,8 +3345,8 @@ export default function ProjectPricerPage() {
                                 })}
                               </div>
                               <div className="border-t pt-3 mt-2 flex flex-wrap gap-x-8 text-lg">
-                                <div>Total Cost: <span className="font-semibold tabular-nums">${formatMoney(computedItemCost)}</span></div>
-                                <div>Real GP: <span className="font-semibold tabular-nums">${formatMoney(effectiveLineTotal - computedItemCost)}</span> <span className="tabular-nums">({computedItemGpPct.toFixed(1)}%)</span></div>
+                                <div>Total Cost: <span className="font-semibold tabular-nums">{formatMoney(computedItemCost)}</span></div>
+                                <div>Real GP: <span className="font-semibold tabular-nums">{formatMoney(effectiveLineTotal - computedItemCost)}</span> <span className="tabular-nums">({computedItemGpPct.toFixed(1)}%)</span></div>
                                 {estimate.workTypeName && targetMargin > 0 && (
                                   <div className="text-muted-foreground">Target: {targetMargin.toFixed(0)}%</div>
                                 )}
@@ -3370,10 +3360,10 @@ export default function ProjectPricerPage() {
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="space-y-0.5">
                                     <div>
-                                      To hit your {targetPctForGuidance.toFixed(0)}% target margin you need to sell this line for: <span className="font-semibold tabular-nums">${formatMoney(requiredLineTotalLive)}</span>
+                                      To hit your {targetPctForGuidance.toFixed(0)}% target margin you need to sell this line for: <span className="font-semibold tabular-nums">{formatMoney(requiredLineTotalLive)}</span>
                                     </div>
                                     <div>
-                                      Gross Profit on this line would be: <span className="font-semibold tabular-nums">${formatMoney(requiredGPLive)}</span> <span className="tabular-nums">({targetPctForGuidance.toFixed(0)}%)</span>
+                                      Gross Profit on this line would be: <span className="font-semibold tabular-nums">{formatMoney(requiredGPLive)}</span> <span className="tabular-nums">({targetPctForGuidance.toFixed(0)}%)</span>
                                     </div>
                                     {guidanceStatus && (
                                       <div className="pt-0.5">
@@ -3423,7 +3413,7 @@ export default function ProjectPricerPage() {
           <div className="border-t bg-muted/40 px-4 py-3 flex items-center justify-between">
             <div className="text-sm font-medium tracking-wide text-muted-foreground">TOTAL REVENUE</div>
             <div className="text-3xl font-semibold tabular-nums tracking-tighter">
-              ${formatMoney(eppSellingPrice)}
+              {formatMoney(eppSellingPrice)}
             </div>
           </div>
 
@@ -3433,15 +3423,15 @@ export default function ProjectPricerPage() {
               <div className="grid grid-cols-5 gap-x-6 text-center">
                 <div className="flex flex-col">
                   <span className="font-semibold text-amber-950 dark:text-amber-100">Estimate Total:</span>
-                  <span className="tabular-nums">${formatMoney(eppSellingPrice)}</span>
+                  <span className="tabular-nums">{formatMoney(eppSellingPrice)}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="font-semibold text-amber-950 dark:text-amber-100">Actual Cost:</span>
-                  <span className="tabular-nums">${formatMoney(eppRealCost)}</span>
+                  <span className="tabular-nums">{formatMoney(eppRealCost)}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="font-semibold text-amber-950 dark:text-amber-100">Gross Profit:</span>
-                  <span className="tabular-nums">${formatMoney(eppGrossProfitDollars)}</span>
+                  <span className="tabular-nums">{formatMoney(eppGrossProfitDollars)}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="font-semibold text-amber-950 dark:text-amber-100">Gross Margin:</span>
@@ -3454,7 +3444,7 @@ export default function ProjectPricerPage() {
               </div>
               {eppTargetPercent > 0 && (
                 <div className="mt-1 text-center text-xs text-amber-700 dark:text-amber-300">
-                  Recommended @ {eppTargetPercent.toFixed(0)}%: <span className="tabular-nums">${formatMoney(eppRecommendedBid)}</span>
+                  Recommended @ {eppTargetPercent.toFixed(0)}%: <span className="tabular-nums">{formatMoney(eppRecommendedBid)}</span>
                 </div>
               )}
             </div>
@@ -3898,8 +3888,8 @@ export default function ProjectPricerPage() {
                           disabled={isReadOnly}
                         />
                       </TableCell>
-                      <TableCell className="text-right tabular-nums text-xs py-1">${formatMoney(item.unitCost)}</TableCell>
-                      <TableCell className="text-right tabular-nums font-medium py-1">${formatMoney(item.quantity * item.unitCost)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-xs py-1">{formatMoney(item.unitCost)}</TableCell>
+                      <TableCell className="text-right tabular-nums font-medium py-1">{formatMoney(item.quantity * item.unitCost)}</TableCell>
                       <TableCell className="py-1">
                         {!isReadOnly && (
                           <Button variant="ghost" size="icon" className="h-5 w-5 text-red-600 hover:text-red-800" onClick={() => removeRealLEMItem(item.id)}>
@@ -3921,15 +3911,15 @@ export default function ProjectPricerPage() {
         <div className="pt-2 border-t text-xs">
           <div className="flex justify-between">
             <span>Total Labor Cost</span>
-            <span className="font-medium tabular-nums">${formatMoney(realLaborCost)}</span>
+            <span className="font-medium tabular-nums">{formatMoney(realLaborCost)}</span>
           </div>
           <div className="flex justify-between">
             <span>Total Equipment Cost</span>
-            <span className="font-medium tabular-nums">${formatMoney(realEquipCost)}</span>
+            <span className="font-medium tabular-nums">{formatMoney(realEquipCost)}</span>
           </div>
           <div className="flex justify-between">
             <span>Total Material Cost</span>
-            <span className="font-medium tabular-nums">${formatMoney(realMatCost)}</span>
+            <span className="font-medium tabular-nums">{formatMoney(realMatCost)}</span>
           </div>
         </div>
 
@@ -3978,7 +3968,7 @@ export default function ProjectPricerPage() {
               </div>
               <div>
                 <span>Gross Profit $</span>
-                <span className="font-semibold tabular-nums">${formatMoney(computedGrossProfit)}</span>
+                <span className="font-semibold tabular-nums">{formatMoney(computedGrossProfit)}</span>
               </div>
             </div>
           </div>
@@ -4000,7 +3990,7 @@ export default function ProjectPricerPage() {
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>Total Real LEM Cost</span>
-                <span className="font-semibold tabular-nums">${formatMoney(realTotalLEM)}</span>
+                <span className="font-semibold tabular-nums">{formatMoney(realTotalLEM)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Gross Profit % {!isNoTarget && <span className="text-[10px] text-muted-foreground/70">(Target: {defaultTargetGP.toFixed(0)}%)</span>}</span>
@@ -4008,12 +3998,12 @@ export default function ProjectPricerPage() {
               </div>
               <div className="flex justify-between">
                 <span>Gross Profit $</span>
-                <span className="font-semibold tabular-nums">${formatMoney(computedGrossProfit)}</span>
+                <span className="font-semibold tabular-nums">{formatMoney(computedGrossProfit)}</span>
               </div>
               <div className="flex justify-between border-t-2 pt-2 mt-1 font-bold text-base bg-white/30 dark:bg-white/10 -mx-1 px-1 rounded">
                 <span className="text-lg">Grand Total</span>
                 <span className={grandTotalNumberClass}>
-                  ${formatMoney(computedGrandTotal)}
+                  {formatMoney(computedGrandTotal)}
                 </span>
               </div>
             </div>
@@ -4075,8 +4065,8 @@ export default function ProjectPricerPage() {
 
             <div className="rounded-lg bg-muted/50 p-4 text-sm mb-4">
               Based on the <strong>{targetMargin.toFixed(1)}%</strong> target margin for this work type and size, 
-              your total direct costs (L+E+M) need to stay at or below <strong>${formatMoney(MaxDirectCost)}</strong> 
-              to hit your goal on a ${formatMoney(targetBidPrice)} bid.
+              your total direct costs (L+E+M) need to stay at or below <strong>{formatMoney(MaxDirectCost)}</strong> 
+              to hit your goal on a {formatMoney(targetBidPrice)} bid.
             </div>
 
             <p className="text-sm text-muted-foreground mb-4">
