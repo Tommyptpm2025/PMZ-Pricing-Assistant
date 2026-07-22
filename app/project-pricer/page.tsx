@@ -206,18 +206,6 @@ function formatMoney(amount: number | undefined | null): string {
   });
 }
 
-// Customer-facing rounding (presentation/export only — never touches saved/internal economics).
-// Round line totals to the nearest QUOTE_ROUND_TO dollars; the grand total sums the ROUNDED lines.
-const QUOTE_ROUND_TO = 1; // 1 = whole dollars; can become 5 / 25 later
-function roundToQuote(amount: number): number {
-  const step = QUOTE_ROUND_TO > 0 ? QUOTE_ROUND_TO : 1;
-  return Math.round((amount || 0) / step) * step;
-}
-// Whole-dollar formatter (no cents) for customer-facing line/grand totals.
-function formatWhole(amount: number | undefined | null): string {
-  if (amount === undefined || amount === null || isNaN(amount)) return "0";
-  return Number(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
 // --- Independent save helpers for EPP and Pro (using separate localStorage keys) ---
 
 function saveEPPQuote(data: {
@@ -1071,17 +1059,6 @@ export default function ProjectPricerPage() {
     return Math.round((lC + eC + mC + miscC + crewC) * 100) / 100;
   }
 
-  // Customer-facing marked-up unit price for a bid line (break-even cost ÷ (1 − target margin),
-  // per unit). Cost-derived (matches the on-screen RECOMMENDED BID), so a manual top-price override
-  // does not change the customer price. Falls back to cost when no target margin is set.
-  function customerUnitPrice(item: any): number {
-    const qty = item.quantity || 0;
-    if (qty <= 0) return 0;
-    const cost = lineBreakEvenCost(item);
-    const marked = (targetMargin > 0 && targetMargin < 100) ? cost / (1 - targetMargin / 100) : cost;
-    return marked / qty;
-  }
-
   // Default GP% for Pro view: the target from work type tier (based on current bid total), or 20% if none selected
   const defaultTargetGP = targetMargin > 0 ? targetMargin : 20;
 
@@ -1534,11 +1511,6 @@ export default function ProjectPricerPage() {
       let proLems: LemItem[] = [];
       let directCogsDollars = 0;
       let indirectCogsDollars = 0;
-
-      // EPP marked-up recommended bid (cost ÷ (1 − target margin)) — the customer-facing total.
-      const eppMarkedUpBid = (targetMargin > 0 && targetMargin < 100)
-        ? Math.round((eppRealCost / (1 - targetMargin / 100)) * 100) / 100
-        : eppRealCost;
 
       if (quoteType === "EPP") {
         // Persist the entered/displayed price per line (Σ qty × unitPrice == totalRevenue),

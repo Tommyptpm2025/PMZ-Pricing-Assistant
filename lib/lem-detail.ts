@@ -16,6 +16,9 @@
  * the expanded crew lines.)
  */
 
+// Law 57 — one money formatter. Relative import so the plain-node fences can load this.
+import { formatMoney } from "./format";
+
 // Catalog surface this resolver needs — satisfied by useRateStore() on either page.
 export interface LemRateCatalogs {
   laborRates: Array<{ id: string; role?: string }>;
@@ -47,13 +50,6 @@ export interface LineLemDetail {
   hasAny: boolean;
 }
 
-function money(n: number): string {
-  return (Number.isFinite(n) ? n : 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
 function num(n: number): string {
   return (Number.isFinite(n) ? n : 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
@@ -75,14 +71,14 @@ function laborRow(entry: any, cats: LemRateCatalogs): LemRow {
       ? entry.labor.burdenedHourlyRate
       : cats.getLaborCostPerHour(entry.rateId || "");
   const hours = entry.hours || 0;
-  return makeRow(name, `${num(hours)} hrs`, `$${money(rate)}/hr`, `$${money(rate * hours)}`);
+  return makeRow(name, `${num(hours)} hrs`, `${formatMoney(rate)}/hr`, formatMoney(rate * hours));
 }
 
 function equipmentRow(entry: any, cats: LemRateCatalogs): LemRow {
   const name = cats.equipmentRates.find((r) => r.id === entry.rateId)?.description || "Equipment";
   const rate = entry.rate != null ? entry.rate : cats.getEquipmentCostPerHour(entry.rateId || "");
   const hours = entry.hours || 0;
-  return makeRow(name, `${num(hours)} hrs`, `$${money(rate)}/hr`, `$${money(rate * hours)}`);
+  return makeRow(name, `${num(hours)} hrs`, `${formatMoney(rate)}/hr`, formatMoney(rate * hours));
 }
 
 function materialRow(entry: any, cats: LemRateCatalogs): LemRow {
@@ -91,7 +87,7 @@ function materialRow(entry: any, cats: LemRateCatalogs): LemRow {
   const uom = profile?.unitOfMeasure || "unit";
   const rate = entry.rate != null ? entry.rate : cats.getMaterialCostPerUnit(entry.rateId || "");
   const qty = entry.quantity || 0;
-  return makeRow(name, `${num(qty)} ${uom}`, `$${money(rate)}/${uom}`, `$${money(rate * qty)}`);
+  return makeRow(name, `${num(qty)} ${uom}`, `${formatMoney(rate)}/${uom}`, formatMoney(rate * qty));
 }
 
 function miscRow(entry: any, cats: LemRateCatalogs): LemRow {
@@ -100,7 +96,7 @@ function miscRow(entry: any, cats: LemRateCatalogs): LemRow {
   const uom = profile?.unitOfMeasure || "";
   const rate = entry.rate != null ? entry.rate : cats.getMiscCostPerUnit(entry.rateId || "");
   const qty = entry.quantity || 0;
-  return makeRow(name, uom ? `${num(qty)} ${uom}` : num(qty), `$${money(rate)}`, `$${money(rate * qty)}`);
+  return makeRow(name, uom ? `${num(qty)} ${uom}` : num(qty), formatMoney(rate), formatMoney(rate * qty));
 }
 
 // Re-tag a crew member row with its kind in the Type/Name column (and the on-screen text),

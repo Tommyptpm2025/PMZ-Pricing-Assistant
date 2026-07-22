@@ -17,12 +17,6 @@ function formatMoney(amount: number | undefined | null): string {
   return Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Whole-dollar formatter (no cents) for customer-facing line/grand totals.
-function formatWhole(amount: number | undefined | null): string {
-  if (amount === undefined || amount === null || isNaN(amount)) return "0";
-  return Number(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
-
 export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePreviewProps) {
   const q = quote || {};
   // Company identity (Tier A) — global, read directly so it stays out of the per-quote
