@@ -11,32 +11,43 @@
  *      components must not render money through the whole-dollar formatter.
  * Run: node scripts/quote-document-fence.test.mjs
  *
- * WHY A SOURCE CHECK: buildQuoteData is a closure inside app/project-pricer/page.tsx (it closes
- * over estimate/customer/rate state) and cannot be imported. The behavioral half exercises the
- * REAL lib/epp-line helpers it delegates to; the structural half pins the call sites so the
- * cost-derived path cannot be reintroduced without failing here. See BACKEND-HANDOFF.md §10.2.
+ * THE FENCE EXECUTES THE REAL FUNCTION. buildQuoteDocument was extracted from the page.tsx
+ * closure into lib/quote-document.ts precisely so this suite can call it directly instead of
+ * pinning its call sites by reading source text. Component state arrives via explicit deps;
+ * the clock is injected so output is deterministic. See BACKEND-HANDOFF.md §10.2.
  *
  * (.mjs so tsc's "**\/*.ts" include doesn't pull it in; Node strips the imported .ts types.)
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "../lib/epp-line.ts";
+import { serializeEppLine, eppTotalRevenue } from "../lib/epp-line.ts";
+import { buildQuoteDocument } from "../lib/quote-document.ts";
 
 const repoFile = (rel) => readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), "utf8");
 
-// ── The document line mapping, exactly as buildQuoteData builds it (page.tsx:1986-2004) ──────
-// unitPrice is taken AS PERSISTED; lineTotal and the grand total come from lib/epp-line — the
-// same helpers the worksheet total (:1017-1019) and the save path (:1662) use.
+// Empty rate catalogs — these fixtures carry explicit rates on their entries, so LEM detail
+// resolves without a store. The document PRICE path never consults them.
+const LEM_CATS = {
+  laborRates: [], equipmentRates: [], materialRates: [], miscRates: [],
+  getLaborCostPerHour: () => 0, getEquipmentCostPerHour: () => 0,
+  getMaterialCostPerUnit: () => 0, getMiscCostPerUnit: () => 0,
+};
+
+// Call the REAL document mapping. Deps are pinned so the only variable is the bid items.
 function buildDocument(bidItems) {
-  const lineItems = bidItems.map((item) => ({
-    description: item.description || "—",
-    qty: Number(item.quantity || 0),
-    unit: item.unit || "",
-    unitPrice: Number(item.unitPrice || 0),
-    lineTotal: eppLineTotal(item),
-  }));
-  return { lineItems, total: eppTotalRevenue(bidItems) };
+  return buildQuoteDocument(
+    { bidItems },
+    {
+      estimate: { bidItems: [] },
+      currentCustomer: null,
+      estimators: [],
+      lemCats: LEM_CATS,
+      grossProfit: 0,
+      now: new Date(2026, 6, 20),
+      quoteNumber: "1234567",
+    },
+  );
 }
 
 // The persisted total, produced by the real save path: serialize each line, then sum.
@@ -145,22 +156,46 @@ assert.equal(buildDocument(case2).total, 37880, "case 2: the document now prints
 assert.notEqual(Math.round(buildDocument(case2).total), 35406,
   "case 2: the document must never print the recommendation");
 
-// ── 3 — STRUCTURAL: the cost-derived path cannot come back unnoticed ─────────────────────────
-const pricerSrc = repoFile("app/project-pricer/page.tsx");
-const startIdx = pricerSrc.indexOf("const buildQuoteData");
-const endIdx = pricerSrc.indexOf("const validationErrors");
-assert.ok(startIdx > 0, "buildQuoteData found in app/project-pricer/page.tsx");
-assert.ok(endIdx > startIdx, "buildQuoteData end anchor (validationErrors) found");
-const buildQuoteDataSrc = pricerSrc.slice(startIdx, endIdx);
+// ── 3 — BEHAVIORAL PROOF that the cost-derived path is gone ──────────────────────────────────
+// Previously a source-text check (the mapping was an unimportable closure). Now EXECUTED: a line
+// carrying heavy costs but a deliberately LOW quoted price must print the quoted price. A
+// cost-derived Golden Formula or any presentation rounding would move these numbers.
+const costlyButCheap = [{
+  id: "x", description: "Underpriced Grading", quantity: 1, unit: "LS", unitPrice: 1000.01,
+  laborEntries: [{ rateId: "op-1", hours: 100, rate: 85 }],
+  equipmentEntries: [{ rateId: "ex-1", hours: 100, rate: 120 }],
+}];
+const cheapDoc = buildDocument(costlyButCheap);
+assert.equal(cheapDoc.total, 1000.01,
+  "a heavily-costed line prints its QUOTED price — never a cost-derived recommendation");
+assert.equal(cheapDoc.lineItems[0].unitPrice, 1000.01,
+  "the printed unit price is the persisted one, not cost ÷ (1 − margin)");
+// The .01 survives: presentation rounding (roundToQuote / whole dollars) would erase it.
+assert.notEqual(cheapDoc.total, 1000, "no presentation rounding — the cent survives to the document");
 
-assert.ok(!buildQuoteDataSrc.includes("customerUnitPrice"),
-  "buildQuoteData must NOT use customerUnitPrice — the Golden Formula recommendation is owner-facing coaching only");
-assert.ok(!buildQuoteDataSrc.includes("roundToQuote"),
-  "buildQuoteData must NOT apply presentation rounding — printed === persisted");
-assert.ok(buildQuoteDataSrc.includes("eppLineTotal"),
-  "buildQuoteData builds line totals through lib/epp-line (one price path)");
-assert.ok(buildQuoteDataSrc.includes("eppTotalRevenue"),
-  "buildQuoteData builds the grand total through lib/epp-line (one price path)");
+// The mapping must not silently drop the LEM breakdown the preview/PDF render.
+assert.ok(cheapDoc.lineItems[0].lemDetail !== undefined,
+  "each printed line carries its lemDetail breakdown");
+
+// Deps are honored, not ignored: header/token fields come from the passed state.
+const wired = buildQuoteDocument(
+  { bidItems: [], jobName: "Job A", workTypeName: "Paving", estimator: "Dana Reyes", salesperson: "Sam" },
+  {
+    estimate: { bidItems: [] },
+    currentCustomer: { name: "Acme LLC", billingAddress: { street: "1 Main St", city: "Reno", state: "NV", zip: "89501" } },
+    estimators: [{ name: "Dana Reyes", title: "Senior Estimator", email: "d@x.com", phone: "555-0100" }],
+    lemCats: LEM_CATS,
+    grossProfit: 4200,
+    now: new Date(2026, 6, 20),
+    quoteNumber: "7654321",
+  },
+);
+assert.equal(wired.customer.name, "Acme LLC", "customer block resolves from the passed record");
+assert.equal(wired.tokenContext.estimator.title, "Senior Estimator", "estimator registry lookup resolves");
+assert.equal(wired.quoteNumber, "7654321", "quote number is injectable (deterministic documents)");
+assert.equal(wired.grossProfit, 4200, "gross profit passes through from component state");
+// Law 57 — customer-facing amounts print to the cent through the SSOT formatter, one $ only.
+assert.equal(wired.tokenContext.quote.total, "$0.00", "an empty quote's token total is one honest $0.00");
 
 // The customer document components must not render money through the whole-dollar formatter.
 for (const rel of ["components/QuotePreview.tsx", "components/QuotePdfDocument.tsx"]) {
@@ -173,4 +208,4 @@ for (const rel of ["components/QuotePreview.tsx", "components/QuotePdfDocument.t
 
 console.log("PASS: printed total === persisted totalRevenue across manual, overridden, cents, no-cost, scope-only and empty quotes");
 console.log("PASS: owner-walk regressions pinned — a no-cost quote never prints $0; a quote never prints its recommendation");
-console.log("PASS: structural — buildQuoteData routes through lib/epp-line, never customerUnitPrice/roundToQuote; documents print to the cent");
+console.log("PASS: executed — the REAL buildQuoteDocument prints quoted prices over heavy costs, keeps the cent, and honors passed state");

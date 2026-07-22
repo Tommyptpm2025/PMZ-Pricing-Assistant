@@ -43,7 +43,7 @@ import QuotePreview from "@/components/QuotePreview";
 import QuotePdfDocument from "@/components/QuotePdfDocument";
 import { getCompanySettings } from "@/lib/company-settings";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
-import { buildLineLemDetail, type LemRateCatalogs } from "@/lib/lem-detail";
+import { buildQuoteDocument } from "@/lib/quote-document";
 import {
   TrendingUp,
   Plus,
@@ -218,19 +218,6 @@ function formatWhole(amount: number | undefined | null): string {
   if (amount === undefined || amount === null || isNaN(amount)) return "0";
   return Number(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
-// Format a customer address object into non-empty display lines (street, street2, "City, ST ZIP").
-function formatAddressLines(addr: any): string[] {
-  if (!addr) return [];
-  if (typeof addr === "string") return addr.trim() ? [addr.trim()] : [];
-  const cityStateZip = [
-    [addr.city, addr.state].filter(Boolean).join(", "),
-    addr.zip,
-  ].filter(Boolean).join(" ");
-  return [addr.street, addr.street2, cityStateZip]
-    .map((l) => (l || "").toString().trim())
-    .filter(Boolean);
-}
-
 // --- Independent save helpers for EPP and Pro (using separate localStorage keys) ---
 
 function saveEPPQuote(data: {
@@ -1940,153 +1927,19 @@ export default function ProjectPricerPage() {
   const eppTargetPercent = targetMargin; // from selected Work Type tier for current job size, or 0
   const eppOnTarget = eppGrossProfitPercent >= eppTargetPercent;
 
-  // Single normalized customer block used by BOTH the on-screen preview and the PDF, built from the
-  // selected customer record. "Same as billing" is derived (no persisted flag): the saved jobSite is a
-  // copy of billing when same. Empty fields stay empty (callers suppress empty blocks). Internal-only
-  // `notes` is deliberately never included.
-  function buildCustomerBlock() {
-    const c: any = currentCustomer || {};
-    const billing = c.billingAddress || {};
-    const job = c.jobSiteAddress || {};
-    const hasJob = !!(job.street || job.street2 || job.city || job.state || job.zip || job.accessNotes || job.latitude != null || job.longitude != null);
-    const jobSiteSameAsBilling = !hasJob || (
-      (billing.street || "") === (job.street || "") &&
-      (billing.street2 || "") === (job.street2 || "") &&
-      (billing.city || "") === (job.city || "") &&
-      (billing.state || "") === (job.state || "") &&
-      (billing.zip || "") === (job.zip || "")
-    );
-    const block = {
-      name: c.name || estimate.customerName || "",
-      billToLines: formatAddressLines(billing),
-      jobSiteSameAsBilling,
-      jobSiteLines: jobSiteSameAsBilling ? formatAddressLines(billing) : formatAddressLines(job),
-      contact: {
-        name: c.contactName || "",
-        title: c.title || "",
-        phone: c.phone || "",
-        mobile: c.mobile || "",
-        email: c.email || "",
+  // Customer document mapping lives in lib/quote-document.ts so the Law 56 fence can EXECUTE
+  // it rather than pin its call sites by source text. Component state is passed explicitly.
+  const buildQuoteData = (source: any) =>
+    buildQuoteDocument(source, {
+      estimate,
+      currentCustomer,
+      estimators,
+      lemCats: {
+        laborRates, equipmentRates, materialRates, miscRates,
+        getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
       },
-      accessNotes: job.accessNotes || "",
-      gps: (job.latitude != null && job.longitude != null) ? `${job.latitude}, ${job.longitude}` : "",
-    };
-    return block;
-  }
-
-  // Shared adapter: turns EPP estimate data into the normalized quote shape for QuotePreview
-  const buildQuoteData = (source: any) => {
-    const s = source || {};
-    const bidItems = s.bidItems || estimate.bidItems || [];
-    // Rate catalogs for resolving the per-line LEM breakdown (names/UOM/rates via rateId).
-    const lemCats: LemRateCatalogs = {
-      laborRates, equipmentRates, materialRates, miscRates,
-      getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
-    };
-    const lineItems = bidItems.map((item: any) => {
-      const qty = Number(item.quantity || 0);
-      // Law 56 — ONE PRICE PATH. The customer document prints the QUOTED price: the same
-      // numbers the worksheet shows and save persists, via lib/epp-line. The Golden Formula
-      // recommendation is owner-facing coaching only and never reaches this document.
-      // A directly-entered line total is already encoded in unitPrice (Line Total / Qty at
-      // entry, :2588-2589), so qty x unitPrice reproduces it exactly. Printed === persisted:
-      // no presentation-only rounding anywhere on the customer document.
-      const unitPrice = Number(item.unitPrice || 0);
-      const lineTotal = eppLineTotal(item);
-      return {
-        description: item.description || "—",
-        qty,
-        unit: item.unit || "",
-        unitPrice,
-        lineTotal,
-        lemDetail: buildLineLemDetail(item, lemCats),
-      };
-    });
-    // Same helper the worksheet total (:1017-1019) and save (:1662) use — the printed TOTAL
-    // is byte-identical to the persisted totalRevenue by construction, not by coincidence.
-    const total = eppTotalRevenue(bidItems);
-    // Resolve the selected estimator's full record (Tier B token source). The quote stores the
-    // estimator NAME (mirrors salesperson); title/email/phone come from the Estimator Registry.
-    const estimatorName = s.estimator || estimate.estimator || "";
-    const estimatorRec = estimators.find((e) => e.name === estimatorName);
-
-    // Tier B token sources from the customer registry record + addresses. Project tokens use the
-    // job-site address, falling back to billing when no separate job site is set.
-    const cust: any = currentCustomer || {};
-    const billing: any = cust.billingAddress || {};
-    const job: any = cust.jobSiteAddress || {};
-    const hasJob = !!(job.street || job.street2 || job.city || job.state || job.zip);
-    const projAddr: any = hasJob ? job : billing;
-    const streetOf = (a: any) => [a.street, a.street2].filter(Boolean).join(", ");
-    const cityStateZipOf = (a: any) => {
-      const left = [a.city, a.state].filter(Boolean).join(", ");
-      return [left, a.zip].filter(Boolean).join(" ").trim();
-    };
-    const customerName = cust.name || estimate.customerName || "";
-    const projectName = s.jobName || estimate.jobName || "";
-    const quoteDate = new Date().toLocaleDateString();
-    const quoteNumber = Date.now().toString().slice(-7);
-    // Customer-facing amounts print to the cent (Law 57) so the document ties to the quote.
-    const moneyDoc = (n: number) => `$${formatMoney(n || 0)}`;
-    const quoteTotalDisplay = moneyDoc(total);
-    const sectionLabel = s.workTypeName || s.workType || estimate.workTypeName || "";
-
-    return {
-      jobName: s.jobName || estimate.jobName || "—",
-      customer: buildCustomerBlock(),
-      workType: s.workTypeName || s.workType || estimate.workTypeName || "",
-      salesperson: s.salesperson || estimate.salesperson || "",
-      estimator: estimatorName,
-      date: quoteDate,
-      quoteNumber,
-      status: s.status || "EPP",
-      lineItems,
-      total,
       grossProfit: eppGrossProfitDollars,
-      // Tier B token context — estimator (Step 2) + customer/project/quote/acceptance (Step 3).
-      // Line-item / section tokens come in Step 4; rendering into T&C / Payment Terms in Steps 5–6.
-      tokenContext: {
-        estimator: {
-          name: estimatorName,
-          title: estimatorRec?.title || "",
-          email: estimatorRec?.email || "",
-          phone: estimatorRec?.phone || "",
-        },
-        customer: {
-          name: customerName,
-          address: streetOf(billing),
-          city_state_zip: cityStateZipOf(billing),
-          email: cust.email || "",
-          phone: cust.phone || cust.mobile || "",
-        },
-        project: {
-          name: projectName,
-          address: streetOf(projAddr),
-          city_state_zip: cityStateZipOf(projAddr),
-        },
-        quote: {
-          date: quoteDate,
-          number: quoteNumber,
-          total: quoteTotalDisplay,
-        },
-        // Blank signature/date lines for the customer to complete on the printed document.
-        acceptance: {
-          signed_by: "",
-          date: "",
-        },
-        // Repeating tokens (line_item.* / section.*) — array data for table / templated rendering.
-        // resolveTokens leaves these literal in free text by design; they iterate, not interpolate.
-        // EPP has one work type per estimate, so a single section = the work type + grand total.
-        lineItems: lineItems.map((li: any) => ({
-          description: li.description,
-          amount: moneyDoc(li.lineTotal),
-        })),
-        sections: [
-          { label: sectionLabel, amount: quoteTotalDisplay },
-        ],
-      },
-    };
-  };
+    });
 
   // Validation for header/common fields (EPP/Pro sections validate their items separately)
   const validationErrors = React.useMemo(() => {
