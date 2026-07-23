@@ -263,6 +263,9 @@ export default function WorkTypesPage() {
   // estimate, not a computed figure. The derived % beside it is an OUTPUT, never persisted.
   const [plannedAnnualOverhead, setPlannedAnnualOverhead] = React.useState<number>(0);
   const [plannedOverheadSource, setPlannedOverheadSource] = React.useState<string>("");
+  // Commit B: owner-set overhead weights, keyed by work type NAME (the overview's identity).
+  // Default 1.0 when unset. Stored in the same isolated planning key as the overhead figure.
+  const [plannedOverheadWeights, setPlannedOverheadWeights] = React.useState<Record<string, number>>({});
 
   // Memoized lookup for demo actual performance numbers by work type name.
   // This allows the Overview to always use the live workTypes from Builder for structure/ranges/targets,
@@ -341,6 +344,7 @@ export default function WorkTypesPage() {
         const parsed = JSON.parse(raw);
         if (typeof parsed.annualOverhead === "number") setPlannedAnnualOverhead(parsed.annualOverhead);
         if (typeof parsed.annualOverheadSource === "string") setPlannedOverheadSource(parsed.annualOverheadSource);
+        if (parsed.weights && typeof parsed.weights === "object") setPlannedOverheadWeights(parsed.weights);
       }
     } catch {}
   }, []);
@@ -351,9 +355,10 @@ export default function WorkTypesPage() {
       localStorage.setItem(PLANNING_KEY, JSON.stringify({
         annualOverhead: plannedAnnualOverhead,
         annualOverheadSource: plannedOverheadSource,
+        weights: plannedOverheadWeights,
       }));
     } catch {}
-  }, [plannedAnnualOverhead, plannedOverheadSource]);
+  }, [plannedAnnualOverhead, plannedOverheadSource, plannedOverheadWeights]);
 
   // Helper: get target GP% for a specific tier label from current builder data
   function getTargetGp(workTypeName: string, tierLabel: string): number {
@@ -578,6 +583,32 @@ export default function WorkTypesPage() {
   }, [overviewItems]);
 
   const overallVariance = overall.ttlRevenue - overall.targetRevenue;
+
+  // Commit B: owner-set overhead weight per work type (default 1.0), and the display-only
+  // normalized allocation of the planned overhead pool. This is a PLANNING projection on the
+  // Work Types tab; it does NOT touch the frozen Law 55 ladder allocation (lib/pipeline.ts).
+  const getWeight = (name: string): number => {
+    const w = plannedOverheadWeights[name];
+    return typeof w === "number" && Number.isFinite(w) && w >= 0 ? w : 1;
+  };
+  const setWeight = (name: string, value: number) =>
+    setPlannedOverheadWeights((prev) => ({ ...prev, [name]: value }));
+
+  // share_i = pool × (rev_i × w_i) ÷ Σ(rev_j × w_j), with rev = Target Revenue (planning basis,
+  // same denominator family as Commit A's derived %). Σ shares === pool exactly, so the pool is
+  // fully distributed. A zero denominator (no target revenue / all weights 0) distributes nothing.
+  const overheadAllocation = React.useMemo(() => {
+    const pool = plannedAnnualOverhead;
+    const weightedRev = (p: WorkTypePerformance) => p.targetRevenue * getWeight(p.name);
+    const denom = overviewItems.reduce((s, p) => s + weightedRev(p), 0);
+    const shares: Record<string, number> = {};
+    overviewItems.forEach((p) => {
+      shares[p.name] = denom > 0 ? pool * (weightedRev(p) / denom) : 0;
+    });
+    const allocatedTotal = Object.values(shares).reduce((s, v) => s + v, 0);
+    return { shares, denom, allocatedTotal, distributed: pool > 0 && denom > 0 };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overviewItems, plannedAnnualOverhead, plannedOverheadWeights]);
 
   // Bid acceptance totals — now derived from live overviewItems for full reactivity.
   const totalBids = overviewItems.reduce((s, p) => s + p.totalBids, 0);
@@ -1043,6 +1074,11 @@ export default function WorkTypesPage() {
                     <TableHead className="text-right">Total GP</TableHead>
                     <TableHead className="text-right">Target Revenue</TableHead>
                     <TableHead className="text-right">Variance</TableHead>
+                    <TableHead className="text-right">
+                      Overhead Weight
+                      <span className="ml-1 text-[10px] font-normal text-muted-foreground uppercase tracking-wide">owner-set</span>
+                    </TableHead>
+                    <TableHead className="text-right">Allocated Overhead</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1078,6 +1114,26 @@ export default function WorkTypesPage() {
                           {variance >= 0 ? "+" : ""}{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(variance)}
                           <span className="ml-1 text-xs font-normal">({vPct.toFixed(1)}%)</span>
                         </TableCell>
+                        {/* Overhead Weight — owner-set, set-once style (uncontrolled, commits on blur
+                            so decimal typing is smooth; the row-expand click is stopped). */}
+                        <TableCell className="text-right">
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            key={`w-${p.name}-${getWeight(p.name)}`}
+                            defaultValue={String(getWeight(p.name))}
+                            onClick={(e) => e.stopPropagation()}
+                            onBlur={(e) => {
+                              const v = parseFloat(e.target.value.replace(/[^0-9.]/g, ""));
+                              setWeight(p.name, Number.isFinite(v) && v >= 0 ? v : 1);
+                            }}
+                            className="ml-auto w-16 h-8 text-right tabular-nums"
+                          />
+                        </TableCell>
+                        {/* Allocated Overhead — display-only normalized share (output). */}
+                        <TableCell className="text-right tabular-nums">
+                          {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overheadAllocation.shares[p.name] || 0)}
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -1100,9 +1156,31 @@ export default function WorkTypesPage() {
                     <TableCell className={cn("text-right tabular-nums font-semibold", overallVariance >= 0 ? "text-emerald-600" : "text-red-600")}>
                       {overallVariance >= 0 ? "+" : ""}{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overallVariance)}
                     </TableCell>
+                    {/* Weights are per-row owner inputs — no meaningful column total. */}
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overheadAllocation.allocatedTotal)}
+                    </TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
+            </div>
+            {/* Full-distribution proof (Commit B). Σ shares === pool exactly, so the allocated
+                total equals the planned overhead pool = 100%. DRAFT copy pending Copy Law. */}
+            <div className="mt-2 px-1 text-xs text-muted-foreground">
+              {overheadAllocation.distributed ? (
+                <>
+                  Pool fully distributed:{" "}
+                  <span className="font-medium text-foreground tabular-nums">
+                    {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overheadAllocation.allocatedTotal)}
+                  </span>{" "}
+                  = 100% of the{" "}
+                  <span className="tabular-nums">{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(plannedAnnualOverhead)}</span>{" "}
+                  planned overhead, split by Target Revenue × owner-set weight. Per-row figures are rounded to the dollar.
+                </>
+              ) : (
+                <>Enter a Planned Annual Overhead above and Target Revenue per work type to distribute the pool.</>
+              )}
             </div>
           </CardContent>
         </Card>
