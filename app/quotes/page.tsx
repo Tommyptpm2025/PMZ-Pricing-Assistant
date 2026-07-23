@@ -1016,27 +1016,9 @@ export default function QuotesPage() {
                     </TableCell>
                     <TableCell className="text-right pr-3 whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
-                        {/* Status actions now live in the Change dropdown (status column). */}
-                        {/* View Work Order — only once a work order exists (Accepted or later). */}
-                        {workOrderQuoteIds.has(quote.id) && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); router.push("/jobs"); }}
-                            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-[#7D1424] mr-1"
-                          >
-                            → View Work Order
-                          </button>
-                        )}
-                        {/* Owner-only Estimate vs. Actual — dollars, off the foreman screen (V-1). */}
-                        {workOrderQuoteIds.has(quote.id) && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); openVariance(quote.id); }}
-                            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-[#7D1424] mr-1"
-                          >
-                            → Estimate vs. Actual
-                          </button>
-                        )}
+                        {/* Status actions live in the Change dropdown (status column). Work-order
+                            actions (View Work Order / Estimate vs. Actual) live in the Actions menu
+                            below — folded in so they never crowd the revenue or status-chip cells. */}
                         {/* Secondary actions — custom pill trigger matching the status pill:
                             a styled [Actions ▾] button with an invisible native <select> overlay
                             carrying the same preview / edit / duplicate handlers. UI only. */}
@@ -1060,6 +1042,8 @@ export default function QuotesPage() {
                               else if (v === "edit") openQuote(quote);
                               else if (v === "duplicate") duplicateQuote(quote);
                               else if (v === "analyze") router.push(`/analyze/${quote.id}`);
+                              else if (v === "workorder") router.push("/jobs");
+                              else if (v === "variance") openVariance(quote.id);
                             }}
                             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                           >
@@ -1068,6 +1052,9 @@ export default function QuotesPage() {
                             <option value="analyze">Analyze</option>
                             <option value="edit">Edit</option>
                             <option value="duplicate">Duplicate</option>
+                            {/* Work-order actions appear only once a work order exists (Accepted+). */}
+                            {workOrderQuoteIds.has(quote.id) && <option value="workorder">View Work Order</option>}
+                            {workOrderQuoteIds.has(quote.id) && <option value="variance">Estimate vs. Actual</option>}
                           </select>
                         </div>
                         <Button
