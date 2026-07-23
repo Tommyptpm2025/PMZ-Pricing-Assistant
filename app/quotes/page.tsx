@@ -50,8 +50,8 @@ import {
 import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
 import { useRateStore } from "@/lib/rate-store";
-import { buildLineLemDetail, buildLineRecipe, buildLineRecipeSections, buildLineGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
-import { createJobFromQuote, loadJobs, saveJobs } from "@/lib/jobs";
+import { buildLineLemDetail, buildLineRecipeSections, buildLineGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
+import { createJobFromQuote, loadJobs, saveJobs, computeOwnerVariance, type Job } from "@/lib/jobs";
 import {
   getAllQuotes,
   deleteQuote,
@@ -178,6 +178,13 @@ export default function QuotesPage() {
   // Quote ids that already have a Work Order (Job) — idempotency guard + drives the "View Work
   // Order" links (a work order id implies the quote is Accepted or later).
   const [workOrderQuoteIds, setWorkOrderQuoteIds] = React.useState<Set<string>>(new Set());
+  // Owner-only Estimate-vs-Actual: the linked Job whose variance modal is open (null = closed).
+  const [varianceJob, setVarianceJob] = React.useState<Job | null>(null);
+  // Open the variance modal for a quote by looking up its linked Job (by quoteId).
+  function openVariance(quoteId: string) {
+    const job = loadJobs().find((j) => j.quoteId === quoteId);
+    if (job) setVarianceJob(job);
+  }
   // Transient toast (job name) shown when a work order is auto-created on Accept.
   const [woToast, setWoToast] = React.useState<string | null>(null);
   const woToastTimer = React.useRef<number | null>(null);
@@ -661,8 +668,9 @@ export default function QuotesPage() {
         unit: it.unit,
         unitPrice: it.unitPrice,
       })),
-      recipe: items.flatMap((it) => buildLineRecipe(it, lemCats)),
-      // Cost-stripped recipe grouped per bid line + per crew — what the Foreman Work Order renders.
+      // Recipe grouped per bid line + per crew. buildLineRecipeSections carries a per-row bid-time
+      // unitCost that createJobFromQuote peels into the owner-only rowCostBasis; the persisted
+      // foreman rows stay cost-stripped (zero-dollars law).
       recipeLines: items.map((it) => ({
         lineId: it.id,
         description: it.description,
@@ -1019,6 +1027,16 @@ export default function QuotesPage() {
                             → View Work Order
                           </button>
                         )}
+                        {/* Owner-only Estimate vs. Actual — dollars, off the foreman screen (V-1). */}
+                        {workOrderQuoteIds.has(quote.id) && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); openVariance(quote.id); }}
+                            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-[#7D1424] mr-1"
+                          >
+                            → Estimate vs. Actual
+                          </button>
+                        )}
                         {/* Secondary actions — custom pill trigger matching the status pill:
                             a styled [Actions ▾] button with an invisible native <select> overlay
                             carrying the same preview / edit / duplicate handlers. UI only. */}
@@ -1247,6 +1265,118 @@ export default function QuotesPage() {
       {/* Full Quotes — intentionally removed from the visible page flow (EPP-only).
           The Full-quote filter state, memos (fullBase / filteredFull / fullWorkTypes) and the
           "full" branches in renderFilters/renderTable are retained for clean reuse if it returns. */}
+
+      {/* Owner-only Estimate vs. Actual modal — dollars live here, never on the Foreman View (V-1).
+          Actual quantities valued at the bid-time unit cost snapshot (V-2). Null actuals render
+          "not yet reported", never $0; legacy jobs (no cost basis) degrade honestly. */}
+      <Dialog open={!!varianceJob} onOpenChange={(open) => !open && setVarianceJob(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          {(() => {
+            if (!varianceJob) return null;
+            const v = computeOwnerVariance(varianceJob);
+            const money = (n: number) => `$${formatMoney(n)}`;
+            const gapClass = (gap: number) => (gap > 0 ? "text-red-600" : "text-emerald-600");
+            const gapText = (gap: number) => `${gap > 0 ? "+" : gap < 0 ? "−" : ""}${money(Math.abs(gap))}`;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Estimate vs. Actual — {varianceJob.jobName}</DialogTitle>
+                  <DialogDescription>
+                    Actual quantities valued at the rates we bid. A red gap ate into margin; a green gap came in at or under plan.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {!v.available ? (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 p-4 text-sm text-amber-900 dark:text-amber-200">
+                    Cost basis unavailable — this work order predates variance tracking. Re-accept the quote to enable Estimate vs. Actual.
+                  </div>
+                ) : (
+                  <div className="space-y-4 text-sm">
+                    {v.lines.map((line) => (
+                      <div key={line.lineId} className="rounded-md border">
+                        <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2 font-medium">
+                          <span>{line.description}</span>
+                          {!line.fullyReported && (
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {line.reportedCount} of {line.totalRows} reported
+                            </span>
+                          )}
+                        </div>
+                        <table className="w-full">
+                          <thead>
+                            <tr className="text-xs text-muted-foreground">
+                              <th className="px-3 py-1 text-left font-normal">Item</th>
+                              <th className="px-3 py-1 text-right font-normal">Planned</th>
+                              <th className="px-3 py-1 text-right font-normal">Actual</th>
+                              <th className="px-3 py-1 text-right font-normal">Planned $</th>
+                              <th className="px-3 py-1 text-right font-normal">Actual $</th>
+                              <th className="px-3 py-1 text-right font-normal">Gap</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {line.rows.map((r) => (
+                              <tr key={r.rowId} className="border-t">
+                                <td className="px-3 py-1">{r.name}</td>
+                                <td className="px-3 py-1 text-right tabular-nums">{r.plannedQty} {r.unit}</td>
+                                <td className="px-3 py-1 text-right tabular-nums">
+                                  {r.reported
+                                    ? <span>{r.actualQty} {r.unit}</span>
+                                    : <span className="text-muted-foreground italic">not yet reported</span>}
+                                </td>
+                                <td className="px-3 py-1 text-right tabular-nums">{money(r.plannedCost)}</td>
+                                <td className="px-3 py-1 text-right tabular-nums">
+                                  {r.actualCost == null ? <span className="text-muted-foreground">—</span> : money(r.actualCost)}
+                                </td>
+                                <td className={`px-3 py-1 text-right tabular-nums ${r.reported ? gapClass((r.actualCost as number) - r.plannedCost) : "text-muted-foreground"}`}>
+                                  {r.reported ? gapText((r.actualCost as number) - r.plannedCost) : "—"}
+                                </td>
+                              </tr>
+                            ))}
+                            <tr className="border-t bg-muted/30 font-medium">
+                              <td className="px-3 py-1">Line total{line.fullyReported ? "" : " (reported)"}</td>
+                              <td className="px-3 py-1" />
+                              <td className="px-3 py-1" />
+                              <td className="px-3 py-1 text-right tabular-nums">{money(line.fullyReported ? line.plannedTotal : line.plannedReported)}</td>
+                              <td className="px-3 py-1 text-right tabular-nums">{line.anyReported ? money(line.actualReported) : <span className="text-muted-foreground">—</span>}</td>
+                              <td className={`px-3 py-1 text-right tabular-nums ${line.anyReported ? gapClass(line.gap) : "text-muted-foreground"}`}>
+                                {line.anyReported ? gapText(line.gap) : "—"}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+
+                    {/* Job roll-up */}
+                    <div className="flex items-center justify-between rounded-md border-2 border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 px-4 py-3">
+                      <div>
+                        <div className="font-semibold">Job total{v.fullyReported ? "" : " (reported so far)"}</div>
+                        {!v.fullyReported && (
+                          <div className="text-xs text-muted-foreground">{v.reportedCount} of {v.totalRows} items reported by the foreman</div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-muted-foreground">
+                          Planned {money(v.fullyReported ? v.plannedTotal : v.plannedReported)} · Actual {v.anyReported ? money(v.actualReported) : "—"}
+                        </div>
+                        <div className={`text-lg font-semibold tabular-nums ${v.anyReported ? gapClass(v.gap) : "text-muted-foreground"}`}>
+                          {v.anyReported ? `Gap ${gapText(v.gap)}` : "No actuals reported yet"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button variant="outline">Close</Button>
+                  </DialogClose>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* Preview centered Dialog (modal) */}
       {/* Update Export gate — shared dialog; on Next we reveal the internal preview below */}

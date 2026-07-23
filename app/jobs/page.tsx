@@ -186,8 +186,9 @@ export default function JobsForemanPage() {
       salesperson: "Owner",
       contractValue: 18750,
       bidItems: [],
-      recipe: [],
-      actuals: {},
+      // Foreman demo only (no linked quote) — the owner variance panel is reached from a quote and
+      // never values this job, so an empty basis is the honest shape (would read "unavailable").
+      rowCostBasis: {},
       recipeLines: [
         {
           id: createId(),

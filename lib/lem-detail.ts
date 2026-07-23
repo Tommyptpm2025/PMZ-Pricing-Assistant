@@ -173,6 +173,12 @@ export interface RecipeRowDraft {
   name: string;       // role / asset / material / misc item — resolved from the catalogs
   plannedQty: number; // hours for labor/equipment, qty for material/misc
   unit: string;       // "hrs" | "Ton" | "SF" | … ("" when a misc item has no UOM)
+  // Bid-time unit cost for this row (same resolution the display resolver uses: stored rate where
+  // present, else the live catalog). NOT part of the cost-stripped foreman row — the Job model
+  // peels this into an OWNER-ONLY rowCostBasis at snapshot time (jobs.ts) and never renders it on
+  // the Foreman View. It exists so the owner Estimate-vs-Actual panel can value actuals at the
+  // rate we bid (v-2, Jul 23 2026).
+  unitCost: number;
 }
 export interface RecipeSectionDraft {
   title: string;   // "Labor" | "Equipment" | "Material" | "Miscellaneous" | "Crew: <name>"
@@ -192,23 +198,42 @@ export function buildLineRecipeSections(item: any, cats: LemRateCatalogs): Recip
   const material: any[] = item?.materialEntries || [];
   const misc: any[] = item?.miscellaneousEntries || [];
 
+  // Bid-time unit-cost resolution — stored rate where present, else the live catalog. Identical
+  // to the display resolver's per-row rate (laborRow/equipmentRow/materialRow/miscRow above), so
+  // the owner variance values a row at exactly what the worksheet showed. This is now the ONLY
+  // numeric cost path off a recipe (the old buildLineRecipe flat list was retired Jul 23 2026).
+  const laborCost = (e: any): number =>
+    (e.rate != null
+      ? e.rate
+      : typeof e.labor?.burdenedHourlyRate === "number"
+      ? e.labor.burdenedHourlyRate
+      : cats.getLaborCostPerHour(e.rateId || "")) || 0;
+  const equipCost = (e: any): number =>
+    (e.rate != null ? e.rate : cats.getEquipmentCostPerHour(e.rateId || "")) || 0;
+  const matCost = (e: any): number =>
+    (e.rate != null ? e.rate : cats.getMaterialCostPerUnit(e.rateId || "")) || 0;
+  const miscCost = (e: any): number =>
+    (e.rate != null ? e.rate : cats.getMiscCostPerUnit(e.rateId || "")) || 0;
+
   const laborDraft = (e: any): RecipeRowDraft => ({
     name: cats.laborRates.find((r) => r.id === e.rateId)?.role || e.labor?.role || "Labor",
     plannedQty: e.hours || 0,
     unit: "hrs",
+    unitCost: laborCost(e),
   });
   const equipDraft = (e: any): RecipeRowDraft => ({
     name: cats.equipmentRates.find((r) => r.id === e.rateId)?.description || "Equipment",
     plannedQty: e.hours || 0,
     unit: "hrs",
+    unitCost: equipCost(e),
   });
   const matDraft = (e: any): RecipeRowDraft => {
     const profile = cats.materialRates.find((r) => r.id === e.rateId);
-    return { name: profile?.description || "Material", plannedQty: e.quantity || 0, unit: profile?.unitOfMeasure || "unit" };
+    return { name: profile?.description || "Material", plannedQty: e.quantity || 0, unit: profile?.unitOfMeasure || "unit", unitCost: matCost(e) };
   };
   const miscDraft = (e: any): RecipeRowDraft => {
     const profile = cats.miscRates.find((r) => r.id === e.rateId);
-    return { name: e.description || profile?.description || "Miscellaneous", plannedQty: e.quantity || 0, unit: profile?.unitOfMeasure || "" };
+    return { name: e.description || profile?.description || "Miscellaneous", plannedQty: e.quantity || 0, unit: profile?.unitOfMeasure || "", unitCost: miscCost(e) };
   };
 
   const sections: RecipeSectionDraft[] = [];
@@ -247,65 +272,6 @@ export function buildLineRecipeSections(item: any, cats: LemRateCatalogs): Recip
   });
 
   return sections;
-}
-
-// One numeric work-order recipe line (planned quantity + unit cost), aggregated from a bid
-// line's LEM entries. Distinct from LemRow (which is display-formatted strings) because the
-// Job recipe / variance report needs real numbers. Misc entries are intentionally excluded —
-// the Job recipe type is Labor / Equipment / Material only.
-export interface RecipeLine {
-  type: "labor" | "equipment" | "material";
-  description: string;
-  quantity: number;
-  unitCost: number;
-}
-
-/**
- * Resolve one EPP line's labor/equipment/material entries into numeric recipe lines for the
- * work-order handoff. Same rate resolution as the display resolver (stored rate where present,
- * else the live catalog). Crew-grouped entries are flattened and prefixed with the crew name so
- * the recipe mirrors what the Pricer shows. Misc is omitted (no recipe type).
- */
-export function buildLineRecipe(item: any, cats: LemRateCatalogs): RecipeLine[] {
-  const lines: RecipeLine[] = [];
-  const labor: any[] = item?.laborEntries || [];
-  const equipment: any[] = item?.equipmentEntries || [];
-  const material: any[] = item?.materialEntries || [];
-
-  labor.forEach((e) => {
-    const name = cats.laborRates.find((r) => r.id === e.rateId)?.role || e.labor?.role || "Labor";
-    const rate =
-      e.rate != null
-        ? e.rate
-        : typeof e.labor?.burdenedHourlyRate === "number"
-        ? e.labor.burdenedHourlyRate
-        : cats.getLaborCostPerHour(e.rateId || "");
-    lines.push({
-      type: "labor",
-      description: e.group ? `${e.group.name} — ${name}` : name,
-      quantity: e.hours || 0,
-      unitCost: rate || 0,
-    });
-  });
-
-  equipment.forEach((e) => {
-    const name = cats.equipmentRates.find((r) => r.id === e.rateId)?.description || "Equipment";
-    const rate = e.rate != null ? e.rate : cats.getEquipmentCostPerHour(e.rateId || "");
-    lines.push({
-      type: "equipment",
-      description: e.group ? `${e.group.name} — ${name}` : name,
-      quantity: e.hours || 0,
-      unitCost: rate || 0,
-    });
-  });
-
-  material.forEach((e) => {
-    const name = cats.materialRates.find((r) => r.id === e.rateId)?.description || "Material";
-    const rate = e.rate != null ? e.rate : cats.getMaterialCostPerUnit(e.rateId || "");
-    lines.push({ type: "material", description: name, quantity: e.quantity || 0, unitCost: rate || 0 });
-  });
-
-  return lines;
 }
 
 // One incomplete LEM entry flagged by the Accepted gate — category, the entry's resolved name,

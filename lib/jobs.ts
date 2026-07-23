@@ -27,14 +27,6 @@ export interface JobSite {
   accessNotes?: string; // access / delivery instructions for the crew
 }
 
-export interface JobLEMItem {
-  id: string;
-  type: LEMType;
-  description: string;
-  plannedQty: number;
-  unitCost: number; // captured at accept time from profile rates
-}
-
 export interface BidItemSnapshot {
   id: string;
   description: string;
@@ -95,15 +87,16 @@ export interface Job {
   contractValue: number; // the revenue bid / grand total accepted
   bidItems: BidItemSnapshot[];
 
-  // The "Recipe" — planned LEM quantities (legacy flat list; carries unitCost for variance math).
-  recipe: JobLEMItem[];
-
-  // Actuals entered by foreman: map of recipe item id -> actual quantity used
-  actuals: Record<string, number>;
-
   // Cost-stripped recipe the Foreman Work Order renders from: grouped per bid line + per crew,
   // each row carrying its own actualQty. No cost/rate/$ on this structure (see types above).
   recipeLines: JobRecipeLine[];
+
+  // OWNER-ONLY cost basis: recipeLines row id -> bid-time unit cost (the rate we bid). Populated at
+  // accept time from the recipe drafts; NEVER rendered on the Foreman View (the zero-dollars law
+  // stands). It exists so the owner Estimate-vs-Actual panel can value actual quantities at the
+  // rate we bid (v-2). Legacy jobs created before this field have it absent/empty — the owner
+  // variance degrades to "cost basis unavailable", never a fabricated $0.
+  rowCostBasis: Record<string, number>;
 
   // Reserved for Build G — always [] for now.
   attachments: JobAttachment[];
@@ -186,22 +179,17 @@ export interface CreateJobInput {
   salesperson: string;
   contractValue: number;
   bidItems: BidItemSnapshot[];
-  recipe: Array<{
-    type: LEMType;
-    description: string;
-    quantity: number;
-    unitCost: number;
-  }>;
-  // Cost-stripped per-line recipe drafts (from buildLineRecipeSections) — stamped with stable ids
+  // Cost-BEARING per-line recipe drafts (from buildLineRecipeSections) — stamped with stable ids
   // here. Structurally matches RecipeSectionDraft/RecipeRowDraft from lib/lem-detail (kept inline
-  // so the model file stays decoupled from the resolver).
+  // so the model file stays decoupled from the resolver). Each row's `unitCost` is peeled into the
+  // owner-only rowCostBasis; the persisted foreman row is built WITHOUT it (cost-stripped).
   recipeLines: Array<{
     lineId: string;
     description: string;
     sections: Array<{
       title: string;
       isCrew: boolean;
-      rows: Array<{ name: string; plannedQty: number; unit: string }>;
+      rows: Array<{ name: string; plannedQty: number; unit: string; unitCost: number }>;
     }>;
   }>;
   // Intake context source — snapshotted onto the job at create time. Pass the linked Customer
@@ -213,20 +201,11 @@ export interface CreateJobInput {
 
 export function createJobFromQuote(input: CreateJobInput): Job {
   const now = new Date().toISOString();
-  const recipe: JobLEMItem[] = input.recipe.map((r) => ({
-    id: createId(),
-    type: r.type,
-    description: r.description,
-    plannedQty: Math.max(0, r.quantity),
-    unitCost: Math.max(0, r.unitCost),
-  }));
 
-  const actuals: Record<string, number> = {};
-  recipe.forEach((item) => {
-    actuals[item.id] = 0;
-  });
-
-  // Stamp stable ids onto every recipe line + row; actuals start null (not yet entered).
+  // Stamp stable ids onto every recipe line + row; actuals start null (not yet entered). As each
+  // row id is minted, peel the draft's bid-time unitCost into the owner-only rowCostBasis and build
+  // the persisted foreman row WITHOUT cost (the Foreman View stays zero-dollars by construction).
+  const rowCostBasis: Record<string, number> = {};
   const recipeLines: JobRecipeLine[] = input.recipeLines.map((line) => ({
     id: createId(),
     lineId: line.lineId,
@@ -234,13 +213,17 @@ export function createJobFromQuote(input: CreateJobInput): Job {
     sections: line.sections.map((section) => ({
       title: section.title,
       isCrew: section.isCrew,
-      rows: section.rows.map((row) => ({
-        id: createId(),
-        name: row.name,
-        plannedQty: Math.max(0, row.plannedQty),
-        unit: row.unit,
-        actualQty: null,
-      })),
+      rows: section.rows.map((row) => {
+        const id = createId();
+        rowCostBasis[id] = Math.max(0, row.unitCost || 0);
+        return {
+          id,
+          name: row.name,
+          plannedQty: Math.max(0, row.plannedQty),
+          unit: row.unit,
+          actualQty: null,
+        };
+      }),
     })),
   }));
 
@@ -259,28 +242,13 @@ export function createJobFromQuote(input: CreateJobInput): Job {
     salesperson: input.salesperson,
     contractValue: Math.max(0, input.contractValue),
     bidItems: input.bidItems.map((b) => ({ ...b })),
-    recipe,
-    actuals,
     recipeLines,
+    rowCostBasis,
     attachments: [],
     jobSite,
     intakeNotes,
     notes: "",
   };
-}
-
-export function updateJobActual(jobs: Job[], jobId: string, recipeItemId: string, actualQty: number): Job[] {
-  return jobs.map((job) =>
-    job.id === jobId
-      ? {
-          ...job,
-          actuals: {
-            ...job.actuals,
-            [recipeItemId]: Math.max(0, actualQty),
-          },
-        }
-      : job
-  );
 }
 
 // Foreman actuals entry against the cost-stripped recipe: set one row's actualQty by row id.
@@ -337,49 +305,119 @@ export function deleteJob(jobs: Job[], jobId: string): Job[] {
   return jobs.filter((j) => j.id !== jobId);
 }
 
-// Variance helpers for reports
-export interface VarianceLine {
-  id: string;
-  type: LEMType;
-  description: string;
+// ── Owner Estimate-vs-Actual variance ────────────────────────────────────────────────────────
+//
+// OWNER-ONLY. Values the foreman's actual quantities (recipeLines[].actualQty) at the BID-TIME
+// unit cost snapshot (rowCostBasis) — the number answers "what did the drift cost us at the rates
+// we bid" (v-2), NOT what rates later moved to.
+//
+// Two invariants this engine exists to hold, both from the Book:
+//   1. A null actualQty means "not yet reported by the foreman" and is EXCLUDED from actual $ —
+//      never valued as $0. Collapsing null→0 would fabricate a foreman's confirmation.
+//   2. Actual $ is valued at rowCostBasis (bid-time), never a re-resolved live rate.
+// The gap is computed like-for-like: actual minus planned over the REPORTED rows only, so a
+// partially-reported job never shows a misleading shortfall against the full plan.
+
+export interface OwnerVarianceRow {
+  rowId: string;
+  name: string;
+  unit: string;
   plannedQty: number;
-  actualQty: number;
-  unitCost: number;
-  plannedCost: number;
-  actualCost: number;
-  qtyDelta: number;
-  costDelta: number;
-  costVariancePct: number; // (act - plan)/plan *100 , handle 0
+  actualQty: number | null;   // null = not yet reported
+  unitCost: number;           // bid-time basis
+  plannedCost: number;        // plannedQty × unitCost
+  actualCost: number | null;  // actualQty × unitCost, or null when not reported (never fabricated 0)
+  reported: boolean;
 }
 
-export function computeVariance(job: Job): VarianceLine[] {
-  return job.recipe.map((item) => {
-    const actualQty = job.actuals[item.id] ?? 0;
-    const plannedCost = item.plannedQty * item.unitCost;
-    const actualCost = actualQty * item.unitCost;
-    const qtyDelta = actualQty - item.plannedQty;
-    const costDelta = actualCost - plannedCost;
-    const costVariancePct = plannedCost > 0 ? (costDelta / plannedCost) * 100 : 0;
+export interface OwnerVarianceLine {
+  lineId: string;
+  description: string;
+  rows: OwnerVarianceRow[];
+  plannedTotal: number;       // over ALL rows (planned is always known)
+  plannedReported: number;    // over reported rows only (for like-for-like gap)
+  actualReported: number;     // over reported rows only
+  gap: number;                // actualReported − plannedReported (drift on reported work; +over/−under)
+  reportedCount: number;
+  totalRows: number;
+  fullyReported: boolean;
+  anyReported: boolean;
+}
+
+export type OwnerVariance =
+  | { available: false }      // legacy job: no rowCostBasis — cannot value actuals honestly
+  | {
+      available: true;
+      lines: OwnerVarianceLine[];
+      plannedTotal: number;
+      plannedReported: number;
+      actualReported: number;
+      gap: number;
+      reportedCount: number;
+      totalRows: number;
+      fullyReported: boolean;
+      anyReported: boolean;
+    };
+
+export function computeOwnerVariance(job: Job): OwnerVariance {
+  const basis = job.rowCostBasis;
+  // Legacy jobs (created before the cost basis existed) cannot be valued without fabricating.
+  if (!basis || Object.keys(basis).length === 0) return { available: false };
+
+  const lines: OwnerVarianceLine[] = (job.recipeLines || []).map((line) => {
+    const rows: OwnerVarianceRow[] = line.sections.flatMap((section) =>
+      section.rows.map((row) => {
+        const unitCost = basis[row.id] ?? 0;
+        const reported = row.actualQty != null;
+        const plannedCost = row.plannedQty * unitCost;
+        return {
+          rowId: row.id,
+          name: row.name,
+          unit: row.unit,
+          plannedQty: row.plannedQty,
+          actualQty: row.actualQty,
+          unitCost,
+          plannedCost,
+          // null stays null — an unreported row contributes NOTHING to actual $ (never a fake 0).
+          actualCost: reported ? (row.actualQty as number) * unitCost : null,
+          reported,
+        };
+      })
+    );
+    const reportedRows = rows.filter((r) => r.reported);
+    const plannedTotal = rows.reduce((s, r) => s + r.plannedCost, 0);
+    const plannedReported = reportedRows.reduce((s, r) => s + r.plannedCost, 0);
+    const actualReported = reportedRows.reduce((s, r) => s + (r.actualCost as number), 0);
     return {
-      id: item.id,
-      type: item.type,
-      description: item.description,
-      plannedQty: item.plannedQty,
-      actualQty,
-      unitCost: item.unitCost,
-      plannedCost,
-      actualCost,
-      qtyDelta,
-      costDelta,
-      costVariancePct,
+      lineId: line.lineId,
+      description: line.description,
+      rows,
+      plannedTotal,
+      plannedReported,
+      actualReported,
+      gap: actualReported - plannedReported,
+      reportedCount: reportedRows.length,
+      totalRows: rows.length,
+      fullyReported: rows.length > 0 && reportedRows.length === rows.length,
+      anyReported: reportedRows.length > 0,
     };
   });
-}
 
-export function summarizeVariance(lines: VarianceLine[]) {
-  const plannedTotal = lines.reduce((s, l) => s + l.plannedCost, 0);
-  const actualTotal = lines.reduce((s, l) => s + l.actualCost, 0);
-  const delta = actualTotal - plannedTotal;
-  const variancePct = plannedTotal > 0 ? (delta / plannedTotal) * 100 : 0;
-  return { plannedTotal, actualTotal, delta, variancePct };
+  const plannedTotal = lines.reduce((s, l) => s + l.plannedTotal, 0);
+  const plannedReported = lines.reduce((s, l) => s + l.plannedReported, 0);
+  const actualReported = lines.reduce((s, l) => s + l.actualReported, 0);
+  const totalRows = lines.reduce((s, l) => s + l.totalRows, 0);
+  const reportedCount = lines.reduce((s, l) => s + l.reportedCount, 0);
+  return {
+    available: true,
+    lines,
+    plannedTotal,
+    plannedReported,
+    actualReported,
+    gap: actualReported - plannedReported,
+    reportedCount,
+    totalRows,
+    fullyReported: totalRows > 0 && reportedCount === totalRows,
+    anyReported: reportedCount > 0,
+  };
 }
