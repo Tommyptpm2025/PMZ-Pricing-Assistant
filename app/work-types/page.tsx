@@ -19,6 +19,10 @@ import { PercentInput } from "@/components/ui/percent-input";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "pmz_work_types_v2";
+// Work Type PLANNING layer — kept in its own key, deliberately separate from the frozen
+// pmz_overhead_chart that feeds the Law 55 ladder. This is a planning estimate on the Work Types
+// tab; nothing here touches the frozen allocation. (Wiring to allocation is Friday's amendment.)
+const PLANNING_KEY = "pmz_work_type_planning_v1";
 
 function createId() {
   return Math.random().toString(36).slice(2, 11);
@@ -255,6 +259,10 @@ export default function WorkTypesPage() {
 
   // Tab
   const [activeTab, setActiveTab] = React.useState<'builder' | 'overview'>('builder');
+  // Planning layer (Commit A): a hard-dollar planned annual overhead + its source label. Stored
+  // estimate, not a computed figure. The derived % beside it is an OUTPUT, never persisted.
+  const [plannedAnnualOverhead, setPlannedAnnualOverhead] = React.useState<number>(0);
+  const [plannedOverheadSource, setPlannedOverheadSource] = React.useState<string>("");
 
   // Memoized lookup for demo actual performance numbers by work type name.
   // This allows the Overview to always use the live workTypes from Builder for structure/ranges/targets,
@@ -323,6 +331,29 @@ export default function WorkTypesPage() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ workTypes }));
     } catch {}
   }, [workTypes]);
+
+  // Load planning layer (own key). Load-before-save ordering mirrors the workTypes pair above,
+  // and reads in an effect (not initial state) to avoid an SSR hydration mismatch.
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PLANNING_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.annualOverhead === "number") setPlannedAnnualOverhead(parsed.annualOverhead);
+        if (typeof parsed.annualOverheadSource === "string") setPlannedOverheadSource(parsed.annualOverheadSource);
+      }
+    } catch {}
+  }, []);
+
+  // Persist planning layer.
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(PLANNING_KEY, JSON.stringify({
+        annualOverhead: plannedAnnualOverhead,
+        annualOverheadSource: plannedOverheadSource,
+      }));
+    } catch {}
+  }, [plannedAnnualOverhead, plannedOverheadSource]);
 
   // Helper: get target GP% for a specific tier label from current builder data
   function getTargetGp(workTypeName: string, tierLabel: string): number {
@@ -938,6 +969,63 @@ export default function WorkTypesPage() {
             <option value={2027}>2027 (Plan)</option>
           </select>
         </div>
+
+        {/* Planned Annual Overhead — planning entry (Commit A). Hard-dollar stated estimate + a
+            source label; the % beside it is a DERIVED OUTPUT (planned overhead ÷ total Target
+            Revenue), never an input. DRAFT copy pending Copy Law — life-question string is Tom's;
+            the field labels ("Source", "Overhead % of Target Revenue", helper line) are my draft. */}
+        <Card className="card mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Planned Annual Overhead</CardTitle>
+            <CardDescription>
+              What does it cost to run the business for a year — office, trucks, insurance, everyone who doesn’t swing a shovel?
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-end gap-x-8 gap-y-4">
+              {/* Hard dollar entry */}
+              <div>
+                <Label className="text-sm font-medium">Planned Annual Overhead</Label>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <span className="text-muted-foreground">$</span>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    value={plannedAnnualOverhead ? plannedAnnualOverhead.toString() : ""}
+                    onChange={(e) => {
+                      const cleaned = e.target.value.replace(/[^0-9]/g, "").replace(/^0+/, "");
+                      setPlannedAnnualOverhead(cleaned === "" ? 0 : Number(cleaned));
+                    }}
+                    placeholder="0"
+                    className="w-40 tabular-nums"
+                  />
+                </div>
+              </div>
+              {/* Source label — stored with the estimate */}
+              <div>
+                <Label className="text-sm font-medium">Source</Label>
+                <Input
+                  value={plannedOverheadSource}
+                  onChange={(e) => setPlannedOverheadSource(e.target.value)}
+                  placeholder="stated estimate"
+                  className="mt-1.5 w-56"
+                />
+              </div>
+              {/* Derived % — OUTPUT ONLY, never persisted, never editable */}
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Overhead % of Target Revenue</Label>
+                <div className="mt-1.5 text-2xl font-semibold tabular-nums">
+                  {overall.targetRevenue > 0
+                    ? ((plannedAnnualOverhead / overall.targetRevenue) * 100).toFixed(1)
+                    : "0.0"}%
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  derived: planned overhead ÷ total Target Revenue ({new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overall.targetRevenue)}) — output only
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Summary Table (matches requested columns + useful Variance) */}
         <Card className="card mb-6">
