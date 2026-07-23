@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Tags, Plus, RotateCcw, Edit2, Save, X, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { PercentInput } from "@/components/ui/percent-input";
+import { netProfitColors } from "@/lib/pmz-types";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "pmz_work_types_v2";
@@ -1079,6 +1080,10 @@ export default function WorkTypesPage() {
                       <span className="ml-1 text-[10px] font-normal text-muted-foreground uppercase tracking-wide">owner-set</span>
                     </TableHead>
                     <TableHead className="text-right">Allocated Overhead</TableHead>
+                    <TableHead className="text-right">
+                      Planned Net
+                      <span className="ml-1 text-[10px] font-normal text-muted-foreground normal-case">GP − allocated OH</span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1134,6 +1139,17 @@ export default function WorkTypesPage() {
                         <TableCell className="text-right tabular-nums">
                           {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overheadAllocation.shares[p.name] || 0)}
                         </TableCell>
+                        {/* Planned Net (Commit C) — Total GP − allocated overhead share, display only.
+                            Earned-color via the netProfitColors SSOT: green only when kept, red on a
+                            loss (never green on a loss). */}
+                        {(() => {
+                          const plannedNet = p.totalGp - (overheadAllocation.shares[p.name] || 0);
+                          return (
+                            <TableCell className="text-right tabular-nums font-semibold" style={{ color: netProfitColors(plannedNet).fg }}>
+                              {plannedNet >= 0 ? "" : "−"}{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Math.abs(plannedNet))}
+                            </TableCell>
+                          );
+                        })()}
                       </TableRow>
                     );
                   })}
@@ -1161,6 +1177,15 @@ export default function WorkTypesPage() {
                     <TableCell className="text-right tabular-nums">
                       {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overheadAllocation.allocatedTotal)}
                     </TableCell>
+                    {/* TOTAL Planned Net = overall Total GP − pool allocated. Earned-color SSOT. */}
+                    {(() => {
+                      const plannedNetTotal = overall.totalGp - overheadAllocation.allocatedTotal;
+                      return (
+                        <TableCell className="text-right tabular-nums font-semibold" style={{ color: netProfitColors(plannedNetTotal).fg }}>
+                          {plannedNetTotal >= 0 ? "" : "−"}{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Math.abs(plannedNetTotal))}
+                        </TableCell>
+                      );
+                    })()}
                   </TableRow>
                 </TableBody>
               </Table>
