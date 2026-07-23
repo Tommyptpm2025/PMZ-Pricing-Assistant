@@ -358,6 +358,13 @@ export default function QuotePdfDocument({ quote, company }: QuotePdfDocumentPro
         {/* Terms & Conditions — only ready sections render (incomplete are omitted, matching print). */}
         <View style={styles.terms}>
           <Text style={styles.termsHeading}>Terms &amp; Conditions</Text>
+          {/* ESTIMATE-only billing basis (Doc-Type ruling, Jul 23 2026): an estimate bills at
+              actual quantities × the stated rates. QUOTE documents are hard money and omit this. */}
+          {q.exportType === 'estimate' ? (
+            <Text style={[styles.termsSectionTitle, { marginBottom: 6 }]}>
+              Final invoice reflects actual quantities at the stated rates.
+            </Text>
+          ) : null}
           {TC_SECTIONS.map((sec, i) => {
             if (!sectionReady(sec.body)) return null;
             return (

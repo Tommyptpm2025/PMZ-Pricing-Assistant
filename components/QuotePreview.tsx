@@ -382,6 +382,13 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
               Notice carries an "Attorney review required" amber badge (owner-facing, preview only). */}
           <div className="pmz-terms" style={{ marginTop: 16, fontSize: 9, color: '#333' }}>
             <div style={{ fontWeight: 'bold', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Terms &amp; Conditions</div>
+            {/* ESTIMATE-only billing basis (Doc-Type ruling, Jul 23 2026): an estimate bills at
+                actual quantities × the stated rates. QUOTE documents are hard money and omit this. */}
+            {q.exportType === 'estimate' && (
+              <div style={{ marginBottom: 8, fontWeight: 'bold', color: '#333' }}>
+                Final invoice reflects actual quantities at the stated rates.
+              </div>
+            )}
             {TC_SECTIONS.map((sec, i) => {
               const ready = sectionReady(sec.body);
               return (
