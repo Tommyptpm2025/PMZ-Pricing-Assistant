@@ -267,6 +267,10 @@ export default function WorkTypesPage() {
   // Commit B: owner-set overhead weights, keyed by work type NAME (the overview's identity).
   // Default 1.0 when unset. Stored in the same isolated planning key as the overhead figure.
   const [plannedOverheadWeights, setPlannedOverheadWeights] = React.useState<Record<string, number>>({});
+  // Draft string for the "% of Overhead" input being edited (name + raw text), so decimal typing
+  // stays smooth and the value is parsed only on commit. Controlled — the shared Input wrapper
+  // forces `value ?? ""`, so an uncontrolled defaultValue field would be locked empty.
+  const [editingPercent, setEditingPercent] = React.useState<{ name: string; text: string } | null>(null);
 
   // Memoized lookup for demo actual performance numbers by work type name.
   // This allows the Overview to always use the live workTypes from Builder for structure/ranges/targets,
@@ -603,13 +607,35 @@ export default function WorkTypesPage() {
     const weightedRev = (p: WorkTypePerformance) => p.targetRevenue * getWeight(p.name);
     const denom = overviewItems.reduce((s, p) => s + weightedRev(p), 0);
     const shares: Record<string, number> = {};
+    const percents: Record<string, number> = {}; // fraction of the pool each work type takes (Σ = 1)
     overviewItems.forEach((p) => {
-      shares[p.name] = denom > 0 ? pool * (weightedRev(p) / denom) : 0;
+      const frac = denom > 0 ? weightedRev(p) / denom : 0;
+      percents[p.name] = frac;
+      shares[p.name] = pool * frac;
     });
     const allocatedTotal = Object.values(shares).reduce((s, v) => s + v, 0);
-    return { shares, denom, allocatedTotal, distributed: pool > 0 && denom > 0 };
+    const percentSum = Object.values(percents).reduce((s, v) => s + v, 0); // 1.0 when distributed
+    return { shares, percents, percentSum, denom, allocatedTotal, distributed: pool > 0 && denom > 0 };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overviewItems, plannedAnnualOverhead, plannedOverheadWeights]);
+
+  // Commit D (Tom's ruling): the surface is "% of Overhead", not raw weights. Editing one work
+  // type's percent to P rebalances every other type PROPORTIONALLY so the column always sums to
+  // 100%. Weights stay the internal representation: changing only this type's weight leaves the
+  // others' relative shares intact (they rescale by the shared denominator), which IS proportional
+  // rebalancing. Solve rev_i·w_i / (S + rev_i·w_i) = P for w_i, where S = Σ_{k≠i} rev_k·w_k.
+  const setPercentForType = (name: string, fraction: number) => {
+    const p = overviewItems.find((x) => x.name === name);
+    if (!p || p.targetRevenue <= 0) return; // a zero-revenue type can't hold a share via weight
+    const P = Math.min(0.999, Math.max(0, fraction)); // clamp; 100% is the w→∞ singularity
+    const S = overviewItems.reduce(
+      (s, x) => s + (x.name === name ? 0 : x.targetRevenue * getWeight(x.name)),
+      0
+    );
+    // S<=0 means this is the only revenue-bearing type — it necessarily holds 100%; weight is moot.
+    const wi = S <= 0 ? 1 : (P * S) / (p.targetRevenue * (1 - P));
+    setWeight(name, wi);
+  };
 
   // Bid acceptance totals — now derived from live overviewItems for full reactivity.
   const totalBids = overviewItems.reduce((s, p) => s + p.totalBids, 0);
@@ -1076,8 +1102,8 @@ export default function WorkTypesPage() {
                     <TableHead className="text-right">Target Revenue</TableHead>
                     <TableHead className="text-right">Variance</TableHead>
                     <TableHead className="text-right">
-                      Overhead Weight
-                      <span className="ml-1 text-[10px] font-normal text-muted-foreground uppercase tracking-wide">owner-set</span>
+                      % of Overhead
+                      <div className="text-[10px] font-normal text-muted-foreground normal-case">owner-adjustable · seeded from revenue share</div>
                     </TableHead>
                     <TableHead className="text-right">Allocated Overhead</TableHead>
                     <TableHead className="text-right">
@@ -1119,22 +1145,40 @@ export default function WorkTypesPage() {
                           {variance >= 0 ? "+" : ""}{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(variance)}
                           <span className="ml-1 text-xs font-normal">({vPct.toFixed(1)}%)</span>
                         </TableCell>
-                        {/* Overhead Weight — owner-set, set-once style (uncontrolled, commits on blur
-                            so decimal typing is smooth; the row-expand click is stopped). */}
-                        <TableCell className="text-right">
-                          <Input
-                            type="text"
-                            inputMode="decimal"
-                            key={`w-${p.name}-${getWeight(p.name)}`}
-                            defaultValue={String(getWeight(p.name))}
-                            onClick={(e) => e.stopPropagation()}
-                            onBlur={(e) => {
-                              const v = parseFloat(e.target.value.replace(/[^0-9.]/g, ""));
-                              setWeight(p.name, Number.isFinite(v) && v >= 0 ? v : 1);
-                            }}
-                            className="ml-auto w-16 h-8 text-right tabular-nums"
-                          />
-                        </TableCell>
+                        {/* % of Overhead — owner-adjustable, CONTROLLED draft (the shared Input
+                            wrapper forces value ?? "", so an uncontrolled field would lock empty).
+                            Editing rebalances the other rows proportionally to keep the column at
+                            100%. Zero-revenue types can't hold a share, so their input is disabled.
+                            Row-expand click is stopped so editing doesn't toggle the row. */}
+                        {(() => {
+                          const pctFraction = overheadAllocation.percents[p.name] || 0;
+                          const isEditing = editingPercent?.name === p.name;
+                          const canEdit = p.targetRevenue > 0;
+                          const shown = isEditing ? editingPercent!.text : (pctFraction * 100).toFixed(1);
+                          return (
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-0.5">
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  disabled={!canEdit}
+                                  value={shown}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onFocus={() => setEditingPercent({ name: p.name, text: (pctFraction * 100).toFixed(1) })}
+                                  onChange={(e) => setEditingPercent({ name: p.name, text: e.target.value.replace(/[^0-9.]/g, "") })}
+                                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                  onBlur={(e) => {
+                                    const v = parseFloat(e.target.value.replace(/[^0-9.]/g, ""));
+                                    if (Number.isFinite(v)) setPercentForType(p.name, v / 100);
+                                    setEditingPercent(null);
+                                  }}
+                                  className="w-16 h-8 text-right tabular-nums"
+                                />
+                                <span className="text-muted-foreground text-xs">%</span>
+                              </div>
+                            </TableCell>
+                          );
+                        })()}
                         {/* Allocated Overhead — display-only normalized share (output). */}
                         <TableCell className="text-right tabular-nums">
                           {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overheadAllocation.shares[p.name] || 0)}
@@ -1172,8 +1216,10 @@ export default function WorkTypesPage() {
                     <TableCell className={cn("text-right tabular-nums font-semibold", overallVariance >= 0 ? "text-emerald-600" : "text-red-600")}>
                       {overallVariance >= 0 ? "+" : ""}{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overallVariance)}
                     </TableCell>
-                    {/* Weights are per-row owner inputs — no meaningful column total. */}
-                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    {/* Column sum — always 100% when the pool is distributed (proves the split). */}
+                    <TableCell className="text-right tabular-nums font-semibold">
+                      {overheadAllocation.distributed ? `${(overheadAllocation.percentSum * 100).toFixed(0)}%` : "—"}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(overheadAllocation.allocatedTotal)}
                     </TableCell>
@@ -1201,7 +1247,7 @@ export default function WorkTypesPage() {
                   </span>{" "}
                   = 100% of the{" "}
                   <span className="tabular-nums">{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(plannedAnnualOverhead)}</span>{" "}
-                  planned overhead, split by Target Revenue × owner-set weight. Per-row figures are rounded to the dollar.
+                  planned overhead. Percents seed from each work type’s revenue share and rebalance to 100% when you adjust one. Per-row figures are rounded to the dollar.
                 </>
               ) : (
                 <>Enter a Planned Annual Overhead above and Target Revenue per work type to distribute the pool.</>
