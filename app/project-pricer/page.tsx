@@ -128,8 +128,8 @@ interface BidItem {
     crewId: string;
     hours?: number;
   }>;
-  realCost?: number;
-  realGrossProfitPercent?: number;
+  plannedCost?: number;
+  plannedGrossProfitPercent?: number;
 }
 
 interface CurrentEstimate {
@@ -986,14 +986,14 @@ export default function ProjectPricerPage() {
 
   // Total break-even cost across all bid lines (Σ per-line real costing). Drives the target-margin
   // tier and the marked-up recommended bid. (Defined here so targetMargin can key off it.)
-  const eppRealCost = (estimate.bidItems || []).reduce((sum, item) => sum + lineBreakEvenCost(item), 0);
+  const eppPlannedCost = (estimate.bidItems || []).reduce((sum, item) => sum + lineBreakEvenCost(item), 0);
 
   // Target Margin % — the pricing tier is keyed off the MARKED-UP recommended bid (cost ÷ (1 − margin)),
   // which itself depends on the margin, so we resolve the fixed point (tiers are monotonic bands).
   // Only returns a real value AFTER a work type is selected (no default until chosen).
   const targetMargin = React.useMemo(() => {
     if (!estimate.workTypeName || workTypes.length === 0) return 0;
-    const cost = eppRealCost || 0;
+    const cost = eppPlannedCost || 0;
     // Before any costs are entered, fall back to tiering by the running bid total (legacy behavior).
     if (cost <= 0) return getTargetMarginForSize(totalRevenue || 0);
     let m = getTargetMarginForSize(cost);
@@ -1004,7 +1004,7 @@ export default function ProjectPricerPage() {
       m = m2;
     }
     return m;
-  }, [estimate.workTypeName, workTypes, eppRealCost, totalRevenue]);
+  }, [estimate.workTypeName, workTypes, eppPlannedCost, totalRevenue]);
 
   function getTargetMarginForSize(size: number): number {
     if (!estimate.workTypeName || workTypes.length === 0) return 0;
@@ -1022,7 +1022,7 @@ export default function ProjectPricerPage() {
     return wt.tiers[wt.tiers.length - 1].targetGpPercent;
   }
 
-  // Per-line break-even cost — mirrors the eppRealCost summation exactly (labor + equipment +
+  // Per-line break-even cost — mirrors the eppPlannedCost summation exactly (labor + equipment +
   // material + misc + legacy crew). Used to seed the editable top price and to total job cost.
   function lineBreakEvenCost(item: any): number {
     const lC = (item.laborEntries || []).reduce((s: number, entry: any) => {
@@ -1236,7 +1236,7 @@ export default function ProjectPricerPage() {
     updateBidItem(item.id, "laborEntries", newLabor);
     updateBidItem(item.id, "equipmentEntries", newEquip);
 
-    // Persist realCost / realGrossProfitPercent using the same formula as the existing handlers.
+    // Persist plannedCost / plannedGrossProfitPercent using the same formula as the existing handlers.
     const lineTotal = item.quantity * item.unitPrice;
     const lC = newLabor.reduce((s, e: any) => {
       const r = e.rate != null ? e.rate : (e.labor && typeof e.labor.burdenedHourlyRate === "number") ? e.labor.burdenedHourlyRate : getLaborBurdenedRate(e.rateId || "");
@@ -1264,8 +1264,8 @@ export default function ProjectPricerPage() {
     }, 0);
     const tC = Math.round((lC + eC + mC + miscC + cC) * 100) / 100;
     const rGp = lineTotal > 0 ? Math.round(((lineTotal - tC) / lineTotal * 100) * 10) / 10 : 100;
-    updateBidItem(item.id, "realCost", tC);
-    updateBidItem(item.id, "realGrossProfitPercent", rGp);
+    updateBidItem(item.id, "plannedCost", tC);
+    updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
   }
 
   // Stage 1: remove every populated line belonging to a crew group from a bid item, in one click.
@@ -1302,8 +1302,8 @@ export default function ProjectPricerPage() {
     }, 0);
     const tC = Math.round((lC + eC + mC + miscC + cC) * 100) / 100;
     const rGp = lineTotal > 0 ? Math.round(((lineTotal - tC) / lineTotal * 100) * 10) / 10 : 100;
-    updateBidItem(item.id, "realCost", tC);
-    updateBidItem(item.id, "realGrossProfitPercent", rGp);
+    updateBidItem(item.id, "plannedCost", tC);
+    updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
   }
 
   // Stage 1: update the hours on a single populated (grouped) entry by its real array index.
@@ -1344,8 +1344,8 @@ export default function ProjectPricerPage() {
     }, 0);
     const tC = Math.round((lC + eC + mC + miscC + cC) * 100) / 100;
     const rGp = lineTotal > 0 ? Math.round(((lineTotal - tC) / lineTotal * 100) * 10) / 10 : 100;
-    updateBidItem(item.id, "realCost", tC);
-    updateBidItem(item.id, "realGrossProfitPercent", rGp);
+    updateBidItem(item.id, "plannedCost", tC);
+    updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
   }
 
   function removeBidItem(id: string) {
@@ -1510,7 +1510,7 @@ export default function ProjectPricerPage() {
         eppLines = estimate.bidItems.map((item) => serializeEppLine(item));
         proLems = [];
         // EPP cost = the real break-even cost; revenue = the marked-up bid (applied below).
-        directCogsDollars = eppRealCost;
+        directCogsDollars = eppPlannedCost;
         indirectCogsDollars = 0;
       } else {
         eppLines = [];
@@ -1552,8 +1552,8 @@ export default function ProjectPricerPage() {
         // GP = entered bid − break-even cost. Mirrors the on-screen EPP summary exactly,
         // so a manually-priced quote no longer saves $0 just because it has no cost entries.
         finalGrandTotal = totalRevenue;
-        finalGrossProfitAmount = totalRevenue - eppRealCost;
-        finalGrossProfitPercent = totalRevenue > 0 ? ((totalRevenue - eppRealCost) / totalRevenue) * 100 : 0;
+        finalGrossProfitAmount = totalRevenue - eppPlannedCost;
+        finalGrossProfitPercent = totalRevenue > 0 ? ((totalRevenue - eppPlannedCost) / totalRevenue) * 100 : 0;
       }
 
       // Capture customer from the controlled Customer selector state (selectedCustomerId + selectedCustomerName)
@@ -1878,17 +1878,17 @@ export default function ProjectPricerPage() {
   // EPP bottom summary: Total Revenue / Estimate Total = the SUM OF ENTERED LINE ITEMS (totalRevenue),
   // so the headline reflects the owner's actual bid and GP/margin are computed on real revenue vs cost.
   // eppRecommendedBid (break-even cost ÷ (1 − target margin), the Golden Formula) is retained as
-  // secondary guidance only. Actual Cost = eppRealCost (above).
+  // secondary guidance only. Planned Cost = eppPlannedCost (above).
   // The outer guard mirrors goldenFormula's own range check on purpose: pre-consolidation this
-  // rounded to cents ONLY when the formula applied, returning eppRealCost untouched otherwise.
+  // rounded to cents ONLY when the formula applied, returning eppPlannedCost untouched otherwise.
   // Kept exactly, so the Recommended line is byte-identical at every margin including 0.
   const eppRecommendedBid = (targetMargin > 0 && targetMargin < 100)
-    ? Math.round(goldenFormula(eppRealCost, targetMargin) * 100) / 100
-    : goldenFormula(eppRealCost, targetMargin);
+    ? Math.round(goldenFormula(eppPlannedCost, targetMargin) * 100) / 100
+    : goldenFormula(eppPlannedCost, targetMargin);
   const eppSellingPrice = totalRevenue;   // sum of entered line-item line totals
-  const eppGrossProfitDollars = eppSellingPrice - eppRealCost;
+  const eppGrossProfitDollars = eppSellingPrice - eppPlannedCost;
   const eppGrossProfitPercent = eppSellingPrice > 0
-    ? Math.round(((eppSellingPrice - eppRealCost) / eppSellingPrice * 100) * 10) / 10
+    ? Math.round(((eppSellingPrice - eppPlannedCost) / eppSellingPrice * 100) * 10) / 10
     : 0;
   const eppTargetPercent = targetMargin; // from selected Work Type tier for current job size, or 0
   const eppOnTarget = eppGrossProfitPercent >= eppTargetPercent;
@@ -2303,7 +2303,7 @@ export default function ProjectPricerPage() {
                     }
                     // Option B: job-level target margin (overall quote required GP / selling price, then per-line contribution)
                     const targetForJob = targetMargin;
-                    const totalRealCostForJob = eppRealCost;
+                    const totalRealCostForJob = eppPlannedCost;
                     // The 0 fallback is deliberate and stays OUTSIDE the shared formula: with no
                     // target set, this guidance must stay blank rather than coach a break-even sale.
                     const totalRequiredSellingForJob = totalRealCostForJob > 0 && targetForJob > 0
@@ -2617,8 +2617,8 @@ export default function ProjectPricerPage() {
                                           }, 0);
                                           const tC = Math.round((lC + eC + mC) * 100) / 100;
                                           const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                          updateBidItem(item.id, "realCost", tC);
-                                          updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          updateBidItem(item.id, "plannedCost", tC);
+                                          updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
                                         }}
                                         disabled={isReadOnly}
                                       >
@@ -2661,8 +2661,8 @@ export default function ProjectPricerPage() {
                                             }, 0);
                                             const tC = Math.round((lC + eC + mC) * 100) / 100;
                                             const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                            updateBidItem(item.id, "realCost", tC);
-                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                            updateBidItem(item.id, "plannedCost", tC);
+                                            updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
                                           }}
                                           onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
@@ -2855,8 +2855,8 @@ export default function ProjectPricerPage() {
                                           }, 0);
                                           const tC = Math.round((lC + eC + mC) * 100) / 100;
                                           const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                          updateBidItem(item.id, "realCost", tC);
-                                          updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          updateBidItem(item.id, "plannedCost", tC);
+                                          updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
                                         }}
                                         disabled={isReadOnly}
                                       >
@@ -2897,8 +2897,8 @@ export default function ProjectPricerPage() {
                                             }, 0);
                                             const tC = Math.round((lC + eC + mC) * 100) / 100;
                                             const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                            updateBidItem(item.id, "realCost", tC);
-                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                            updateBidItem(item.id, "plannedCost", tC);
+                                            updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
                                           }}
                                           onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
@@ -3031,8 +3031,8 @@ export default function ProjectPricerPage() {
                                           }, 0);
                                           const tC = Math.round((lC + eC + mC) * 100) / 100;
                                           const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                          updateBidItem(item.id, "realCost", tC);
-                                          updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                          updateBidItem(item.id, "plannedCost", tC);
+                                          updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
                                         }}
                                         disabled={isReadOnly}
                                       >
@@ -3073,8 +3073,8 @@ export default function ProjectPricerPage() {
                                             }, 0);
                                             const tC = Math.round((lC + eC + mC) * 100) / 100;
                                             const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                            updateBidItem(item.id, "realCost", tC);
-                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                            updateBidItem(item.id, "plannedCost", tC);
+                                            updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
                                           }}
                                           onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
@@ -3213,8 +3213,8 @@ export default function ProjectPricerPage() {
                                             }, 0);
                                             const tC = Math.round((lC + eC + mC + miscC) * 100) / 100;
                                             const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                            updateBidItem(item.id, "realCost", tC);
-                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                            updateBidItem(item.id, "plannedCost", tC);
+                                            updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
                                           }}
                                           disabled={isReadOnly}
                                         >
@@ -3274,8 +3274,8 @@ export default function ProjectPricerPage() {
                                             }, 0);
                                             const tC = Math.round((lC + eC + mC + miscC) * 100) / 100;
                                             const rGp = effectiveLineTotal > 0 ? Math.round(((effectiveLineTotal - tC) / effectiveLineTotal * 100) * 10) / 10 : 100;
-                                            updateBidItem(item.id, "realCost", tC);
-                                            updateBidItem(item.id, "realGrossProfitPercent", rGp);
+                                            updateBidItem(item.id, "plannedCost", tC);
+                                            updateBidItem(item.id, "plannedGrossProfitPercent", rGp);
                                           }}
                                           onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
@@ -3417,7 +3417,7 @@ export default function ProjectPricerPage() {
             </div>
           </div>
 
-          {/* EPP Summary Banner — Estimate Total (line totals) | Actual Cost (real costs from panels) | Gross Profit $ | Gross Margin % | Target % | status badge */}
+          {/* EPP Summary Banner — Estimate Total (line totals) | Planned Cost (bid-time costs from panels) | Gross Profit $ | Gross Margin % | Target % | status badge */}
           <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 px-4 py-1.5 flex items-center justify-between text-lg">
             <div className="text-amber-900 dark:text-amber-200 flex-1">
               <div className="grid grid-cols-5 gap-x-6 text-center">
@@ -3426,8 +3426,8 @@ export default function ProjectPricerPage() {
                   <span className="tabular-nums">{formatMoney(eppSellingPrice)}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="font-semibold text-amber-950 dark:text-amber-100">Actual Cost:</span>
-                  <span className="tabular-nums">{formatMoney(eppRealCost)}</span>
+                  <span className="font-semibold text-amber-950 dark:text-amber-100">Planned Cost:</span>
+                  <span className="tabular-nums">{formatMoney(eppPlannedCost)}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="font-semibold text-amber-950 dark:text-amber-100">Gross Profit:</span>
