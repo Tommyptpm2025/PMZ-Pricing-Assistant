@@ -271,6 +271,11 @@ export default function WorkTypesPage() {
   // stays smooth and the value is parsed only on commit. Controlled — the shared Input wrapper
   // forces `value ?? ""`, so an uncontrolled defaultValue field would be locked empty.
   const [editingPercent, setEditingPercent] = React.useState<{ name: string; text: string } | null>(null);
+  // Gate the planning save until the load effect has read storage. Without this, the save fires on
+  // mount with the default (0 / "" / {}) and clobbers stored data — and under React Strict Mode's
+  // double-invoke (Next dev), the second load reads that clobbered default, permanently losing the
+  // entered value. (workTypes dodges this only because its default is valid non-empty data.)
+  const [planningHydrated, setPlanningHydrated] = React.useState(false);
 
   // Memoized lookup for demo actual performance numbers by work type name.
   // This allows the Overview to always use the live workTypes from Builder for structure/ranges/targets,
@@ -352,10 +357,13 @@ export default function WorkTypesPage() {
         if (parsed.weights && typeof parsed.weights === "object") setPlannedOverheadWeights(parsed.weights);
       }
     } catch {}
+    setPlanningHydrated(true); // storage has been read — the save may now write
   }, []);
 
-  // Persist planning layer.
+  // Persist planning layer. Guarded: never writes before hydration, so the mount-time default
+  // can't clobber stored data (Strict-Mode-safe — the save is skipped on every pre-hydration pass).
   React.useEffect(() => {
+    if (!planningHydrated) return;
     try {
       localStorage.setItem(PLANNING_KEY, JSON.stringify({
         annualOverhead: plannedAnnualOverhead,
@@ -363,7 +371,7 @@ export default function WorkTypesPage() {
         weights: plannedOverheadWeights,
       }));
     } catch {}
-  }, [plannedAnnualOverhead, plannedOverheadSource, plannedOverheadWeights]);
+  }, [planningHydrated, plannedAnnualOverhead, plannedOverheadSource, plannedOverheadWeights]);
 
   // Helper: get target GP% for a specific tier label from current builder data
   function getTargetGp(workTypeName: string, tierLabel: string): number {
