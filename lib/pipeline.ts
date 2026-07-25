@@ -172,20 +172,65 @@ export interface MoneyMapSnapshot {
   grossProfit: number; grossPercent: number;
   overhead: number; overheadPercent: number;
   netProfit: number; netPercent: number;
+  // Law 55 (amended Jul 23, 2026): overhead is now a planned-rate allocation, not the old ratio.
+  // When no planned overhead rate exists for the job's work type, overhead cannot be computed — the
+  // rung renders an instructive empty state, and net (which depends on overhead) is unknown too.
+  overheadAvailable: boolean;
+  overheadRateLabel: string | null; // "at your planned overhead rate (X%)" when available, else null
 }
 
-// Map a single job to the profit ladder. Ported VERBATIM from the Overview's former inline
-// moneyMapSnapshot math so the board stays byte-identical (fence-guarded). `chart` is the saved
-// overhead chart; overhead is a real allocation: (company overhead ÷ company revenue) × this job.
-export function moneyMapForJob(job: any, chart: any): MoneyMapSnapshot {
+// The Work Types planning inputs the amended overhead law reads (from pmz_work_type_planning_v1 +
+// pmz_work_types_v2). See lib/overhead-planning.ts readOverheadPlanning().
+export interface OverheadPlanning {
+  pool: number;                            // Planned Annual Overhead
+  weights: Record<string, number>;         // owner-set weight per work type NAME (default 1)
+  targetRevenues: Record<string, number>;  // owner-set Target Revenue per work type NAME
+  workTypeNames: string[];                 // the defined work type names
+}
+
+// LAW 55/51/52 — AMENDED Jul 23, 2026 (gaveled). A work type's PLANNED OVERHEAD RATE = its
+// allocated overhead ÷ its target revenue. Allocated_i = pool × (targetRev_i·w_i) / Σ(targetRev_j·w_j),
+// so rate_i = pool·w_i / Σ(targetRev_j·w_j). The OLD chart ÷ invoiced-revenue ratio is SUPERSEDED.
+// Returns null — never the old ratio, never a fake 0, never a blowup — when the rate cannot be
+// computed honestly: no pool, no target revenue for this work type, or no allocation base. The
+// caller renders the empty state ("Set your Planned Annual Overhead in Work Types to allocate
+// overhead"). Chart data is NOT consulted; the Overhead & Profit chart is now a ledger only.
+export function plannedOverheadRate(
+  workTypeName: string | null | undefined,
+  planning: OverheadPlanning | null | undefined
+): number | null {
+  if (!planning || !workTypeName) return null;
+  const pool = num(planning.pool);
+  if (pool <= 0) return null;
+  const w = (n: string) => {
+    const x = planning.weights?.[n];
+    return typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : 1;
+  };
+  const tr = (n: string) => {
+    const x = num(planning.targetRevenues?.[n]);
+    return x > 0 ? x : 0;
+  };
+  const target = tr(workTypeName);
+  if (target <= 0) return null; // no target revenue for this work type → cannot allocate honestly
+  // Ensure this work type is part of the distribution base even if it's missing from the list.
+  const names = planning.workTypeNames?.includes(workTypeName)
+    ? planning.workTypeNames
+    : [...(planning.workTypeNames || []), workTypeName];
+  const denom = names.reduce((s, n) => s + tr(n) * w(n), 0);
+  if (denom <= 0) return null;
+  const allocated = pool * ((target * w(workTypeName)) / denom);
+  return allocated / target; // = pool·w / denom
+}
+
+// Map a single job to the profit ladder. Overhead is the job revenue × its work type's PLANNED
+// overhead rate (Law 55 as amended). `overheadRate` is that rate (a fraction) or null when it can't
+// be computed — in which case overhead and net are marked unavailable (empty state), never a fake 0.
+export function moneyMapForJob(job: any, overheadRate: number | null): MoneyMapSnapshot {
   const rev = num(job?.totalRevenue);
   const directCogs = num(job?.directCogsDollars);
   const indirectCogs = num(job?.indirectCogsDollars);
-  const totalOverhead = chart && Array.isArray(chart.items)
-    ? chart.items.reduce((s: number, it: any) => s + num(it?.amount), 0)
-    : 0;
-  const overheadRate = chart && chart.monthlyRevenue > 0 ? totalOverhead / chart.monthlyRevenue : 0;
-  const overhead = Math.round(rev * overheadRate);
+  const overheadAvailable = overheadRate != null && Number.isFinite(overheadRate) && overheadRate >= 0;
+  const overhead = overheadAvailable ? Math.round(rev * (overheadRate as number)) : 0;
   const grossProfit = rev - directCogs - indirectCogs;
   const netProfit = grossProfit - overhead;
   const pct = (n: number) => (rev > 0 ? Math.round((n / rev) * 1000) / 10 : 0);
@@ -196,5 +241,9 @@ export function moneyMapForJob(job: any, chart: any): MoneyMapSnapshot {
     grossProfit, grossPercent: pct(grossProfit),
     overhead, overheadPercent: pct(overhead),
     netProfit, netPercent: pct(netProfit),
+    overheadAvailable,
+    overheadRateLabel: overheadAvailable
+      ? `at your planned overhead rate (${((overheadRate as number) * 100).toFixed(1)}%)`
+      : null,
   };
 }

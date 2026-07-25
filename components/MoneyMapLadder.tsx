@@ -57,6 +57,12 @@ function rung1Label(tier: PipelineTier): string {
   return tier === "PLANNING" ? "1. Bid Value (Projected)" : "1. Revenue (Income)";
 }
 
+// Empty state for rung 5 (and the net rung / hero) when no planned overhead rate exists for the
+// job's work type — Law 55 as amended (Jul 23, 2026). Never the old ratio, never a fake $0.
+const OVERHEAD_EMPTY = "Set your Planned Annual Overhead in Work Types to allocate overhead";
+// Muted neutral treatment for net when overhead — and therefore net — is unknown.
+const NET_UNKNOWN = { fg: "#6b7280", bg: "#f9fafb", border: "#e5e7eb" };
+
 // Compact 6-rung ladder (the Overview card view). Byte-identical markup to the former inline block
 // when tier is CONFIRMED (the Money Map's only tier).
 export function MoneyMapLadderCompact({ snap, tier = "CONFIRMED" }: { snap: MoneyMapSnapshot; tier?: PipelineTier }) {
@@ -82,14 +88,28 @@ export function MoneyMapLadderCompact({ snap, tier = "CONFIRMED" }: { snap: Mone
         <div className="font-medium">4. Gross Profit (Left After the Work)</div>
         <div className="tabular-nums">{formatMoney(snap.grossProfit)} <span className="text-xs text-muted-foreground">({snap.grossPercent}%)</span></div>
       </div>
-      <div className="flex items-center justify-between rounded border px-3 py-1.5" style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}>
-        <div className="font-medium" style={{ color: BUCKET_COLORS["Overhead"].fg }}>5. Overhead (Running the Business)</div>
-        <div className="tabular-nums" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(snap.overhead)} <span className="text-xs">({snap.overheadPercent}%)</span></div>
+      <div className="flex items-center justify-between rounded border px-3 py-1.5 gap-3" style={{ backgroundColor: BUCKET_COLORS["Overhead"].bg, borderColor: BUCKET_COLORS["Overhead"].border }}>
+        <div style={{ color: BUCKET_COLORS["Overhead"].fg }}>
+          <div className="font-medium">5. Overhead (Running the Business)</div>
+          {snap.overheadAvailable && snap.overheadRateLabel && <div className="text-[10px] opacity-80">{snap.overheadRateLabel}</div>}
+        </div>
+        {snap.overheadAvailable ? (
+          <div className="tabular-nums shrink-0" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{formatMoney(snap.overhead)} <span className="text-xs">({snap.overheadPercent}%)</span></div>
+        ) : (
+          <div className="text-[11px] text-right" style={{ color: BUCKET_COLORS["Overhead"].fg }}>{OVERHEAD_EMPTY}</div>
+        )}
       </div>
-      <div className="flex items-center justify-between rounded border-2 px-3 py-1.5" style={{ backgroundColor: netCol.bg, borderColor: netCol.border }}>
-        <div className="font-semibold" style={{ color: netCol.fg }}>6. Net Profit (What You Keep)</div>
-        <div className="tabular-nums font-semibold" style={{ color: netCol.fg }}>{formatMoney(snap.netProfit)} <span className="text-xs">({snap.netPercent}%)</span></div>
-      </div>
+      {snap.overheadAvailable ? (
+        <div className="flex items-center justify-between rounded border-2 px-3 py-1.5" style={{ backgroundColor: netCol.bg, borderColor: netCol.border }}>
+          <div className="font-semibold" style={{ color: netCol.fg }}>6. Net Profit (What You Keep)</div>
+          <div className="tabular-nums font-semibold" style={{ color: netCol.fg }}>{formatMoney(snap.netProfit)} <span className="text-xs">({snap.netPercent}%)</span></div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between rounded border-2 px-3 py-1.5 border-dashed">
+          <div className="font-semibold text-muted-foreground">6. Net Profit (What You Keep)</div>
+          <div className="text-xs text-muted-foreground">— set overhead to see net</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -120,6 +140,11 @@ export function MoneyMapLadderExpanded({ snap, tier = "CONFIRMED" }: { snap: Mon
   const planning = tier === "PLANNING";
   const netLabel = planning ? "Projected Net Profit" : "Net Profit";
   const netCol = netProfitColors(snap.netProfit); // color law: green when kept, destructive-red on a loss (both tiers)
+  // Law 55 (amended): when no planned overhead rate exists, overhead AND net are unknown — the
+  // overhead rung shows the empty state and net drops to a neutral "set overhead" treatment (never
+  // a green hero over an un-costed gross figure).
+  const overheadAvailable = snap.overheadAvailable;
+  const heroCol = overheadAvailable ? netCol : NET_UNKNOWN;
   const revBreakdown = planning
     ? "This is your BID total (projected) — what you’d collect if you win the job. It only becomes Revenue once the job is foreman-confirmed at Ready to Invoice."
     : RUNG_INFO.revenue;
@@ -128,24 +153,35 @@ export function MoneyMapLadderExpanded({ snap, tier = "CONFIRMED" }: { snap: Mon
     key: string; label: string; value: number; pct: number | null;
     color?: { fg: string; bg: string; border: string }; emphasized?: boolean;
     breakdown: string; silentKiller?: boolean;
+    subLabel?: string | null;  // source label under the rung title (e.g. the overhead rate)
+    unavailable?: boolean;     // render the empty state instead of a value
+    emptyText?: string;        // the empty-state message when unavailable
   };
   const rungs: Rung[] = [
     { key: "revenue", label: rung1Label(tier), value: snap.revenue, pct: null, breakdown: revBreakdown },
     { key: "direct", label: "2. Cost of Goods (Direct Job Costs)", value: snap.directCogs, pct: snap.directPercent, color: BUCKET_COLORS["Direct COGS"], breakdown: RUNG_INFO.direct },
     { key: "indirect", label: "3. Indirect Cost of Goods (Hidden Job Costs)", value: snap.indirectCogs, pct: snap.indirectPercent, color: BUCKET_COLORS["Indirect COGS"], emphasized: true, breakdown: RUNG_INFO.indirect, silentKiller: true },
     { key: "gross", label: "4. Gross Profit (Left After the Work)", value: snap.grossProfit, pct: snap.grossPercent, breakdown: RUNG_INFO.gross },
-    { key: "overhead", label: "5. Overhead (Running the Business)", value: snap.overhead, pct: snap.overheadPercent, color: BUCKET_COLORS["Overhead"], breakdown: RUNG_INFO.overhead },
-    { key: "net", label: planning ? "6. Projected Net Profit" : "6. Net Profit (What You Keep)", value: snap.netProfit, pct: snap.netPercent, color: netCol, emphasized: true, breakdown: RUNG_INFO.net },
+    { key: "overhead", label: "5. Overhead (Running the Business)", value: snap.overhead, pct: snap.overheadPercent, color: BUCKET_COLORS["Overhead"], breakdown: RUNG_INFO.overhead,
+      subLabel: overheadAvailable ? snap.overheadRateLabel : null, unavailable: !overheadAvailable, emptyText: OVERHEAD_EMPTY },
+    { key: "net", label: planning ? "6. Projected Net Profit" : "6. Net Profit (What You Keep)", value: snap.netProfit, pct: snap.netPercent, color: overheadAvailable ? netCol : NET_UNKNOWN, emphasized: true, breakdown: RUNG_INFO.net,
+      unavailable: !overheadAvailable, emptyText: "Set overhead to see net profit" },
   ];
 
   return (
     <div>
       {/* Net Profit hero band — tier-aware label (Projected Net Profit in PLANNING); color law:
           green when positive, destructive-red on a loss (both tiers). */}
-      <div className="rounded-2xl border-2 p-6 mb-4 text-center" style={{ backgroundColor: netCol.bg, borderColor: netCol.border }}>
-        <div className="text-xs uppercase tracking-[1.5px]" style={{ color: netCol.fg }}>{netLabel}</div>
-        <div className="text-[44px] leading-none font-semibold tabular-nums tracking-[-2px] mt-2" style={{ color: netCol.fg }}>{formatMoney(snap.netProfit)}</div>
-        <div className="text-sm tabular-nums mt-1" style={{ color: netCol.fg }}>{snap.netPercent}%</div>
+      <div className="rounded-2xl border-2 p-6 mb-4 text-center" style={{ backgroundColor: heroCol.bg, borderColor: heroCol.border }}>
+        <div className="text-xs uppercase tracking-[1.5px]" style={{ color: heroCol.fg }}>{netLabel}</div>
+        {overheadAvailable ? (
+          <>
+            <div className="text-[44px] leading-none font-semibold tabular-nums tracking-[-2px] mt-2" style={{ color: heroCol.fg }}>{formatMoney(snap.netProfit)}</div>
+            <div className="text-sm tabular-nums mt-1" style={{ color: heroCol.fg }}>{snap.netPercent}%</div>
+          </>
+        ) : (
+          <div className="text-sm mt-2" style={{ color: heroCol.fg }}>{OVERHEAD_EMPTY}</div>
+        )}
       </div>
 
       {/* Six stacked rungs — accordion, one open at a time. */}
@@ -165,14 +201,22 @@ export function MoneyMapLadderExpanded({ snap, tier = "CONFIRMED" }: { snap: Mon
                       <span className="text-[10px] px-1.5 py-0 rounded text-white font-medium" style={{ backgroundColor: BUCKET_COLORS["Indirect COGS"].fg }}>SILENT KILLER</span>
                     )}
                   </div>
+                  {/* Source label — e.g. the overhead rung's "at your planned overhead rate (X%)". */}
+                  {r.subLabel && <div className="text-xs mt-0.5" style={c ? { color: c.fg, opacity: 0.85 } : undefined}>{r.subLabel}</div>}
                   {/* Silent Killer strip (rung 3) — always visible; reuses the live approved subline. */}
                   {r.silentKiller && (
                     <div className="text-xs mt-0.5" style={{ color: BUCKET_COLORS["Indirect COGS"].fg }}>The hidden bucket: labor burden, shop supplies, small tools, untracked mobilization, admin creep, etc.</div>
                   )}
                 </div>
                 <div className="text-right shrink-0 tabular-nums" style={c ? { color: c.fg } : undefined}>
-                  <div className="font-semibold">{formatMoney(r.value)}</div>
-                  {r.pct !== null && <div className="text-xs">({r.pct}%)</div>}
+                  {r.unavailable ? (
+                    <div className="text-xs font-normal max-w-[220px] tabular-nums-none">{r.emptyText}</div>
+                  ) : (
+                    <>
+                      <div className="font-semibold">{formatMoney(r.value)}</div>
+                      {r.pct !== null && <div className="text-xs">({r.pct}%)</div>}
+                    </>
+                  )}
                 </div>
               </button>
               {open && (

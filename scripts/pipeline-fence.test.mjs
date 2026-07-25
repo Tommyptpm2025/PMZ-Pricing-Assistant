@@ -26,7 +26,10 @@ import {
   realizedRoll,
   confirmedJobs,
   moneyMapForJob,
+  plannedOverheadRate,
 } from "../lib/pipeline.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { netProfitColors, NET_LOSS_COLORS, BUCKET_COLORS } from "../lib/pmz-types.ts";
 
 const sortedMembers = (set) => [...set].sort();
@@ -143,44 +146,68 @@ assert.deepEqual(netProfitColors(0), BUCKET_COLORS["Net Profit"], "zero net → 
 assert.deepEqual(netProfitColors(-500), NET_LOSS_COLORS, "negative net → destructive-red (never green on a loss)");
 assert.notEqual(NET_LOSS_COLORS.fg, BUCKET_COLORS["Net Profit"].fg, "loss red is not the kept-money green");
 
-// ── 3 — Money Map math byte-identical to the FORMER Overview inline formula ───────────────────
-// Frozen reference: the exact pre-build moneyMapSnapshot arithmetic (app/page.tsx, lines ~211-238).
-function oldMoneyMap(latest, chart) {
-  const rev = Number(latest?.totalRevenue) || 0;
-  const directCogs = Number(latest?.directCogsDollars) || 0;
-  const indirectCogs = Number(latest?.indirectCogsDollars) || 0;
-  const totalOverhead = chart && Array.isArray(chart.items)
-    ? chart.items.reduce((s, it) => s + (Number(it.amount) || 0), 0) : 0;
-  const overheadRate = chart && chart.monthlyRevenue > 0 ? totalOverhead / chart.monthlyRevenue : 0;
-  const overhead = Math.round(rev * overheadRate);
-  const grossProfit = rev - directCogs - indirectCogs;
-  const netProfit = grossProfit - overhead;
-  const pct = (n) => (rev > 0 ? Math.round((n / rev) * 1000) / 10 : 0);
-  return {
-    revenue: rev,
-    directCogs, directPercent: pct(directCogs),
-    indirectCogs, indirectPercent: pct(indirectCogs),
-    grossProfit, grossPercent: pct(grossProfit),
-    overhead, overheadPercent: pct(overhead),
-    netProfit, netPercent: pct(netProfit),
-  };
+// ── 3 — Money Map overhead: the AMENDED Law 55/51/52 planned-rate allocation ──────────────────
+// SUPERSEDED, gaveled Jul 23 2026: overhead = jobRevenue × (chart total ÷ invoiced revenue).
+// NEW LAW: overhead = jobRevenue × the work type's PLANNED overhead rate, where
+//   rate(wt) = allocated_overhead(wt) ÷ target_revenue(wt) = pool·w(wt) / Σ(targetRev_j·w_j).
+// The overhead chart is NO LONGER consulted for per-job allocation.
+const round4 = (n) => Math.round(n * 10000) / 10000;
+
+// Planning fixture: pool $200k; two work types; equal weights; target revenues 800k / 200k.
+const PLANNING = {
+  pool: 200000,
+  weights: {},                                       // both default to 1.0
+  targetRevenues: { Paving: 800000, Sealcoat: 200000 },
+  workTypeNames: ["Paving", "Sealcoat"],
+};
+// denom = 800000·1 + 200000·1 = 1,000,000.  Paving allocated = 200000×(800000/1e6)=160000,
+// rate = 160000/800000 = 0.20.  Sealcoat allocated = 40000, rate = 40000/200000 = 0.20.
+const rPaving = plannedOverheadRate("Paving", PLANNING);
+const rSeal = plannedOverheadRate("Sealcoat", PLANNING);
+assert.equal(round4(rPaving), 0.2, "Paving planned overhead rate = allocated ÷ target = 20%");
+assert.equal(round4(rSeal), 0.2, "Sealcoat planned overhead rate = 20%");
+
+// Owner weight is honored: a higher weight raises that work type's rate.
+const wRate = plannedOverheadRate("Paving", { ...PLANNING, weights: { Paving: 3 } });
+assert.ok(wRate > rPaving, "a higher owner weight raises that work type's overhead rate");
+
+// moneyMapForJob applies the rate to job revenue — overhead = rev × rate, net = gross − overhead.
+const pjob = { totalRevenue: 37755, directCogsDollars: 20000, indirectCogsDollars: 8000, workType: "Paving" };
+const snap = moneyMapForJob(pjob, rPaving);
+assert.equal(snap.overhead, Math.round(37755 * 0.2), "overhead = job revenue × planned rate");
+assert.equal(snap.overhead, 7551, "overhead ties: 37755 × 20% = $7,551");
+assert.equal(snap.overheadAvailable, true, "rate present → overhead available");
+assert.equal(snap.overheadRateLabel, "at your planned overhead rate (20.0%)", "rung carries the source label");
+assert.equal(snap.netProfit, snap.grossProfit - snap.overhead, "net = gross − planned overhead");
+
+// EMPTY STATE — no rate: never the old ratio, never a fake $0, never a blowup. overhead 0 +
+// flagged unavailable (the rung renders the instructive message); net stays finite (no NaN).
+for (const [label, planning, wt] of [
+  ["no pool", { ...PLANNING, pool: 0 }, "Paving"],
+  ["no target revenue for this type", { ...PLANNING, targetRevenues: {} }, "Paving"],
+  ["unknown work type", PLANNING, "Excavation"],
+  ["null planning", null, "Paving"],
+]) {
+  const rate = plannedOverheadRate(wt, planning);
+  assert.equal(rate, null, `${label}: rate is null (never a number)`);
+  const s = moneyMapForJob(pjob, rate);
+  assert.equal(s.overheadAvailable, false, `${label}: overhead unavailable → empty state`);
+  assert.equal(s.overhead, 0, `${label}: overhead is 0, not a fabricated allocation`);
+  assert.equal(s.overheadRateLabel, null, `${label}: no source label when unavailable`);
+  assert.ok(Number.isFinite(s.netProfit), `${label}: net stays finite — no NaN, no blowup`);
 }
 
-const chartA = { items: [{ amount: 5000 }, { amount: 5000 }], monthlyRevenue: 100000 }; // rate 0.10
-const chartB = { items: [{ amount: 12345.67 }], monthlyRevenue: 250000 };               // odd rate
-const charts = [chartA, chartB, null, { items: [], monthlyRevenue: 0 }];
+// REVERT-TO-OLD-RATIO GUARD (structural): moneyMapForJob must NOT consult the overhead chart's
+// invoiced-revenue ratio. Its body must not reference `monthlyRevenue` or sum `chart.items`.
+const pipelineSrc = readFileSync(fileURLToPath(new URL("../lib/pipeline.ts", import.meta.url)), "utf8");
+const mmStart = pipelineSrc.indexOf("export function moneyMapForJob");
+const mmBody = pipelineSrc.slice(mmStart, pipelineSrc.indexOf("\n}", mmStart));
+assert.ok(mmStart > 0, "moneyMapForJob found");
+assert.ok(!mmBody.includes("monthlyRevenue"), "moneyMapForJob must NOT reference monthlyRevenue (old ratio superseded)");
+assert.ok(!mmBody.includes("chart.items"), "moneyMapForJob must NOT sum chart.items (chart is a ledger only now)");
 
-// Every confirmed (rev>0) seed job × every chart shape must match the frozen formula exactly.
-for (const job of confirmedJobs(seed)) {
-  for (const chart of charts) {
-    assert.deepEqual(moneyMapForJob(job, chart), oldMoneyMap(job, chart),
-      `Money Map byte-identical for job ${job.id} (rev ${job.totalRevenue})`);
-  }
-}
-
-// rev=0 guard: no divide-by-zero / NaN; caller gates `confirmed` on rev>0 so this snapshot is
-// never displayed, but the math must stay clean.
-const zero = moneyMapForJob({ totalRevenue: 0, directCogsDollars: 500, indirectCogsDollars: 250 }, chartA);
+// rev=0 guard: clean, no NaN, even with a real rate.
+const zero = moneyMapForJob({ totalRevenue: 0, directCogsDollars: 500, indirectCogsDollars: 250 }, 0.2);
 assert.equal(zero.revenue, 0);
 for (const k of ["directPercent", "indirectPercent", "grossPercent", "overheadPercent", "netPercent"]) {
   assert.equal(zero[k], 0, `${k} guards to 0 when revenue is 0 (no NaN)`);
@@ -196,7 +223,7 @@ assert.equal(rollupPipeline(null).phases.length, 4, "rollup handles null quotes"
 assert.equal(realizedRoll(undefined).value, 0, "realized value 0 on empty");
 assert.deepEqual(confirmedJobs("nonsense"), [], "confirmedJobs tolerates junk input");
 
-console.log("PASS: Profit Pipeline fence — both gates byte-identical, Completed in money set, Money Map port byte-identical");
+console.log("PASS: Profit Pipeline fence — both gates byte-identical, Completed in money set; overhead = job revenue × planned rate (Law 55 amended), old chart÷invoiced ratio superseded + structurally barred");
 console.log("PASS: rollup per-phase subtotals, vocabulary law, reconciliation invariant (realized === salesFromInvoiced), iron guard (no grand total)");
 console.log("PASS: drill-down — each phase lists the jobs behind its count; realized jobs === qualifyingQuotes members; dead lane lists its jobs");
 console.log("PASS: color law — Net Profit green when kept, destructive-red on a loss (netProfitColors SSOT)");

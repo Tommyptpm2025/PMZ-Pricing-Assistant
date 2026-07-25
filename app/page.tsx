@@ -20,10 +20,12 @@ import { qualifyingQuotes } from "@/lib/qualifying"
 import {
   confirmedJobs,
   moneyMapForJob,
+  plannedOverheadRate,
   rollupPipeline,
   type PhaseRoll,
   type PhaseJob,
 } from "@/lib/pipeline"
+import { readOverheadPlanning } from "@/lib/overhead-planning"
 import { MoneyMapLadderCompact, TierBadge } from "@/components/MoneyMapLadder"
 
 interface ToolCardProps {
@@ -306,14 +308,14 @@ export default function OverviewPage() {
 
   const mapData = useMemo(() => {
     let jobs: any[] = []
-    let chart: any = null
+    let planning = null as ReturnType<typeof readOverheadPlanning> | null
     if (hydrated) { try {
       const quotes = JSON.parse(localStorage.getItem("pmz_saved_quotes") || "[]")
       jobs = confirmedJobs(quotes)
-      const chartRaw = localStorage.getItem("pmz_overhead_chart")
-      chart = chartRaw ? JSON.parse(chartRaw) : null
+      // Law 55 (amended): overhead comes from the Work Types planning store, not the overhead chart.
+      planning = readOverheadPlanning()
     } catch {} }
-    return { jobs, chart }
+    return { jobs, planning }
   }, [hydrated])
 
   // The confirmed job the lens is pointed at: the picked one if still present, else the latest.
@@ -328,11 +330,12 @@ export default function OverviewPage() {
   }, [mapData, selectedMapJobId])
 
   const moneyMapSnapshot = useMemo(() => {
-    const snap = moneyMapForJob(selectedMapJob || {}, mapData.chart)
+    const rate = plannedOverheadRate(selectedMapJob?.workType, mapData.planning)
+    const snap = moneyMapForJob(selectedMapJob || {}, rate)
     // confirmed only when a real job with revenue > 0 is in view (matches the pre-picker gate).
     const confirmed = !!selectedMapJob && snap.revenue > 0
     return { confirmed, ...snap }
-  }, [selectedMapJob, mapData.chart])
+  }, [selectedMapJob, mapData.planning])
 
   // ── Profit Pipeline — the phase accumulator. Per-phase subtotals ONLY (iron guard: no grand
   // total). Realized ties to the Boss View revenue by the same birthplace (fence-reconciled). ────

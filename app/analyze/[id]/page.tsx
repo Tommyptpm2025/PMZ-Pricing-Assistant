@@ -9,7 +9,8 @@ import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { moneyMapForJob, tierOf, type MoneyMapSnapshot } from "@/lib/pipeline";
+import { moneyMapForJob, plannedOverheadRate, tierOf, type MoneyMapSnapshot } from "@/lib/pipeline";
+import { readOverheadPlanning } from "@/lib/overhead-planning";
 import { MoneyMapLadderExpanded, TierBadge } from "@/components/MoneyMapLadder";
 import { statusLabel, type QuoteStatus } from "@/lib/pmz-types";
 
@@ -27,10 +28,11 @@ export default function AnalyzePage() {
       const quotes = JSON.parse(localStorage.getItem("pmz_saved_quotes") || "[]");
       const q = Array.isArray(quotes) ? quotes.find((x: any) => x?.id === id) : null;
       if (q) {
-        const chartRaw = localStorage.getItem("pmz_overhead_chart");
-        const chart = chartRaw ? JSON.parse(chartRaw) : null;
+        // Law 55 (amended): overhead = job revenue × its work type's planned overhead rate, from
+        // the Work Types planning store — NOT the old overhead-chart ratio. Null rate → empty state.
+        const rate = plannedOverheadRate(q.workType, readOverheadPlanning());
         setQuote(q);
-        setSnap(moneyMapForJob(q, chart));
+        setSnap(moneyMapForJob(q, rate));
       }
     } catch {}
     setLoaded(true);
