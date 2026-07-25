@@ -276,6 +276,13 @@ export default function WorkTypesPage() {
   // double-invoke (Next dev), the second load reads that clobbered default, permanently losing the
   // entered value. (workTypes dodges this only because its default is valid non-empty data.)
   const [planningHydrated, setPlanningHydrated] = React.useState(false);
+  // Commit 1 (precursor to the Law 55 amendment): owner-entered, persisted Target Revenue per work
+  // type, keyed by NAME. Demo work types fall back to their seeded demo target until the owner edits;
+  // real work types start unset (0). Same persistence path + planningHydrated gate as the overhead
+  // figure — the amendment's per-work-type overhead rate needs this as a real, stored input.
+  const [plannedTargetRevenues, setPlannedTargetRevenues] = React.useState<Record<string, number>>({});
+  const setTargetRevenue = (name: string, value: number) =>
+    setPlannedTargetRevenues((prev) => ({ ...prev, [name]: value }));
 
   // Memoized lookup for demo actual performance numbers by work type name.
   // This allows the Overview to always use the live workTypes from Builder for structure/ranges/targets,
@@ -317,13 +324,15 @@ export default function WorkTypesPage() {
         ttlRevenue: actual.ttlRevenue,
         totalGp: actual.totalGp,
         gpPercent: actual.gpPercent,
-        targetRevenue: actual.targetRevenue,
+        // Owner-set Target Revenue wins; else the seeded demo target (0 for real work types). `??`
+        // so an explicit owner 0 is respected and only a truly-unset value falls back to the demo.
+        targetRevenue: plannedTargetRevenues[wt.name] ?? actual.targetRevenue,
         totalBids: actual.totalBids,
         bidsAccepted: actual.bidsAccepted,
         tiers,
       } as WorkTypePerformance;
     });
-  }, [workTypes, actualByName]);
+  }, [workTypes, actualByName, plannedTargetRevenues]);
 
   // Load targets from localStorage
   React.useEffect(() => {
@@ -355,6 +364,7 @@ export default function WorkTypesPage() {
         if (typeof parsed.annualOverhead === "number") setPlannedAnnualOverhead(parsed.annualOverhead);
         if (typeof parsed.annualOverheadSource === "string") setPlannedOverheadSource(parsed.annualOverheadSource);
         if (parsed.weights && typeof parsed.weights === "object") setPlannedOverheadWeights(parsed.weights);
+        if (parsed.targetRevenues && typeof parsed.targetRevenues === "object") setPlannedTargetRevenues(parsed.targetRevenues);
       }
     } catch {}
     setPlanningHydrated(true); // storage has been read — the save may now write
@@ -369,9 +379,10 @@ export default function WorkTypesPage() {
         annualOverhead: plannedAnnualOverhead,
         annualOverheadSource: plannedOverheadSource,
         weights: plannedOverheadWeights,
+        targetRevenues: plannedTargetRevenues,
       }));
     } catch {}
-  }, [planningHydrated, plannedAnnualOverhead, plannedOverheadSource, plannedOverheadWeights]);
+  }, [planningHydrated, plannedAnnualOverhead, plannedOverheadSource, plannedOverheadWeights, plannedTargetRevenues]);
 
   // Helper: get target GP% for a specific tier label from current builder data
   function getTargetGp(workTypeName: string, tierLabel: string): number {
@@ -1146,8 +1157,25 @@ export default function WorkTypesPage() {
                         <TableCell className="text-right tabular-nums text-emerald-600 font-semibold">
                           {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(p.totalGp)}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(p.targetRevenue)}
+                        {/* Target Revenue — owner-entered + persisted (Commit 1). Controlled input;
+                            demo work types show their seeded target until edited, real ones start
+                            blank. Row-expand click is stopped so editing doesn't toggle the row. */}
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-muted-foreground text-xs">$</span>
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              value={p.targetRevenue ? p.targetRevenue.toString() : ""}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const cleaned = e.target.value.replace(/[^0-9]/g, "").replace(/^0+/, "");
+                                setTargetRevenue(p.name, cleaned === "" ? 0 : Number(cleaned));
+                              }}
+                              placeholder="0"
+                              className="w-28 h-8 text-right tabular-nums"
+                            />
+                          </div>
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", variance >= 0 ? "text-emerald-600" : "text-red-600")}>
                           {variance >= 0 ? "+" : ""}{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(variance)}
