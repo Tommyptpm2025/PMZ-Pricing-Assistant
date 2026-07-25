@@ -51,7 +51,7 @@ import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
 import { useRateStore } from "@/lib/rate-store";
 import { buildLineLemDetail, buildLineRecipeSections, buildLineGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
-import { createJobFromQuote, loadJobs, saveJobs, computeOwnerVariance, type Job } from "@/lib/jobs";
+import { createJobFromQuote, backfillRowCostBasis, loadJobs, saveJobs, computeOwnerVariance, type Job } from "@/lib/jobs";
 import {
   getAllQuotes,
   deleteQuote,
@@ -647,13 +647,30 @@ export default function QuotesPage() {
   // when it actually created a new work order. Does NOT navigate (callers decide).
   function ensureWorkOrder(quote: SavedQuote): boolean {
     if (quote.quoteType !== "EPP") return false;
-    if (workOrderQuoteIds.has(quote.id)) return false;
-    // Stale-state guard: a job may already exist even if the set hasn't caught up — record + skip.
-    if (loadJobs().some((j) => j.quoteId === quote.id)) {
-      setWorkOrderQuoteIds((prev) => new Set(prev).add(quote.id));
+    const items = quote.eppLineItems || [];
+    // Recipe grouped per bid line + per crew. buildLineRecipeSections carries a per-row bid-time
+    // unitCost that createJobFromQuote peels into the owner-only rowCostBasis; the persisted foreman
+    // rows stay cost-stripped (zero-dollars law). Computed once — used to create OR to backfill.
+    const recipeLines = items.map((it) => ({
+      lineId: it.id,
+      description: it.description,
+      sections: buildLineRecipeSections(it, lemCats),
+    }));
+
+    // Already has a work order? Don't create a second — but DO backfill a MISSING cost basis so a
+    // job created before rowCostBasis existed can be re-accepted to enable Estimate vs. Actual.
+    // backfillRowCostBasis never overwrites a basis that's already present (frozen snapshot).
+    const jobs = loadJobs();
+    const existing = jobs.find((j) => j.quoteId === quote.id);
+    if (existing || workOrderQuoteIds.has(quote.id)) {
+      if (!workOrderQuoteIds.has(quote.id)) setWorkOrderQuoteIds((prev) => new Set(prev).add(quote.id));
+      if (existing) {
+        const patched = backfillRowCostBasis(existing, recipeLines);
+        if (patched !== existing) saveJobs(jobs.map((j) => (j.id === existing.id ? patched : j)));
+      }
       return false;
     }
-    const items = quote.eppLineItems || [];
+
     const job = createJobFromQuote({
       quoteId: quote.id,
       jobName: quote.jobName,
@@ -668,14 +685,7 @@ export default function QuotesPage() {
         unit: it.unit,
         unitPrice: it.unitPrice,
       })),
-      // Recipe grouped per bid line + per crew. buildLineRecipeSections carries a per-row bid-time
-      // unitCost that createJobFromQuote peels into the owner-only rowCostBasis; the persisted
-      // foreman rows stay cost-stripped (zero-dollars law).
-      recipeLines: items.map((it) => ({
-        lineId: it.id,
-        description: it.description,
-        sections: buildLineRecipeSections(it, lemCats),
-      })),
+      recipeLines,
       quoteJobSiteAddress: quote.jobSiteAddress || quote.customerDetails?.jobSiteAddress,
     });
     saveJobs([...loadJobs(), job]);

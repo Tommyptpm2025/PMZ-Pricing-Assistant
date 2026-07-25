@@ -19,7 +19,7 @@
  */
 import assert from "node:assert/strict";
 import { buildLineRecipeSections } from "../lib/lem-detail.ts";
-import { createJobFromQuote, updateRecipeRowActual, computeOwnerVariance } from "../lib/jobs.ts";
+import { createJobFromQuote, updateRecipeRowActual, computeOwnerVariance, backfillRowCostBasis } from "../lib/jobs.ts";
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -174,6 +174,44 @@ function rowIdByName(job, name) {
   assert.equal(v.available, false, "no cost basis → available:false, never a fabricated total");
 }
 
+// ── 7 — backfill: a legacy job (no basis) gets one on re-accept; a present basis is never touched ──
+const FRESH = [{ lineId: "b1", sections: buildLineRecipeSections(ITEM, CATS) }];
+{
+  // A job created before rowCostBasis existed: strip it to empty (the "unavailable" shape).
+  const legacy = { ...buildJob(), rowCostBasis: {} };
+  assert.equal(computeOwnerVariance(legacy).available, false, "legacy job reads unavailable before backfill");
+
+  const filled = backfillRowCostBasis(legacy, FRESH);
+  const v = computeOwnerVariance(filled);
+  assert.equal(v.available, true, "backfill enables variance on a legacy job");
+  assert.equal(v.plannedTotal, 2420, "backfilled basis reproduces the bid-time planned total");
+  // Every row got its bid-time unit cost back, keyed to the EXISTING (frozen) row ids.
+  for (const line of v.lines)
+    for (const row of line.rows)
+      assert.ok(row.unitCost > 0, `${row.name}: backfilled a real unit cost`);
+}
+{
+  // Frozen-snapshot law: a job that ALREADY has a basis must never be overwritten, even if the
+  // fresh costs differ (e.g. rates moved since accept).
+  const withBasis = buildJob(); // has a real basis from createJobFromQuote
+  const bumped = [{ lineId: "b1", sections: buildLineRecipeSections(
+    { ...ITEM, laborEntries: [{ rateId: "op", hours: 10, rate: 999 }] }, CATS) }];
+  const result = backfillRowCostBasis(withBasis, bumped);
+  assert.equal(result, withBasis, "a present basis is returned untouched (never overwritten)");
+}
+{
+  // No fabricated numbers: a row that doesn't match a fresh draft (name/unit diverged) gets no
+  // basis rather than a wrong one.
+  const legacy = { ...buildJob(), rowCostBasis: {} };
+  const mismatched = [{ lineId: "b1", sections: [{ title: "Labor", isCrew: false,
+    rows: [{ name: "DIFFERENT", plannedQty: 10, unit: "hrs", unitCost: 85 }] }] }];
+  const filled = backfillRowCostBasis(legacy, mismatched);
+  // The first labor row's name won't match "DIFFERENT" → left unset; others have no fresh line → unset.
+  const laborRow = filled.recipeLines[0].sections[0].rows[0];
+  assert.equal(filled.rowCostBasis[laborRow.id], undefined, "a name-mismatched row is left unset, not mis-valued");
+}
+
 console.log("PASS: planned $ ties to bid lines; actual $ = actualQty × bid-time basis; gap = actual − planned (reported, like-for-like)");
 console.log("PASS: null actualQty stays OUT of dollar math — 'not yet reported', never a fabricated $0; cleared rows revert to null");
 console.log("PASS: cost basis lives off the foreman rows (zero-dollars law); legacy jobs degrade to 'unavailable'");
+console.log("PASS: backfill fills a MISSING basis on re-accept (variance enabled), never overwrites a present one, never mis-values a mismatched row");

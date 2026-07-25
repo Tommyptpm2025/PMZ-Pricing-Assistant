@@ -251,6 +251,41 @@ export function createJobFromQuote(input: CreateJobInput): Job {
   };
 }
 
+// Backfill a MISSING owner cost basis onto an existing job at re-accept time. A job created before
+// rowCostBasis existed (or before variance tracking) has no basis, so its Estimate-vs-Actual reads
+// "cost basis unavailable". Re-accepting funnels here: we fill the basis from freshly-computed
+// per-row unit costs WITHOUT disturbing the frozen recipe or the foreman's actuals.
+//
+// Frozen-snapshot law: NEVER overwrites a basis that is already present — only fills a missing one.
+// Rows are matched to the fresh drafts by (lineId → section index → row index), verified by name +
+// unit, so a row only takes a cost when it unambiguously corresponds. Rows that don't match are
+// left unset (they read as 0 basis) rather than mis-valued — no fabricated numbers. If nothing
+// matches, the basis stays empty and the panel keeps showing "unavailable" (never wrong data).
+export function backfillRowCostBasis(
+  job: Job,
+  freshLines: Array<{
+    lineId: string;
+    sections: Array<{ rows: Array<{ name: string; unit: string; unitCost: number }> }>;
+  }>
+): Job {
+  if (job.rowCostBasis && Object.keys(job.rowCostBasis).length > 0) return job; // present → frozen
+  const freshByLineId = new Map(freshLines.map((l) => [l.lineId, l]));
+  const basis: Record<string, number> = {};
+  (job.recipeLines || []).forEach((line) => {
+    const fresh = freshByLineId.get(line.lineId);
+    line.sections.forEach((section, si) => {
+      const fs = fresh?.sections[si];
+      section.rows.forEach((row, ri) => {
+        const fr = fs?.rows[ri];
+        if (fr && fr.name === row.name && fr.unit === row.unit) {
+          basis[row.id] = Math.max(0, fr.unitCost || 0);
+        }
+      });
+    });
+  });
+  return { ...job, rowCostBasis: basis };
+}
+
 // Foreman actuals entry against the cost-stripped recipe: set one row's actualQty by row id.
 // Pass null to clear a row back to "not yet entered"; negatives are floored to 0.
 export function updateRecipeRowActual(
