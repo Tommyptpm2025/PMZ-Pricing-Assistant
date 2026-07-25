@@ -1892,6 +1892,10 @@ export default function ProjectPricerPage() {
     : 0;
   const eppTargetPercent = targetMargin; // from selected Work Type tier for current job size, or 0
   const eppOnTarget = eppGrossProfitPercent >= eppTargetPercent;
+  // Earned Green: a quote with no cost basis (Planned Cost $0) has no margin to judge — a 100% GP
+  // is an absence, not a win. Gate every margin-vs-target judgment (the chip AND the Gross Margin
+  // readout) on real costs existing, so green is never earned by absence.
+  const hasCostBasis = eppPlannedCost > 0;
 
   // Customer document mapping lives in lib/quote-document.ts so the Law 56 fence can EXECUTE
   // it rather than pin its call sites by source text. Component state is passed explicitly.
@@ -3435,7 +3439,8 @@ export default function ProjectPricerPage() {
                 </div>
                 <div className="flex flex-col">
                   <span className="font-semibold text-amber-950 dark:text-amber-100">Gross Margin:</span>
-                  <span className="tabular-nums">{eppGrossProfitPercent.toFixed(1)}%</span>
+                  {/* Earned Green: a displayed 100.0% with no cost basis is a made-up number — show "—". */}
+                  <span className="tabular-nums">{hasCostBasis ? `${eppGrossProfitPercent.toFixed(1)}%` : "—"}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="font-semibold text-amber-950 dark:text-amber-100">Target:</span>
@@ -3451,10 +3456,13 @@ export default function ProjectPricerPage() {
             <div
               className={cn(
                 "px-2 py-0.5 rounded font-medium text-base",
-                eppOnTarget ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                !hasCostBasis
+                  ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                  : eppOnTarget ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
               )}
             >
-              {eppOnTarget ? "On Target" : "Below Target"}
+              {/* Earned Green: no cost basis → no margin to judge; never green, never "On Target". */}
+              {!hasCostBasis ? "No cost basis" : eppOnTarget ? "On Target" : "Below Target"}
             </div>
           </div>
 
@@ -3980,7 +3988,12 @@ export default function ProjectPricerPage() {
             <div className={`font-bold mb-2 flex items-start justify-between ${grandTotalTitleClass}`}>
               <span>Grand Total</span>
               {!isNoTarget && (
-                (editableGrossProfitPercent > 0 ? editableGrossProfitPercent : defaultTargetGP) >= defaultTargetGP ? (
+                /* Earned Green: the Full LEM badge greens on a declared GP% ≥ target (and defaults
+                   green when GP% is unset) — but with no real LEM cost there's no margin to judge.
+                   Gate on this view's cost basis (realTotalLEM), never green on an absence. */
+                realTotalLEM <= 0 ? (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-400 dark:bg-amber-600 text-white text-[10px] font-medium">No cost basis</span>
+                ) : (editableGrossProfitPercent > 0 ? editableGrossProfitPercent : defaultTargetGP) >= defaultTargetGP ? (
                   <span className="px-2 py-0.5 rounded-full bg-[#4ade80] dark:bg-emerald-700 text-white text-[10px] font-medium">On Target</span>
                 ) : (
                   <span className="px-2 py-0.5 rounded-full bg-[#f87171] dark:bg-red-700 text-white text-[10px] font-medium">Below Target — Margin is under your work type goal</span>
