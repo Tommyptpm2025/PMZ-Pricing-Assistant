@@ -213,6 +213,22 @@ for (const k of ["directPercent", "indirectPercent", "grossPercent", "overheadPe
   assert.equal(zero[k], 0, `${k} guards to 0 when revenue is 0 (no NaN)`);
 }
 
+// ── 3b — ONE BIRTHPLACE (v0.2.2 Law 9): the Overview and the ladder's rate read the SAME source ─
+// Target Revenue is born ONLY in the persisted store (pmz_work_type_planning_v1.targetRevenues).
+// There must be no display-only demo fallback that lets the Overview show a target the rate can't
+// see (the Church Backlot break). Structural — the fallback lived inside a React component.
+const repoFile = (rel) => readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), "utf8");
+const wtSrc = repoFile("app/work-types/page.tsx");
+const ohSrc = repoFile("lib/overhead-planning.ts");
+assert.ok(wtSrc.includes("targetRevenue: plannedTargetRevenues[wt.name]"),
+  "Overview reads Target Revenue from the persisted plannedTargetRevenues");
+assert.ok(!wtSrc.includes("?? actual.targetRevenue"),
+  "Overview must NOT fall back to demo target revenue — reintroducing the display fallback FAILS here (One Birthplace)");
+assert.ok(wtSrc.includes("setPlannedTargetRevenues(Object.fromEntries(demoPerformance"),
+  "demo targets are seeded INTO the store on the explicit Reset All Demo Data action (not silently on load)");
+assert.ok(ohSrc.includes("p.targetRevenues"),
+  "the ladder's readOverheadPlanning reads targetRevenues from the SAME persisted store");
+
 // Picker default = latest confirmed job (last in stored order), matching pre-picker behavior.
 const confirmed = confirmedJobs(seed);
 assert.deepEqual(confirmed.map((j) => j.id), ["rti", "inv", "pd", "cp"], "confirmed jobs, in stored order");

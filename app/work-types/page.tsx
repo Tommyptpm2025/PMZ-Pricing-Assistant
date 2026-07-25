@@ -324,9 +324,10 @@ export default function WorkTypesPage() {
         ttlRevenue: actual.ttlRevenue,
         totalGp: actual.totalGp,
         gpPercent: actual.gpPercent,
-        // Owner-set Target Revenue wins; else the seeded demo target (0 for real work types). `??`
-        // so an explicit owner 0 is respected and only a truly-unset value falls back to the demo.
-        targetRevenue: plannedTargetRevenues[wt.name] ?? actual.targetRevenue,
+        // One Birthplace (Law 9): the persisted store is the ONLY source of Target Revenue — no
+        // display-only demo fallback. Absent → 0 (empty), the same discipline the ladder's rate
+        // uses; demo values reach here only after an explicit "Reset All Demo Data" seed.
+        targetRevenue: plannedTargetRevenues[wt.name] ?? 0,
         totalBids: actual.totalBids,
         bidsAccepted: actual.bidsAccepted,
         tiers,
@@ -698,6 +699,10 @@ export default function WorkTypesPage() {
           onClick={() => {
             setWorkTypes(demoWorkTypes);
             setPerformance(demoPerformance);
+            // One Birthplace (v0.2.2 Law 9): Target Revenue is born in the persisted store and
+            // nowhere else. The demo load is an explicit owner action, so it seeds the demo targets
+            // INTO the store here — never silently on page load, never as a display-only fallback.
+            setPlannedTargetRevenues(Object.fromEntries(demoPerformance.map((p) => [p.name, p.targetRevenue])));
             setEditingId(null);
             setSelectedId(null);
             setJustSaved(false);
