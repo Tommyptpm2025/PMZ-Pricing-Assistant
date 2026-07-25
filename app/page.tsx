@@ -566,7 +566,7 @@ export default function OverviewPage() {
           </div>
 
           <div className="mt-2 text-[10px] text-muted-foreground">
-            From foreman-confirmed jobs; overhead allocated from your Overhead chart. Click the button for the full educational ladder.
+            From foreman-confirmed jobs; overhead at your work type&rsquo;s planned overhead rate (set in Work Types). Click the button for the full educational ladder.
           </div>
           </>
           )}

@@ -20,7 +20,7 @@ export const RUNG_INFO: Record<string, string> = {
   direct: "Cost of Goods (Direct Job Costs) = the Labor + Equipment + Material you actively build in the Full Real LEM section of the Project Pricer — the obvious L+E+M you control per job.",
   indirect: "Indirect Cost of Goods (Hidden Job Costs) hides in labor burden beyond base pay, shop supplies, small tools, unbillable time, mobilization “extras”, fuel surcharges not passed through, etc. It’s a subset of Cost of Goods — it rolls up to COGS on the P&L, but PMZ teaches the breakout. It rarely shows in your LEM table yet destroys your target margin. This is the bucket the Money Map exists to kill.",
   gross: "Gross Profit = Revenue − (Direct + Indirect COGS). This is the number the Project Pricer’s Gross Profit % field is trying to protect.",
-  overhead: "Overhead (Running the Business) = fixed business costs (insurance, shop rent, admin salaries, etc.). Managed in the Overhead & Profit pillar.",
+  overhead: "Overhead (Running the Business) = fixed business costs (insurance, shop rent, admin salaries, etc.). This job carries its share at your work type's planned overhead rate, set in Work Types; the Overhead & Profit pillar is the company-wide ledger.",
   net: "Net Profit = Gross − Overhead. The true owner take-home. Everything else is just moving money between buckets.",
 };
 
