@@ -10,12 +10,13 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:epp && npm run test:pipeline && npm run test:quote-doc && npm run test:superuser && npm run test:variance",
+    "test": "npm run test:epp && npm run test:pipeline && npm run test:quote-doc && npm run test:superuser && npm run test:variance && npm run test:lem-gate",
     "test:epp": "node --import ./scripts/ts-ext-register.mjs scripts/epp-roundtrip.test.mjs",
     "test:pipeline": "node --import ./scripts/ts-ext-register.mjs scripts/pipeline-fence.test.mjs",
     "test:quote-doc": "node --import ./scripts/ts-ext-register.mjs scripts/quote-document-fence.test.mjs",
     "test:superuser": "node --import ./scripts/ts-ext-register.mjs scripts/superuser-status.test.mjs",
-    "test:variance": "node --import ./scripts/ts-ext-register.mjs scripts/variance-fence.test.mjs"
+    "test:variance": "node --import ./scripts/ts-ext-register.mjs scripts/variance-fence.test.mjs",
+    "test:lem-gate": "node --import ./scripts/ts-ext-register.mjs scripts/lem-gate-fence.test.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",

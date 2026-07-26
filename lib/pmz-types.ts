@@ -270,6 +270,13 @@ export interface SavedQuote {
   sentAt?: string;        // when the bid was sent for acceptance (ISO)
   decidedAt?: string;     // when the customer's decision was recorded (ISO)
   decisionNote?: string;  // optional short note saved with the decision
+  // LEM Gate confirm-and-carry (Law 50, amended Jul 25 2026): when a quote was accepted while some
+  // LEM quantities were TYPED ZERO, the owner's confirmation is recorded here so a confirmed zero is
+  // distinguishable from an unconfirmed one on the record later. Absent ⇒ no zeros were confirmed.
+  zeroConfirmation?: {
+    at: string;                                                   // when the owner confirmed (ISO)
+    lines: Array<{ lineId: string; description: string; items: string[] }>; // named zero fields
+  };
 
   eppLineItems: LineItem[];
   proLemItems: LemItem[];

@@ -281,6 +281,7 @@ export interface LemGateEntryIssue {
   category: "Labor" | "Equipment" | "Material" | "Miscellaneous";
   name: string;  // role / asset / material / misc item — resolved from the catalogs
   issue: string; // "hours is 0" | "qty is 0" | "hours missing" | "qty missing"
+  isZero: boolean; // true when the value is a TYPED zero (a true answer) vs a blank (Law 50, amended)
   catKey: "labor" | "equipment" | "material" | "misc"; // matches the Pricer's entry-array category
   idx: number;   // the entry's index within its category array on the bid line
 }
@@ -310,6 +311,7 @@ export function buildLineGateFailures(
   };
   const ok = (v: unknown) => toNum(v) > 0;
   const why = (v: unknown, word: "hours" | "qty") => (toNum(v) === 0 ? `${word} is 0` : `${word} missing`);
+  const isZero = (v: unknown) => toNum(v) === 0; // a TYPED zero (true answer) vs a blank (NaN)
 
   const labor: any[] = item?.laborEntries || [];
   const equipment: any[] = item?.equipmentEntries || [];
@@ -321,25 +323,25 @@ export function buildLineGateFailures(
   labor.forEach((e, idx) => {
     if (!ok(e.hours)) {
       const name = cats.laborRates.find((r) => r.id === e.rateId)?.role || e.labor?.role || "Labor";
-      issues.push({ category: "Labor", name, issue: why(e.hours, "hours"), catKey: "labor", idx });
+      issues.push({ category: "Labor", name, issue: why(e.hours, "hours"), isZero: isZero(e.hours), catKey: "labor", idx });
     }
   });
   equipment.forEach((e, idx) => {
     if (!ok(e.hours)) {
       const name = cats.equipmentRates.find((r) => r.id === e.rateId)?.description || "Equipment";
-      issues.push({ category: "Equipment", name, issue: why(e.hours, "hours"), catKey: "equipment", idx });
+      issues.push({ category: "Equipment", name, issue: why(e.hours, "hours"), isZero: isZero(e.hours), catKey: "equipment", idx });
     }
   });
   material.forEach((e, idx) => {
     if (!ok(e.quantity)) {
       const name = cats.materialRates.find((r) => r.id === e.rateId)?.description || "Material";
-      issues.push({ category: "Material", name, issue: why(e.quantity, "qty"), catKey: "material", idx });
+      issues.push({ category: "Material", name, issue: why(e.quantity, "qty"), isZero: isZero(e.quantity), catKey: "material", idx });
     }
   });
   misc.forEach((e, idx) => {
     if (!ok(e.quantity)) {
       const name = e.description || cats.miscRates.find((r) => r.id === e.rateId)?.description || "Miscellaneous";
-      issues.push({ category: "Miscellaneous", name, issue: why(e.quantity, "qty"), catKey: "misc", idx });
+      issues.push({ category: "Miscellaneous", name, issue: why(e.quantity, "qty"), isZero: isZero(e.quantity), catKey: "misc", idx });
     }
   });
 
@@ -347,4 +349,25 @@ export function buildLineGateFailures(
   if (!hasAnyEntry) return { lineId, description, noEntries: true, issues: [] };
   if (issues.length > 0) return { lineId, description, noEntries: false, issues };
   return null;
+}
+
+// LEM Gate — AMENDED Jul 25, 2026 (gaveled). Split the Accepted-gate failures into two kinds:
+//   • BLOCKING — a line with NO LEM entries, or any BLANK (missing) quantity/hours. The absence of
+//     an answer. The transition to Accepted stays refused until a number is entered.
+//   • ZEROS — a line whose only failures are TYPED zeros. A zero is a true answer (the owner as its
+//     named source, Law 7), so it CONFIRMS-AND-CARRIES: the owner is shown the specific zero fields
+//     and their consequence, and may proceed. A blank is never routed here (Earned Green — absence
+//     must not pose as a value).
+// A line with BOTH a zero and a blank is BLOCKING: the blank must be answered first.
+export function classifyGateFailures(failures: LemGateLineFailure[]): {
+  blocking: LemGateLineFailure[];
+  zeros: LemGateLineFailure[];
+} {
+  const blocking: LemGateLineFailure[] = [];
+  const zeros: LemGateLineFailure[] = [];
+  for (const f of failures) {
+    if (f.noEntries || f.issues.some((i) => !i.isZero)) blocking.push(f);
+    else zeros.push(f);
+  }
+  return { blocking, zeros };
 }

@@ -22,7 +22,7 @@ export function canTransition(from: QuoteStatus, to: QuoteStatus): boolean {
 export function applyStatusChange(
   quote: SavedQuote,
   newStatus: QuoteStatus,
-  extra?: { sentAt?: string; decidedAt?: string; decisionNote?: string },
+  extra?: { sentAt?: string; decidedAt?: string; decisionNote?: string; zeroConfirmation?: SavedQuote["zeroConfirmation"] },
   nowIso?: string
 ): SavedQuote {
   const now = nowIso || new Date().toISOString();
@@ -41,6 +41,7 @@ export function applyStatusChange(
     ...(extra?.sentAt ? { sentAt: extra.sentAt } : {}),
     ...(extra?.decidedAt ? { decidedAt: extra.decidedAt } : {}),
     ...(extra?.decisionNote ? { decisionNote: extra.decisionNote } : {}),
+    ...(extra?.zeroConfirmation ? { zeroConfirmation: extra.zeroConfirmation } : {}),
   };
 }
 

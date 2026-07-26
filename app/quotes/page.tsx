@@ -50,7 +50,7 @@ import {
 import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
 import { useRateStore } from "@/lib/rate-store";
-import { buildLineLemDetail, buildLineRecipeSections, buildLineGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
+import { buildLineLemDetail, buildLineRecipeSections, buildLineGateFailures, classifyGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
 import { createJobFromQuote, backfillRowCostBasis, loadJobs, saveJobs, computeOwnerVariance, type Job } from "@/lib/jobs";
 import {
   getAllQuotes,
@@ -175,6 +175,10 @@ export default function QuotesPage() {
   // Accepted-handoff gate block: set when an accept attempt is refused because some bid lines
   // lack resolved LEM detail. Carries the quote id + the offending line descriptions.
   const [lemGateBlock, setLemGateBlock] = React.useState<{ quoteId: string; failures: LemGateLineFailure[] } | null>(null);
+  // LEM Gate confirm-and-carry (Law 50, amended): zero-only lines don't block — they prompt this
+  // confirmation, which names the zero fields and carries on when the owner means it. `proceed`
+  // re-invokes the originating accept path with zeros confirmed.
+  const [lemGateConfirm, setLemGateConfirm] = React.useState<{ quoteId: string; zeros: LemGateLineFailure[]; proceed: () => void } | null>(null);
   // Quote ids that already have a Work Order (Job) — idempotency guard + drives the "View Work
   // Order" links (a work order id implies the quote is Accepted or later).
   const [workOrderQuoteIds, setWorkOrderQuoteIds] = React.useState<Set<string>>(new Set());
@@ -514,22 +518,29 @@ export default function QuotesPage() {
   // PART A — jump to ANY status (backward, forward, any). Reuses the shared transition
   // transform for the statusHistory append, then sets `locked` to match the CHOSEN status
   // (a super-user can move backward, so the normal forward-only latch doesn't apply here).
-  function superUserSetStatus(quote: SavedQuote, newStatus: QuoteStatus) {
-    // The Accepted handoff gate applies even to a super-user jump: an EPP quote can only become
-    // Accepted (a future Work Order) once every bid line has complete LEM detail. All other
-    // jumps (Declined, Work Order Active, Invoiced, Paid, …) stay ungated.
+  function superUserSetStatus(quote: SavedQuote, newStatus: QuoteStatus, zerosConfirmed = false) {
+    // The Accepted handoff gate applies even to a super-user jump. Law 50 (amended Jul 25 2026):
+    // BLANK/no-entry LEM detail still hard-blocks; TYPED ZEROS confirm-and-carry.
+    let zeroConfirmation: SavedQuote["zeroConfirmation"];
     if (newStatus === "Approved" && quote.quoteType === "EPP") {
-      const failures = gateFailures(quote);
-      if (failures.length > 0) {
-        setLemGateBlock({ quoteId: quote.id, failures });
+      const { blocking, zeros } = classifyGateFailures(gateFailures(quote));
+      if (blocking.length > 0) {
+        setLemGateBlock({ quoteId: quote.id, failures: blocking });
         setPreviewTarget(quote); // surface the block (the jump fires from the row dropdown)
         return;
       }
+      if (zeros.length > 0 && !zerosConfirmed) {
+        setLemGateConfirm({ quoteId: quote.id, zeros, proceed: () => superUserSetStatus(quote, newStatus, true) });
+        setPreviewTarget(quote);
+        return;
+      }
+      if (zeros.length > 0) zeroConfirmation = buildZeroConfirmation(zeros);
     }
-    const transformed = libApplyStatusChange(quote, newStatus);
+    const transformed = libApplyStatusChange(quote, newStatus, zeroConfirmation ? { zeroConfirmation } : undefined);
     const updated: SavedQuote = { ...transformed, locked: isStatusLocked(newStatus) };
     updateQuote(updated);
     refresh();
+    setLemGateConfirm(null);
     setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
     // A super-user jump to Accepted also auto-creates the work order (idempotent).
     if (newStatus === "Approved") autoCreateWorkOrder(updated);
@@ -584,28 +595,51 @@ export default function QuotesPage() {
     return out;
   }
 
+  // The persisted record of an owner accepting despite typed zeros (Law 50, amended). Names each
+  // zero field so a confirmed zero is distinguishable on the record later. NOTE: this is permission
+  // to proceed, NOT evidence of cost — it never feeds eppPlannedCost / hasCostBasis (Earned Green).
+  function buildZeroConfirmation(zeros: LemGateLineFailure[]): SavedQuote["zeroConfirmation"] {
+    return {
+      at: new Date().toISOString(),
+      lines: zeros.map((z) => ({
+        lineId: z.lineId,
+        description: z.description,
+        items: z.issues.map((i) => `${i.category}: ${i.name} (${i.issue})`),
+      })),
+    };
+  }
+
   // PART B — record the customer's decision on a quote that is out for acceptance.
-  function recordDecision(quote: SavedQuote, accepted: boolean, note: string) {
+  function recordDecision(quote: SavedQuote, accepted: boolean, note: string, zerosConfirmed = false) {
     if (quote.status !== "Ready for Approval") return;
     const next: QuoteStatus = accepted ? "Approved" : "Declined";
     if (!canTransition("Ready for Approval", next)) return;
-    // Accepted handoff rule: an EPP quote can only become Accepted (a future Work Order) once
-    // every bid line has complete LEM detail. Block + surface the gaps in the preview dialog.
+    // Accepted handoff rule (Law 50, amended Jul 25 2026): an EPP quote reaches Accepted once every
+    // bid line is answered. A BLANK/no-entry hard-blocks; a TYPED ZERO confirms-and-carries.
+    let zeroConfirmation: SavedQuote["zeroConfirmation"];
     if (accepted && quote.quoteType === "EPP") {
-      const failures = gateFailures(quote);
-      if (failures.length > 0) {
-        setLemGateBlock({ quoteId: quote.id, failures });
+      const { blocking, zeros } = classifyGateFailures(gateFailures(quote));
+      if (blocking.length > 0) {
+        setLemGateBlock({ quoteId: quote.id, failures: blocking });
         setPreviewTarget(quote); // open/keep the dialog so the block is visible (row-dropdown path too)
         return;
       }
+      if (zeros.length > 0 && !zerosConfirmed) {
+        setLemGateConfirm({ quoteId: quote.id, zeros, proceed: () => recordDecision(quote, accepted, note, true) });
+        setPreviewTarget(quote);
+        return;
+      }
+      if (zeros.length > 0) zeroConfirmation = buildZeroConfirmation(zeros);
     }
     const now = new Date().toISOString();
     const updated = applyStatusChange(quote, next, {
       decidedAt: now,
       decisionNote: note.trim() || undefined,
+      ...(zeroConfirmation ? { zeroConfirmation } : {}),
     });
     setDecisionNote("");
     setLemGateBlock(null);
+    setLemGateConfirm(null);
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
     // Accept passed the gate → auto-create the work order (idempotent).
     if (accepted) autoCreateWorkOrder(updated);
@@ -1762,6 +1796,39 @@ export default function QuotesPage() {
 
 
       {/* Advance-status confirmation (forward-only, can't be undone) */}
+      {/* LEM Gate confirm-and-carry (Law 50, amended Jul 25 2026) — typed zeros don't block; they
+          prompt this named confirmation. Not a generic "are you sure": it lists each zero field and
+          states the consequence (the item carries $0 into the accepted quote and the foreman's
+          variance baseline). Confirming is permission to proceed, NOT evidence of cost. */}
+      <Dialog open={!!lemGateConfirm} onOpenChange={(open) => !open && setLemGateConfirm(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Some quantities are zero — accept anyway?</DialogTitle>
+            <DialogDescription>
+              A zero is a real answer, so you can proceed. These items will carry <strong>$0 cost</strong> into the accepted quote — and into the foreman&rsquo;s variance baseline for this job.
+            </DialogDescription>
+          </DialogHeader>
+          {lemGateConfirm && (
+            <div className="space-y-2 text-sm max-h-[40vh] overflow-y-auto">
+              {lemGateConfirm.zeros.map((z, i) => (
+                <div key={i}>
+                  <div className="font-medium">Line &ldquo;{z.description}&rdquo;</div>
+                  <ul className="list-disc pl-5 space-y-0.5 mt-0.5 text-xs text-muted-foreground">
+                    {z.issues.map((is, j) => (
+                      <li key={j}>{is.category}: {is.name} — {is.issue}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLemGateConfirm(null)}>Go back and fix</Button>
+            <Button onClick={() => { const go = lemGateConfirm?.proceed; setLemGateConfirm(null); go?.(); }}>Accept with zeros</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!advanceTarget} onOpenChange={(open) => !open && setAdvanceTarget(null)}>
         <DialogContent>
           <DialogHeader>
