@@ -65,6 +65,7 @@ import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer, 
 import { sendQuoteForAcceptance } from "@/lib/quote-lifecycle";
 import { updateQuote } from "@/lib/quote-storage";
 import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line";
+import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
 import { useEstimators } from "@/lib/estimators";
@@ -1307,12 +1308,13 @@ export default function ProjectPricerPage() {
   }
 
   // Stage 1: update the hours on a single populated (grouped) entry by its real array index.
-  function updateGroupedEntryHours(item: BidItem, kind: "labor" | "equipment", realIdx: number, hours: number) {
-    const h = Math.max(0, hours);
+  function updateGroupedEntryHours(item: BidItem, kind: "labor" | "equipment", realIdx: number, hours: number | undefined) {
+    // `hours` is the parseNumericEntry result already (0, a positive number, or undefined for a
+    // blank) — store it as-is so a typed zero stays 0 and a blank stays absent (Law 50 input layer).
     const field = kind === "labor" ? "laborEntries" : "equipmentEntries";
     const arr = [...((item as any)[field] || [])];
     if (!arr[realIdx]) return;
-    arr[realIdx] = { ...arr[realIdx], hours: h };
+    arr[realIdx] = { ...arr[realIdx], hours };
     updateBidItem(item.id, field, arr);
 
     const laborArr = kind === "labor" ? arr : (item.laborEntries || []);
@@ -2551,9 +2553,9 @@ export default function ProjectPricerPage() {
                                                   <div className="flex items-center gap-1">
                                                     <Input
                                                       type="number"
-                                                      value={x.e.hours || ""}
+                                                      value={x.e.hours ?? ""}
                                                       style={gateHighlights.has(`${item.id}:labor:${x.i}`) && !(typeof x.e.hours === "number" && x.e.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
-                                                      onChange={(ev) => updateGroupedEntryHours(item, "labor", x.i, parseFloat(ev.target.value) || 0)}
+                                                      onChange={(ev) => updateGroupedEntryHours(item, "labor", x.i, parseNumericEntry(ev.target.value))}
                                                       className="h-8 w-full min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                       step="0.25"
                                                       disabled={isReadOnly}
@@ -2643,11 +2645,11 @@ export default function ProjectPricerPage() {
                                         <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
-                                          value={entry.hours || ""}
+                                          value={entry.hours ?? ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:labor:${idx}`]: true }))}
                                           style={gateHighlights.has(`${item.id}:labor:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                           onChange={(e) => {
-                                            const h = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const h = parseNumericEntry(e.target.value);
                                             const current = [...(item.laborEntries || [])];
                                             current[idx] = { ...current[idx], hours: h };
                                             updateBidItem(item.id, "laborEntries", current);
@@ -2801,9 +2803,9 @@ export default function ProjectPricerPage() {
                                                   <div className="flex items-center gap-1">
                                                     <Input
                                                       type="number"
-                                                      value={x.e.hours || ""}
+                                                      value={x.e.hours ?? ""}
                                                       style={gateHighlights.has(`${item.id}:equipment:${x.i}`) && !(typeof x.e.hours === "number" && x.e.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
-                                                      onChange={(ev) => updateGroupedEntryHours(item, "equipment", x.i, parseFloat(ev.target.value) || 0)}
+                                                      onChange={(ev) => updateGroupedEntryHours(item, "equipment", x.i, parseNumericEntry(ev.target.value))}
                                                       className="h-8 w-full min-w-0 text-right text-base [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                       step="0.25"
                                                       disabled={isReadOnly}
@@ -2879,11 +2881,11 @@ export default function ProjectPricerPage() {
                                         <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
-                                          value={entry.hours || ""}
+                                          value={entry.hours ?? ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:equipment:${idx}`]: true }))}
                                           style={gateHighlights.has(`${item.id}:equipment:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                           onChange={(e) => {
-                                            const h = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const h = parseNumericEntry(e.target.value);
                                             const current = [...(item.equipmentEntries || [])];
                                             current[idx] = { ...current[idx], hours: h };
                                             updateBidItem(item.id, "equipmentEntries", current);
@@ -3055,11 +3057,11 @@ export default function ProjectPricerPage() {
                                         <div className="flex items-center justify-end gap-1">
                                         <Input
                                           type="number"
-                                          value={entry.quantity || ""}
+                                          value={entry.quantity ?? ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:material:${idx}`]: true }))}
                                           style={gateHighlights.has(`${item.id}:material:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                           onChange={(e) => {
-                                            const q = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const q = parseNumericEntry(e.target.value);
                                             const current = [...(item.materialEntries || [])];
                                             current[idx] = { ...current[idx], quantity: q };
                                             updateBidItem(item.id, "materialEntries", current);
@@ -3252,11 +3254,11 @@ export default function ProjectPricerPage() {
                                       <div className="flex items-center justify-end gap-1">
                                         <Input
                                           type="number"
-                                          value={entry.quantity || ""}
+                                          value={entry.quantity ?? ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:misc:${idx}`]: true }))}
                                           style={gateHighlights.has(`${item.id}:misc:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                           onChange={(e) => {
-                                            const q = Math.max(0, parseFloat(e.target.value) || 0);
+                                            const q = parseNumericEntry(e.target.value);
                                             const current = [...(item.miscellaneousEntries || [])];
                                             current[idx] = { ...current[idx], quantity: q };
                                             updateBidItem(item.id, "miscellaneousEntries", current);
