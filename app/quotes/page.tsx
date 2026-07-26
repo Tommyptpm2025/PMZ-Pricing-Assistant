@@ -179,6 +179,9 @@ export default function QuotesPage() {
   // confirmation, which names the zero fields and carries on when the owner means it. `proceed`
   // re-invokes the originating accept path with zeros confirmed.
   const [lemGateConfirm, setLemGateConfirm] = React.useState<{ quoteId: string; zeros: LemGateLineFailure[]; proceed: () => void } | null>(null);
+  // A SEND-for-Acceptance block, distinct from the accept-path lemGateBlock so the panel names the
+  // transition being attempted and the two never bleed together (Law 50 gate on Send).
+  const [sendGateBlock, setSendGateBlock] = React.useState<{ quoteId: string; failures: LemGateLineFailure[] } | null>(null);
   // Quote ids that already have a Work Order (Job) — idempotency guard + drives the "View Work
   // Order" links (a work order id implies the quote is Accepted or later).
   const [workOrderQuoteIds, setWorkOrderQuoteIds] = React.useState<Set<string>>(new Set());
@@ -526,6 +529,7 @@ export default function QuotesPage() {
       const { blocking, zeros } = classifyGateFailures(gateFailures(quote));
       if (blocking.length > 0) {
         setLemGateBlock({ quoteId: quote.id, failures: blocking });
+        setSendGateBlock(null); // symmetric: an accept block clears any prior send block
         setPreviewTarget(quote); // surface the block (the jump fires from the row dropdown)
         return;
       }
@@ -536,6 +540,9 @@ export default function QuotesPage() {
       }
       if (zeros.length > 0) zeroConfirmation = buildZeroConfirmation(zeros);
     }
+    // Even a super-user jump to Sent for Acceptance is a door to the customer — the SAME Send gate.
+    // A blank cannot ride a jump out to a customer any more than it can ride Send or Advance (Law 50).
+    if (newStatus === "Ready for Approval" && sendGateBlocks(quote)) return;
     const transformed = libApplyStatusChange(quote, newStatus, zeroConfirmation ? { zeroConfirmation } : undefined);
     const updated: SavedQuote = { ...transformed, locked: isStatusLocked(newStatus) };
     updateQuote(updated);
@@ -576,8 +583,10 @@ export default function QuotesPage() {
   // PART A — send a tallied bid out for acceptance. Only a Draft quote can be sent.
   function sendForAcceptance(quote: SavedQuote) {
     if (quote.status !== "Draft" || !canTransition("Draft", "Ready for Approval")) return;
+    if (sendGateBlocks(quote)) return; // a blank cannot reach a customer (zeros pass at Send)
     const now = new Date().toISOString();
     const updated = applyStatusChange(quote, "Ready for Approval", { sentAt: now });
+    setSendGateBlock(null);
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
   }
 
@@ -593,6 +602,24 @@ export default function QuotesPage() {
       if (f) out.push(f);
     });
     return out;
+  }
+
+  // The Send gate (Law 50): a BLANK / no-entry LEM detail blocks a price from reaching a customer.
+  // Zeros do NOT block at Send — their confirm is an Accept concern. ONE helper, shared by BOTH
+  // routes to Sent (sendForAcceptance, resendDeclined) so they can't drift. It reuses the SAME
+  // classification the accept path uses — Send acts on `.blocking`, Accept on `.blocking` + `.zeros`.
+  // Returns true if blocked (and has surfaced the panel). Clears the accept block in the same move,
+  // so exactly one block state is ever active for a quote.
+  function sendGateBlocks(quote: SavedQuote): boolean {
+    if (quote.quoteType !== "EPP") return false;
+    const { blocking } = classifyGateFailures(gateFailures(quote));
+    if (blocking.length > 0) {
+      setSendGateBlock({ quoteId: quote.id, failures: blocking });
+      setLemGateBlock(null);
+      setPreviewTarget(quote); // both Send paths land here → the panel explains (never a silent block)
+      return true;
+    }
+    return false;
   }
 
   // The persisted record of an owner accepting despite typed zeros (Law 50, amended). Names each
@@ -621,6 +648,7 @@ export default function QuotesPage() {
       const { blocking, zeros } = classifyGateFailures(gateFailures(quote));
       if (blocking.length > 0) {
         setLemGateBlock({ quoteId: quote.id, failures: blocking });
+        setSendGateBlock(null); // symmetric: an accept block clears any prior send block
         setPreviewTarget(quote); // open/keep the dialog so the block is visible (row-dropdown path too)
         return;
       }
@@ -639,6 +667,7 @@ export default function QuotesPage() {
     });
     setDecisionNote("");
     setLemGateBlock(null);
+    setSendGateBlock(null);
     setLemGateConfirm(null);
     setPreviewTarget((prev) => (prev && prev.id === quote.id ? updated : prev));
     // Accept passed the gate → auto-create the work order (idempotent).
@@ -660,11 +689,13 @@ export default function QuotesPage() {
   // clears the prior decision stamps since it's pending a customer decision again.
   function resendDeclined(quote: SavedQuote) {
     if (quote.status !== "Declined" || !canTransition("Declined", "Ready for Approval")) return;
+    if (sendGateBlocks(quote)) return; // same door as first-send — same rule, same helper (no drift)
     const now = new Date().toISOString();
     const transformed = libApplyStatusChange(quote, "Ready for Approval", { sentAt: now });
     const updated: SavedQuote = { ...transformed, decidedAt: undefined, decisionNote: undefined };
     updateQuote(updated);
     refresh();
+    setSendGateBlock(null);
     setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
   }
 
@@ -742,6 +773,10 @@ export default function QuotesPage() {
     if (!advanceTarget) return;
     const next = advanceNext(advanceTarget.status);
     if (!next) { setAdvanceTarget(null); return; }
+    // Advancing a Draft lands on Sent for Acceptance — the SAME door to the customer as the Send
+    // button, so the SAME gate. A blank cannot slip out via "Advance" either (Law 50). sendGateBlocks
+    // opens the preview and shows the panel, so the block explains itself (never silent).
+    if (next === "Ready for Approval" && sendGateBlocks(advanceTarget)) { setAdvanceTarget(null); return; }
     const updated = applyStatusChange(advanceTarget, next);
     setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
     setAdvanceTarget(null);
@@ -1127,6 +1162,8 @@ export default function QuotesPage() {
   // The Accepted gate is currently blocking the quote shown in the preview dialog — drives the
   // entry-level callout and the "Edit in Pricer (primary) / Send muted" emphasis swap below.
   const gateBlockActive = !!(lemGateBlock && previewTarget && lemGateBlock.quoteId === previewTarget.id);
+  // Send block, scoped to the previewed quote exactly like gateBlockActive — quote B never shows A's.
+  const sendBlockActive = !!(sendGateBlock && previewTarget && sendGateBlock.quoteId === previewTarget.id);
 
   // "Analyze" routes to the app's one full-screen ladder at /analyze/[id] (Call 5 Option A) — the
   // former in-page modal was retired. The row Actions handler does router.push(`/analyze/${id}`).
@@ -1439,7 +1476,7 @@ export default function QuotesPage() {
         setShowLemDetail={setShowLemDetail}
       />
 
-      <Dialog open={!!previewTarget} onOpenChange={(open) => { if (!open) { setPreviewTarget(null); setDecisionNote(""); setLemGateBlock(null); } }}>
+      <Dialog open={!!previewTarget} onOpenChange={(open) => { if (!open) { setPreviewTarget(null); setDecisionNote(""); setLemGateBlock(null); setSendGateBlock(null); } }}>
         <DialogContent className="w-[92%] sm:w-[85%] md:w-[72%] lg:w-[60%] xl:w-[55%] max-w-[920px] !max-w-none">
           <DialogClose asChild>
             <button
@@ -1648,16 +1685,19 @@ export default function QuotesPage() {
           )}
           <DialogFooter className="flex-col sm:flex-col items-stretch gap-3">
             {/* Accepted-handoff gate: name the exact incomplete entries blocking the transition */}
-            {gateBlockActive && lemGateBlock && (
+            {(sendBlockActive || (gateBlockActive && lemGateBlock)) && (
               <div
                 className="rounded-lg border p-3 text-left text-xs"
                 style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
               >
                 <div className="font-medium mb-1.5" style={{ color: "#EB3300" }}>
-                  Can’t accept yet — fix these entries before this quote can become a Work Order:
+                  {/* Copy from the transition being attempted (which block state was set), not status. */}
+                  {sendBlockActive
+                    ? "Can’t send yet — these entries have no hours or quantity behind them. Fix them before this price goes to the customer:"
+                    : "Can’t accept yet — fix these entries before this quote can become a Work Order:"}
                 </div>
                 <div className="space-y-1.5">
-                  {lemGateBlock.failures.map((f, i) => (
+                  {(sendBlockActive ? sendGateBlock!.failures : lemGateBlock!.failures).map((f, i) => (
                     <div key={i}>
                       <div className="font-medium">
                         Line “{f.description}” — {f.noEntries ? "no LEM detail entered" : "incomplete entries:"}
@@ -1676,14 +1716,13 @@ export default function QuotesPage() {
               </div>
             )}
 
-            {/* PART A — Send a Draft bid out for acceptance (muted while a gate block is active,
-                so "Edit in Pricer" reads as the obvious next step) */}
+            {/* PART A — Send a Draft bid out for acceptance. No disable: the Send gate enforces on
+                click (block → panel names the entries), identically on both Send paths (Law 50). */}
             {previewTarget?.status === "Draft" && (
               <div className="flex items-center justify-end gap-2">
                 <Button
                   className="text-white"
-                  style={{ backgroundColor: gateBlockActive ? "#D1A6A0" : "#EB3300" }}
-                  disabled={gateBlockActive}
+                  style={{ backgroundColor: "#EB3300" }}
                   onClick={() => previewTarget && sendForAcceptance(previewTarget)}
                 >
                   <Send className="h-4 w-4 mr-1.5" />
@@ -1764,31 +1803,32 @@ export default function QuotesPage() {
 
             <div className="flex items-center justify-between">
               <Button
-                variant={gateBlockActive ? "default" : "secondary"}
-                className={gateBlockActive ? "text-white" : undefined}
-                style={gateBlockActive ? { backgroundColor: "#EB3300" } : undefined}
+                variant={gateBlockActive || sendBlockActive ? "default" : "secondary"}
+                className={gateBlockActive || sendBlockActive ? "text-white" : undefined}
+                style={gateBlockActive || sendBlockActive ? { backgroundColor: "#EB3300" } : undefined}
                 onClick={() => {
                   const q = previewTarget;
-                  // From a gate block, deep-link the Pricer to every failing entry: expand each
-                  // failing line, highlight each incomplete field, and scroll to the first line.
-                  const targets =
-                    gateBlockActive && lemGateBlock
-                      ? {
-                          lineIds: Array.from(new Set(lemGateBlock.failures.map((f) => f.lineId).filter(Boolean))),
-                          fields: lemGateBlock.failures.flatMap((f) =>
-                            f.issues.map((is) => ({ lineId: f.lineId, category: is.catKey, idx: is.idx }))
-                          ),
-                          scrollTo: lemGateBlock.failures[0]?.lineId,
-                        }
-                      : undefined;
+                  // From EITHER block (send or accept), deep-link the Pricer to every failing entry:
+                  // expand each failing line, highlight each incomplete field, scroll to the first.
+                  const blkFailures = sendBlockActive ? sendGateBlock!.failures : (gateBlockActive && lemGateBlock ? lemGateBlock.failures : null);
+                  const targets = blkFailures
+                    ? {
+                        lineIds: Array.from(new Set(blkFailures.map((f) => f.lineId).filter(Boolean))),
+                        fields: blkFailures.flatMap((f) =>
+                          f.issues.map((is) => ({ lineId: f.lineId, category: is.catKey, idx: is.idx }))
+                        ),
+                        scrollTo: blkFailures[0]?.lineId,
+                      }
+                    : undefined;
                   setPreviewTarget(null);
                   setLemGateBlock(null);
+                  setSendGateBlock(null);
                   if (q) openQuote(q, targets);
                 }}
               >
                 Edit in Pricer
               </Button>
-              <Button variant="outline" onClick={() => { setPreviewTarget(null); setLemGateBlock(null); }}>Close</Button>
+              <Button variant="outline" onClick={() => { setPreviewTarget(null); setLemGateBlock(null); setSendGateBlock(null); }}>Close</Button>
             </div>
           </DialogFooter>
         </DialogContent>
