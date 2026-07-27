@@ -62,7 +62,8 @@ import {
 import { goldenFormula } from "@/lib/pricing";
 import { formatMoney } from "@/lib/format";
 import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer, QuoteStatus } from "@/lib/pmz-types";
-import { sendQuoteForAcceptance } from "@/lib/quote-lifecycle";
+import { sendQuoteForAcceptance, sendBlockingFailures } from "@/lib/quote-lifecycle";
+import type { LemGateLineFailure } from "@/lib/lem-detail";
 import { updateQuote } from "@/lib/quote-storage";
 import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line";
 import { parseNumericEntry } from "@/lib/numeric-entry";
@@ -444,6 +445,9 @@ export default function ProjectPricerPage() {
 
   // Send Quote (recipient capture) dialog state
   const [showSendDialog, setShowSendDialog] = React.useState(false);
+  // Send gate (Law 50): the blocking failures that refuse this send, surfaced in the dialog as the
+  // SAME panel with the SAME words as the Quotes page. Cleared when the dialog opens/closes.
+  const [sendBlock, setSendBlock] = React.useState<{ failures: LemGateLineFailure[] } | null>(null);
   const [sendQuoteType, setSendQuoteType] = React.useState<"EPP" | "Full">("EPP");
   const [sendName, setSendName] = React.useState("");
   const [sendEmail, setSendEmail] = React.useState("");
@@ -1684,6 +1688,7 @@ export default function ProjectPricerPage() {
     setSendEmail((linked?.email || "").trim());
     setSendPhone((linked?.phone || linked?.mobile || "").trim());
     setSentMessage(null);
+    setSendBlock(null); // fresh dialog — no stale send-gate block
     setShowSendDialog(true);
   }
 
@@ -1730,13 +1735,28 @@ export default function ProjectPricerPage() {
 
   function handleConfirmSend() {
     if (!isValidEmail(sendEmail)) return;
+    // 0) SEND GATE FIRST (Law 50) — a blank price must not reach a customer. Ask the ONE lib rule,
+    //    on the SAME line items the transition will see (serializeEppLine), BEFORE any side effect.
+    //    On refusal: show the same panel and STOP — no contact save, no quote save, no status, no PDF.
+    const gateItems = sendQuoteType === "EPP" ? estimate.bidItems.map((it) => serializeEppLine(it)) : [];
+    const blocking = sendBlockingFailures({ quoteType: sendQuoteType, eppLineItems: gateItems }, {
+      laborRates, equipmentRates, materialRates, miscRates,
+      getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
+    });
+    if (blocking.length > 0) {
+      setSendBlock({ failures: blocking });
+      return;
+    }
     // 1) Save the recipient back to the customer record (create/update).
     saveRecipientToCustomer();
     // 2) Save first — create the SavedQuote (or update the existing Draft), getting its id.
     const saved = saveQuote(sendQuoteType);
     if (!saved) return;
-    // 3) Run the shared send path: Draft -> Ready for Approval (+sentAt, statusHistory, lock rule).
-    const sent = sendQuoteForAcceptance(saved) || saved;
+    // 3) Run the shared send path: Draft -> Ready for Approval. The lib transition ENFORCES the same
+    //    gate; a refusal here is the defensive net (we pre-checked at step 0). null = not a Draft.
+    const result = sendQuoteForAcceptance(saved);
+    if (result && !result.ok) { setSendBlock({ failures: result.blocking }); return; }
+    const sent = result ? result.quote : saved;
     updateQuote(sent);
     setCurrentQuoteStatus("Ready for Approval");
     // 4) Confirm; the quote now shows in the Quotes tab as "Sent for Acceptance".
@@ -3555,7 +3575,7 @@ export default function ProjectPricerPage() {
       </div>
 
       {/* Send Quote — recipient capture */}
-      <Dialog open={showSendDialog} onOpenChange={setShowSendDialog}>
+      <Dialog open={showSendDialog} onOpenChange={(o) => { setShowSendDialog(o); if (!o) setSendBlock(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-lg">Send Quote</DialogTitle>
@@ -3600,6 +3620,34 @@ export default function ProjectPricerPage() {
                 className="mt-1"
               />
             </div>
+            {/* Send gate refusal — the SAME panel and SAME words as the Quotes page (Law 50). The
+                rule is the lib's; this only renders what the lib refused. No status/contact/PDF ran. */}
+            {sendBlock && (
+              <div
+                className="rounded-lg border p-3 text-left text-xs"
+                style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
+              >
+                <div className="font-medium mb-1.5" style={{ color: "#EB3300" }}>
+                  Can’t send yet — these entries have no hours or quantity behind them. Fix them before this price goes to the customer:
+                </div>
+                <div className="space-y-1.5">
+                  {sendBlock.failures.map((f, i) => (
+                    <div key={i}>
+                      <div className="font-medium">
+                        Line “{f.description}” — {f.noEntries ? "no LEM detail entered" : "incomplete entries:"}
+                      </div>
+                      {!f.noEntries && (
+                        <ul className="list-disc pl-5 space-y-0.5 mt-0.5">
+                          {f.issues.map((is, j) => (
+                            <li key={j}>{is.category}: {is.name} ({is.issue})</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSendDialog(false)}>Cancel</Button>

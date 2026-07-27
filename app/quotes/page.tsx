@@ -59,7 +59,7 @@ import {
   saveQuote,
 } from "@/lib/quote-storage";
 import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
-import { canTransition, applyStatusChange as libApplyStatusChange } from "@/lib/quote-lifecycle";
+import { canTransition, applyStatusChange as libApplyStatusChange, sendBlockingFailures } from "@/lib/quote-lifecycle";
 
 // Status filter chips — the full lifecycle in canonical order (Declined sits right after
 // Accepted, not at the end). Shared single source of truth with the jump menu below.
@@ -505,15 +505,23 @@ export default function QuotesPage() {
 
   // Apply a status change via the shared lifecycle transform (single source of
   // truth — same path the Project Pricer uses), then persist + refresh the list.
+  // The lib transform now returns a refusable result: the send gate can refuse a transition into
+  // Sent for Acceptance. Every send door on this page pre-checks sendGateBlocks (which surfaces the
+  // panel), so a refusal here is the defensive net — surface the same panel and leave the quote
+  // unchanged rather than persisting a transition the lib declined.
   function applyStatusChange(
     quote: SavedQuote,
     newStatus: QuoteStatus,
     extra?: { sentAt?: string; decidedAt?: string; decisionNote?: string }
   ): SavedQuote {
-    const updated = libApplyStatusChange(quote, newStatus, extra);
-    updateQuote(updated);
+    const result = libApplyStatusChange(quote, newStatus, extra);
+    if (!result.ok) {
+      sendGateBlocks(quote); // re-run the presentation gate: sets the panel + opens the preview
+      return quote;
+    }
+    updateQuote(result.quote);
     refresh();
-    return updated;
+    return result.quote;
   }
 
   // ---- Super-user status override (dev/test tool — PART A & B) ----
@@ -543,8 +551,9 @@ export default function QuotesPage() {
     // Even a super-user jump to Sent for Acceptance is a door to the customer — the SAME Send gate.
     // A blank cannot ride a jump out to a customer any more than it can ride Send or Advance (Law 50).
     if (newStatus === "Ready for Approval" && sendGateBlocks(quote)) return;
-    const transformed = libApplyStatusChange(quote, newStatus, zeroConfirmation ? { zeroConfirmation } : undefined);
-    const updated: SavedQuote = { ...transformed, locked: isStatusLocked(newStatus) };
+    const result = libApplyStatusChange(quote, newStatus, zeroConfirmation ? { zeroConfirmation } : undefined);
+    if (!result.ok) { sendGateBlocks(quote); return; } // defensive: pre-gated above; a refusal shouldn't reach here
+    const updated: SavedQuote = { ...result.quote, locked: isStatusLocked(newStatus) };
     updateQuote(updated);
     refresh();
     setLemGateConfirm(null);
@@ -604,15 +613,13 @@ export default function QuotesPage() {
     return out;
   }
 
-  // The Send gate (Law 50): a BLANK / no-entry LEM detail blocks a price from reaching a customer.
-  // Zeros do NOT block at Send — their confirm is an Accept concern. ONE helper, shared by BOTH
-  // routes to Sent (sendForAcceptance, resendDeclined) so they can't drift. It reuses the SAME
-  // classification the accept path uses — Send acts on `.blocking`, Accept on `.blocking` + `.zeros`.
-  // Returns true if blocked (and has surfaced the panel). Clears the accept block in the same move,
-  // so exactly one block state is ever active for a quote.
+  // The Send gate — PRESENTATION ONLY (Law 50). The RULE lives in the lib: sendBlockingFailures is
+  // the single copy, and lib applyStatusChange enforces it at the transition. This asks the lib for
+  // the blocking failures — WITH real catalogs so each entry is named — and renders the panel +
+  // opens the preview. No copy of the rule here; the words don't change. Returns true if blocked
+  // (panel surfaced). Clears the accept block in the same move, so one block state is ever active.
   function sendGateBlocks(quote: SavedQuote): boolean {
-    if (quote.quoteType !== "EPP") return false;
-    const { blocking } = classifyGateFailures(gateFailures(quote));
+    const blocking = sendBlockingFailures(quote, lemCats);
     if (blocking.length > 0) {
       setSendGateBlock({ quoteId: quote.id, failures: blocking });
       setLemGateBlock(null);
@@ -678,8 +685,9 @@ export default function QuotesPage() {
   // Draft→Sent→Declined→Draft) and clears the stale sent/decision stamps for a clean slate.
   function reviseDeclined(quote: SavedQuote) {
     if (quote.status !== "Declined" || !canTransition("Declined", "Draft")) return;
-    const transformed = libApplyStatusChange(quote, "Draft");
-    const updated: SavedQuote = { ...transformed, sentAt: undefined, decidedAt: undefined, decisionNote: undefined };
+    const result = libApplyStatusChange(quote, "Draft");
+    if (!result.ok) return; // "Draft" never triggers the send gate; this only narrows the union
+    const updated: SavedQuote = { ...result.quote, sentAt: undefined, decidedAt: undefined, decisionNote: undefined };
     updateQuote(updated);
     refresh();
     setPreviewTarget((prev) => (prev && prev.id === updated.id ? updated : prev));
@@ -691,8 +699,9 @@ export default function QuotesPage() {
     if (quote.status !== "Declined" || !canTransition("Declined", "Ready for Approval")) return;
     if (sendGateBlocks(quote)) return; // same door as first-send — same rule, same helper (no drift)
     const now = new Date().toISOString();
-    const transformed = libApplyStatusChange(quote, "Ready for Approval", { sentAt: now });
-    const updated: SavedQuote = { ...transformed, decidedAt: undefined, decisionNote: undefined };
+    const result = libApplyStatusChange(quote, "Ready for Approval", { sentAt: now });
+    if (!result.ok) { sendGateBlocks(quote); return; } // defensive: pre-gated above
+    const updated: SavedQuote = { ...result.quote, decidedAt: undefined, decisionNote: undefined };
     updateQuote(updated);
     refresh();
     setSendGateBlock(null);
