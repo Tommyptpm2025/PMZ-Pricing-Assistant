@@ -49,6 +49,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
+import GatePanel from "@/components/GatePanel";
 import { useRateStore } from "@/lib/rate-store";
 import { buildLineLemDetail, buildLineRecipeSections, buildLineGateFailures, classifyGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
 import { createJobFromQuote, backfillRowCostBasis, loadJobs, saveJobs, computeOwnerVariance, type Job } from "@/lib/jobs";
@@ -1695,34 +1696,13 @@ export default function QuotesPage() {
           <DialogFooter className="flex-col sm:flex-col items-stretch gap-3">
             {/* Accepted-handoff gate: name the exact incomplete entries blocking the transition */}
             {(sendBlockActive || (gateBlockActive && lemGateBlock)) && (
-              <div
-                className="rounded-lg border p-3 text-left text-xs"
-                style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
-              >
-                <div className="font-medium mb-1.5" style={{ color: "#EB3300" }}>
-                  {/* Copy from the transition being attempted (which block state was set), not status. */}
-                  {sendBlockActive
-                    ? "Can’t send yet — these entries have no hours or quantity behind them. Fix them before this price goes to the customer:"
-                    : "Can’t accept yet — fix these entries before this quote can become a Work Order:"}
-                </div>
-                <div className="space-y-1.5">
-                  {(sendBlockActive ? sendGateBlock!.failures : lemGateBlock!.failures).map((f, i) => (
-                    <div key={i}>
-                      <div className="font-medium">
-                        Line “{f.description}” — {f.noEntries ? "no LEM detail entered" : "incomplete entries:"}
-                      </div>
-                      {!f.noEntries && (
-                        <ul className="list-disc pl-5 space-y-0.5 mt-0.5">
-                          {f.issues.map((is, j) => (
-                            <li key={j}>{is.category}: {is.name} ({is.issue})</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-2 italic text-muted-foreground">Use “Edit in Pricer” below to fix these entries.</div>
-              </div>
+              // Copy from the transition being attempted (which block state was set), not status.
+              // The panel is the shared GatePanel component — the ONE home for its words.
+              <GatePanel
+                failures={sendBlockActive ? sendGateBlock!.failures : lemGateBlock!.failures}
+                variant={sendBlockActive ? "send" : "accept"}
+                showEditInPricerFooter={true}
+              />
             )}
 
             {/* PART A — Send a Draft bid out for acceptance. No disable: the Send gate enforces on

@@ -43,6 +43,7 @@ import QuotePreview from "@/components/QuotePreview";
 import QuotePdfDocument from "@/components/QuotePdfDocument";
 import { getCompanySettings } from "@/lib/company-settings";
 import UpdateExportDialog from "@/components/UpdateExportDialog";
+import GatePanel from "@/components/GatePanel";
 import { buildQuoteDocument } from "@/lib/quote-document";
 import {
   TrendingUp,
@@ -3620,33 +3621,11 @@ export default function ProjectPricerPage() {
                 className="mt-1"
               />
             </div>
-            {/* Send gate refusal — the SAME panel and SAME words as the Quotes page (Law 50). The
-                rule is the lib's; this only renders what the lib refused. No status/contact/PDF ran. */}
+            {/* Send gate refusal — the SAME panel and SAME words as the Quotes page (Law 50), rendered
+                from the shared GatePanel component. Send variant, NO footer ("Edit in Pricer" is not a
+                control inside the Pricer). The rule is the lib's; this only renders what it refused. */}
             {sendBlock && (
-              <div
-                className="rounded-lg border p-3 text-left text-xs"
-                style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
-              >
-                <div className="font-medium mb-1.5" style={{ color: "#EB3300" }}>
-                  Can’t send yet — these entries have no hours or quantity behind them. Fix them before this price goes to the customer:
-                </div>
-                <div className="space-y-1.5">
-                  {sendBlock.failures.map((f, i) => (
-                    <div key={i}>
-                      <div className="font-medium">
-                        Line “{f.description}” — {f.noEntries ? "no LEM detail entered" : "incomplete entries:"}
-                      </div>
-                      {!f.noEntries && (
-                        <ul className="list-disc pl-5 space-y-0.5 mt-0.5">
-                          {f.issues.map((is, j) => (
-                            <li key={j}>{is.category}: {is.name} ({is.issue})</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <GatePanel failures={sendBlock.failures} variant="send" showEditInPricerFooter={false} />
             )}
           </div>
           <DialogFooter>
