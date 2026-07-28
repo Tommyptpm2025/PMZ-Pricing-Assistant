@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { resolveCustomerFromHandoff } from "../lib/customer-resolve.ts";
+import { resolveCustomerFromHandoff, resolveCustomerName, findCustomerRecord } from "../lib/customer-resolve.ts";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const REGISTRY = [
@@ -58,6 +58,23 @@ const REGISTRY = [
   assert.equal(r.customerName, "Bob’s Garage", "…keeps the typed name");
 }
 console.log("PASS: customer resolver — id→canonical (drift gone), orphan drops the dangling id, legacy/free-text preserved");
+
+// ── 1b — DISPLAY resolver (C3): resolveCustomerName is live-canonical by id, stored fallback ─────
+{
+  // id matches -> the registry's canonical name even when the stored name drifts (M2 target).
+  assert.equal(resolveCustomerName({ customerId: "c1", customerName: "SBI CONSTRUCTION" }, REGISTRY), "SBI Construction",
+    "resolveCustomerName: an id match returns the LIVE canonical name, not the quote's stored copy");
+  // orphan id -> re-homes by name (no dangling id), so the name still shows.
+  assert.equal(resolveCustomerName({ customerId: "gone", customerName: "The Store" }, REGISTRY), "The Store",
+    "resolveCustomerName: an orphaned id re-homes by name");
+  // no id, free-text never in the registry -> keep the stored name (M3 target).
+  assert.equal(resolveCustomerName({ customerId: "", customer: "Bob’s Garage" }, REGISTRY), "Bob’s Garage",
+    "resolveCustomerName: a free-text customer keeps its stored name (its only recovery)");
+  // findCustomerRecord returns the FULL record by id (address/contact reach the doc).
+  const rec = findCustomerRecord({ customerId: "c2" }, REGISTRY);
+  assert.equal(rec && rec.id, "c2", "findCustomerRecord resolves the full record by id");
+}
+console.log("PASS: display resolver — resolveCustomerName live-canonical by id; findCustomerRecord is the one record-resolution primitive");
 
 // ── 2 — STRUCTURAL + CHOKEPOINT ───────────────────────────────────────────────────────────────
 function tsFiles(dir) {
@@ -107,3 +124,23 @@ for (const abs of files) {
   );
 }
 console.log("PASS: customer resolver wiring — blob carries customerId, both call sites read fresh, recovery rule lives only in lib/customer-resolve.ts");
+
+// ── 2b — DISPLAY wiring + chokepoint (C3) ─────────────────────────────────────────────────────
+// Every human-facing customer name on the Quotes page resolves via resolveCustomerName (live-by-id).
+const quotesSrc = read("app/quotes/page.tsx");
+assert.equal(
+  (quotesSrc.match(/resolveCustomerName\(/g) || []).length,
+  4,
+  "all FOUR customer-name displays on the Quotes page (list title, list cell, compact list, preview dialog) must render " +
+    "via resolveCustomerName. A count != 4 means a display surface on app/quotes/page.tsx reverted to reading the quote's " +
+    "STORED copy directly — every human-facing customer name must be live-canonical by id."
+);
+// CHOKEPOINT — the record-resolution primitive lives in exactly one file (currentCustomer folds into it).
+const recordDefs = files.filter((f) => readFileSync(f, "utf8").includes("export function findCustomerRecord"));
+assert.equal(recordDefs.length, 1, "findCustomerRecord (the id→name registry resolution) must be defined exactly once");
+assert.ok(recordDefs[0].replace(/\\/g, "/").endsWith("lib/customer-resolve.ts"), "…and its home is lib/customer-resolve.ts");
+assert.ok(
+  !read("app/project-pricer/page.tsx").includes("customers.find((c: any) => c.id === id)"),
+  "the currentCustomer memo must resolve through findCustomerRecord, not an inline id-or-name find (app/project-pricer/page.tsx)"
+);
+console.log("PASS: display wiring — all 4 Quotes-page names resolve live-by-id; the record-resolution rule lives only in lib/customer-resolve.ts");

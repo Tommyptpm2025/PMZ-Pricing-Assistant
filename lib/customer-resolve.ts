@@ -1,17 +1,11 @@
-// The ONE home for recovering a customer from an Edit-in-Pricer / Send handoff blob. PURE: it reads
-// no localStorage and touches no React — the caller passes a FRESHLY read customer registry and gets
-// back the resolved { customerId, customerName }. Pure so it can be unit-tested for real (the fence
-// calls THIS function, not a model of it), and so the staleness bug lives at the call site, never here.
+// The ONE home for resolving a customer against the registry. PURE: reads no localStorage, touches no
+// React — the caller passes a FRESHLY read registry in. Pure so it can be unit-tested for real (the
+// fence calls THESE functions, not a model), and so any staleness bug lives at the call site, not here.
 //
-// Resolution order (Law of the customer handoff, gaveled Jul 27 2026):
-//   1. id present AND a record matches it  -> resolve by id; return the registry's CANONICAL name.
-//      This is what makes case/punctuation drift ("SBI CONSTRUCTION" vs "SBI Construction") disappear:
-//      the dropdown is keyed by name, so we must hand back the exact registry spelling.
-//   2. id present but NO record matches (ORPHAN, e.g. the customer was deleted) -> fall back to the
-//      name lookup, exactly as an id-less quote would. Do NOT retain the dangling id.
-//   3. no id -> exact name lookup. A record match adopts its id + canonical name; otherwise the name
-//      is kept as-is with no id (a free-text customer who was never in the registry keeps their only
-//      recovery).
+// The rule (gaveled Jul 27 2026): LIVE-CANONICAL BY ID. A customer's display name is the registry
+// record's name, matched by customerId. The stored name on the quote is a denormalized CACHE, used
+// only as a fallback when there is no id (a free-text customer who was never in the registry). One
+// resolution rule, composed everywhere — no second copy.
 
 export interface HandoffCustomerFields {
   customerId?: string;
@@ -27,25 +21,37 @@ export interface ResolvedCustomer {
   customerName: string;
 }
 
+// THE resolution primitive: which registry record is this customer? By id first, then by
+// (case-insensitive) name — otherwise nothing (a free-text customer never in the registry). Generic so
+// callers keep the full record (addresses, contact, …), not just id/name.
+export function findCustomerRecord<T extends RegistryCustomer>(
+  ref: HandoffCustomerFields,
+  customers: T[],
+): T | null {
+  const id = ref.customerId || "";
+  const name = (ref.customerName || ref.customer || "").trim().toLowerCase();
+  return (
+    (id ? customers.find((c) => c.id === id) : undefined) ||
+    (name ? customers.find((c) => (c.name || "").trim().toLowerCase() === name) : undefined) ||
+    null
+  );
+}
+
+// The Edit-in-Pricer / Send handoff resolution (C2): returns { customerId, customerName }. id + match
+// -> resolve by id, return the registry's CANONICAL name (drift disappears). Orphan (id, no record) or
+// no id -> name lookup; a name match adopts that record (no dangling id); no match -> keep the stored
+// name with no id (free-text keeps its only recovery).
 export function resolveCustomerFromHandoff(
   saved: HandoffCustomerFields,
   customers: RegistryCustomer[],
 ): ResolvedCustomer {
-  const id = saved.customerId || "";
-  const name = saved.customerName || saved.customer || "";
+  const rec = findCustomerRecord(saved, customers);
+  if (rec) return { customerId: rec.id, customerName: rec.name || "" };
+  return { customerId: "", customerName: saved.customerName || saved.customer || "" };
+}
 
-  // 1. Resolve by id → canonical registry name (kills drift). 2. Orphan id falls through to name.
-  if (id) {
-    const byId = customers.find((c) => c.id === id);
-    if (byId) return { customerId: byId.id, customerName: byId.name || "" };
-  }
-
-  // 3. Name lookup (id-less, or orphan fallback). Exact match adopts the registry id + canonical name.
-  if (name) {
-    const byName = customers.find((c) => c.name === name);
-    if (byName) return { customerId: byName.id, customerName: byName.name || "" };
-  }
-
-  // Free-text customer never in the registry: keep the name, no id — the only recovery they have.
-  return { customerId: "", customerName: name };
+// The DISPLAY name for any surface that shows a customer to a human: LIVE-canonical by id, stored name
+// only as the free-text fallback. Every screen composes THIS — no screen reads the stored copy directly.
+export function resolveCustomerName(ref: HandoffCustomerFields, customers: RegistryCustomer[]): string {
+  return resolveCustomerFromHandoff(ref, customers).customerName;
 }

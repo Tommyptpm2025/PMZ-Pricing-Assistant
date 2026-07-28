@@ -67,7 +67,7 @@ import { sendQuoteForAcceptance, sendBlockingFailures } from "@/lib/quote-lifecy
 import type { LemGateLineFailure } from "@/lib/lem-detail";
 import { updateQuote } from "@/lib/quote-storage";
 import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line";
-import { resolveCustomerFromHandoff } from "@/lib/customer-resolve";
+import { resolveCustomerFromHandoff, findCustomerRecord } from "@/lib/customer-resolve";
 import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
@@ -360,15 +360,12 @@ export default function ProjectPricerPage() {
   const [hydrated, setHydrated] = React.useState(false);
 
   const currentCustomer = React.useMemo(() => {
-    // The customer Select is keyed by NAME (it stores estimate.customerName, not an id), so resolve
-    // by id first, then fall back to matching the record by name — otherwise the full record (address
-    // + contact) never reaches the quote and only the bare name shows.
-    const id = selectedCustomerId || estimate.customerId;
-    const name = (selectedCustomerName || estimate.customerName || "").trim().toLowerCase();
-    return (
-      (id ? customers.find((c: any) => c.id === id) : null) ||
-      (name ? customers.find((c: any) => (c.name || "").trim().toLowerCase() === name) : null) ||
-      null
+    // The customer Select is keyed by NAME (it stores estimate.customerName, not an id). Resolve the
+    // full registry record through the ONE resolver — id first, then name — so the address/contact
+    // reach the quote and every surface shares the same resolution rule (no second copy).
+    return findCustomerRecord(
+      { customerId: selectedCustomerId || estimate.customerId, customerName: selectedCustomerName || estimate.customerName },
+      customers,
     );
   }, [customers, selectedCustomerId, estimate.customerId, selectedCustomerName, estimate.customerName]);
 

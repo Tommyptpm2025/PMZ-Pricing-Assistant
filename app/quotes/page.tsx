@@ -61,6 +61,7 @@ import {
 } from "@/lib/quote-storage";
 import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
 import { canTransition, applyStatusChange as libApplyStatusChange, sendBlockingFailures } from "@/lib/quote-lifecycle";
+import { resolveCustomerName } from "@/lib/customer-resolve";
 
 // Status filter chips — the full lifecycle in canonical order (Declined sits right after
 // Accepted, not at the end). Shared single source of truth with the jump menu below.
@@ -161,6 +162,10 @@ function StatusBadge({ status, trigger = false }: { status: string; trigger?: bo
 export default function QuotesPage() {
   const router = useRouter();
   const [allQuotes, setAllQuotes] = React.useState<SavedQuote[]>([]);
+  // The customer registry — loaded so every customer name on this page resolves LIVE-canonical by id
+  // (resolveCustomerName), not from the quote's stored copy. Resolving happens in render, so a late
+  // registry load simply re-renders with the live name (not the C2 one-shot-effect staleness trap).
+  const [customers, setCustomers] = React.useState<any[]>([]);
   const [deleteTarget, setDeleteTarget] = React.useState<SavedQuote | null>(null);
   // Maintenance panel — review + safe delete of ALL stored entries (incl. legacy/untyped rows
   // the two lists hide). Selection + a bulk-delete confirm; nothing deletes without a confirm.
@@ -288,6 +293,10 @@ export default function QuotesPage() {
     try {
       const ids = loadJobs().map((j) => j.quoteId).filter((id): id is string => !!id);
       setWorkOrderQuoteIds(new Set(ids));
+    } catch {}
+    try {
+      const rawC = localStorage.getItem("pmz_customers");
+      if (rawC) setCustomers(JSON.parse(rawC));
     } catch {}
   }, []);
 
@@ -1032,10 +1041,10 @@ export default function QuotesPage() {
                       <button
                         type="button"
                         onClick={() => openQuote(quote)}
-                        title={`${quote.customerName || quote.customer || "—"} — open in Project Pricer`}
+                        title={`${resolveCustomerName(quote, customers) || "—"} — open in Project Pricer`}
                         className="block w-full truncate text-left underline underline-offset-2 cursor-pointer outline-none hover:text-[#EB3300] focus-visible:text-[#EB3300]"
                       >
-                        {quote.customerName || quote.customer || "—"}
+                        {resolveCustomerName(quote, customers) || "—"}
                       </button>
                     </TableCell>
                     <TableCell className="text-sm truncate" title={quote.jobName || "—"}>{quote.jobName || "—"}</TableCell>
@@ -1319,7 +1328,7 @@ export default function QuotesPage() {
                         </td>
                         <td className="px-3 py-2">
                           <div className="font-medium">{q.jobName || <span className="text-muted-foreground">(untitled)</span>}</div>
-                          <div className="text-xs text-muted-foreground">{q.customer || q.customerName || <span className="italic">(blank customer)</span>}</div>
+                          <div className="text-xs text-muted-foreground">{resolveCustomerName(q, customers) || <span className="italic">(blank customer)</span>}</div>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">${formatMoney(q.totalRevenue || 0)}</td>
                         <td className="px-3 py-2 text-xs text-muted-foreground">{q.createdAt ? formatDate(q.createdAt) : "—"}</td>
@@ -1510,7 +1519,7 @@ export default function QuotesPage() {
                 <div className="space-y-4 py-4 text-sm">
                   <div className="grid grid-cols-1 gap-y-2">
                     <div><span className="font-medium text-muted-foreground">Job Name:</span> <span className="font-semibold">{previewTarget.jobName || "Untitled"}</span></div>
-                    <div><span className="font-medium text-muted-foreground">Customer:</span> {previewTarget.customerName || previewTarget.customer || "—"}</div>
+                    <div><span className="font-medium text-muted-foreground">Customer:</span> {resolveCustomerName(previewTarget, customers) || "—"}</div>
                     <div><span className="font-medium text-muted-foreground">Work Type:</span> {previewTarget.workType || "—"}</div>
                     <div><span className="font-medium text-muted-foreground">Salesperson:</span> {previewTarget.salesperson || "—"}</div>
                     <div><span className="font-medium text-muted-foreground">Status:</span> <StatusBadge status={previewTarget.status} /></div>
