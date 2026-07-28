@@ -67,6 +67,7 @@ import { sendQuoteForAcceptance, sendBlockingFailures } from "@/lib/quote-lifecy
 import type { LemGateLineFailure } from "@/lib/lem-detail";
 import { updateQuote } from "@/lib/quote-storage";
 import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line";
+import { resolveCustomerFromHandoff } from "@/lib/customer-resolve";
 import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
@@ -574,19 +575,11 @@ export default function ProjectPricerPage() {
       if (raw) {
         const saved = JSON.parse(raw);
         if (saved && (saved.bidItems || saved.eppLineItems || saved.jobName || saved.customerId || saved.customerName || saved.customer)) {
-          let custId = saved.customerId || "";
-          const nameForLookup = saved.customerName || saved.customer || "";
-          if (!custId && nameForLookup) {
-            // backward compat: lookup by name if only old customer name present
-            try {
-              const rawC = localStorage.getItem("pmz_customers");
-              if (rawC) {
-                const custs: any[] = JSON.parse(rawC);
-                const match = custs.find((c: any) => c.name === nameForLookup);
-                if (match?.id) custId = match.id;
-              }
-            } catch {}
-          }
+          // Resolve the customer through the ONE resolver, passing a FRESHLY read registry — the
+          // `customers` state is still empty this early in mount, which is where the staleness bug lived.
+          let freshCustomers: any[] = [];
+          try { const rawC = localStorage.getItem("pmz_customers"); if (rawC) freshCustomers = JSON.parse(rawC); } catch {}
+          const resolvedCustomer = resolveCustomerFromHandoff(saved, freshCustomers);
           setEstimate({
             jobName: saved.jobName || "",
             workTypeName: saved.workTypeName || saved.workType || saved.workTypeId || "",
@@ -594,8 +587,8 @@ export default function ProjectPricerPage() {
             estimator: saved.estimator || "",
             estimatedRevenue: saved.estimatedRevenue || saved.totalRevenue || 20000,
             bidItems: saved.bidItems || saved.eppLineItems || [],
-            customerName: saved.customerName || saved.customer || "",
-            customerId: custId,
+            customerName: resolvedCustomer.customerName,
+            customerId: resolvedCustomer.customerId,
             billingAddress: saved.billingAddress || "",
             jobSiteAddress: saved.jobSiteAddress || "",
           });
@@ -652,49 +645,27 @@ export default function ProjectPricerPage() {
       const estRaw = localStorage.getItem(ESTIMATE_STORAGE);
       if (estRaw) {
         const saved = JSON.parse(estRaw);
-        let qCustId = saved.customerId || "";
-        let qCustName = saved.customerName || saved.customer || "";
-        if (!qCustId && qCustName) {
-          // backward compat: lookup by name if only old customer name present
-          try {
-            const rawC = localStorage.getItem("pmz_customers");
-            if (rawC) {
-              const custs: any[] = JSON.parse(rawC);
-              const match = custs.find((c: any) => c.name === qCustName);
-              if (match?.id) qCustId = match.id;
-            }
-          } catch {}
-        }
-        if (qCustId || qCustName) {
-          if (qCustId) {
-            // find the matching customer (per requirements)
-            const match = customers.find((c: any) => c.id === qCustId);
-            if (match) {
-              qCustName = match.name;
-            }
-            setEstimate((prev) => ({
-              ...prev,
-              customerId: qCustId,
-              customerName: qCustName || "",
-              billingAddress: saved.billingAddress || (match ? match.billingAddress || "" : "") || "",
-              jobSiteAddress: saved.jobSiteAddress || (match ? match.jobSiteAddress || "" : "") || "",
-            }));
-            // Restore the controlled selector state too, so the dropdown reflects the saved customer
-            // and the customer-sync effects stay a no-op (no clobber back to empty on mount).
-            setSelectedCustomerId(qCustId);
-            setSelectedCustomerName(qCustName || null);
-          } else if (qCustName) {
-            // old text-based customer name only (backward compat)
-            setEstimate((prev) => ({
-              ...prev,
-              customerId: "",
-              customerName: qCustName,
-              billingAddress: saved.billingAddress || "",
-              jobSiteAddress: saved.jobSiteAddress || "",
-            }));
-            setSelectedCustomerId(null);
-            setSelectedCustomerName(qCustName);
-          }
+        // Resolve through the ONE resolver with a FRESHLY read registry — the `customers` state is
+        // still empty this early in mount, which is why the drift never resolved (the id-match read
+        // it stale). The registry read here is the same source/freshness block 1 uses above.
+        let freshCustomers: any[] = [];
+        try { const rawC = localStorage.getItem("pmz_customers"); if (rawC) freshCustomers = JSON.parse(rawC); } catch {}
+        const resolvedCustomer = resolveCustomerFromHandoff(saved, freshCustomers);
+        if (resolvedCustomer.customerId || resolvedCustomer.customerName) {
+          // Address only: look up the resolved id for billing/job-site (NOT the recovery rule — the
+          // customer is already resolved). Free-text (no id) leaves match undefined → addresses from saved.
+          const match = freshCustomers.find((c: any) => c.id === resolvedCustomer.customerId);
+          setEstimate((prev) => ({
+            ...prev,
+            customerId: resolvedCustomer.customerId,
+            customerName: resolvedCustomer.customerName,
+            billingAddress: saved.billingAddress || (match ? match.billingAddress || "" : "") || "",
+            jobSiteAddress: saved.jobSiteAddress || (match ? match.jobSiteAddress || "" : "") || "",
+          }));
+          // Restore the controlled selector state too, so the dropdown reflects the saved customer
+          // and the customer-sync effects stay a no-op (no clobber back to empty on mount).
+          setSelectedCustomerId(resolvedCustomer.customerId || null);
+          setSelectedCustomerName(resolvedCustomer.customerName || null);
         }
       }
     } catch {}

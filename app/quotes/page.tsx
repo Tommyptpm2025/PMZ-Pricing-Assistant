@@ -441,6 +441,7 @@ export default function QuotesPage() {
         estimatedRevenue: quote.totalRevenue || 0,
         bidItems: (quote.eppLineItems || []).map((it: any) => ({ ...it })),
         customer: quote.customer || "",
+        customerId: quote.customerId || "",
       };
       localStorage.setItem("pmz_current_estimate_v1", JSON.stringify(estimateData));
 
