@@ -69,6 +69,7 @@ import { updateQuote } from "@/lib/quote-storage";
 import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line";
 import { resolveCustomerFromHandoff, findCustomerRecord } from "@/lib/customer-resolve";
 import { recipientCustomerWrite } from "@/lib/customer-recipient";
+import { customerIsBlank } from "@/lib/customer-present";
 import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
@@ -447,7 +448,7 @@ export default function ProjectPricerPage() {
   const [showSendDialog, setShowSendDialog] = React.useState(false);
   // Send gate (Law 50): the blocking failures that refuse this send, surfaced in the dialog as the
   // SAME panel with the SAME words as the Quotes page. Cleared when the dialog opens/closes.
-  const [sendBlock, setSendBlock] = React.useState<{ failures: LemGateLineFailure[] } | null>(null);
+  const [sendBlock, setSendBlock] = React.useState<{ failures: LemGateLineFailure[]; customerMissing?: boolean } | null>(null);
   const [sendQuoteType, setSendQuoteType] = React.useState<"EPP" | "Full">("EPP");
   const [sendName, setSendName] = React.useState("");
   const [sendEmail, setSendEmail] = React.useState("");
@@ -1695,6 +1696,12 @@ export default function ProjectPricerPage() {
 
   function handleConfirmSend() {
     if (!isValidEmail(sendEmail)) return;
+    // 0a) CUSTOMER GATE (Law 50) — a quote with no customer can't go out. Same rule as the Save-time
+    //     validation (customerIsBlank), surfaced through the SAME send-block mechanism as the LEM gate.
+    if (customerIsBlank(estimate)) {
+      setSendBlock({ failures: [], customerMissing: true });
+      return;
+    }
     // 0) SEND GATE FIRST (Law 50) — a blank price must not reach a customer. Ask the ONE lib rule,
     //    on the SAME line items the transition will see (serializeEppLine), BEFORE any side effect.
     //    On refusal: show the same panel and STOP — no contact save, no quote save, no status, no PDF.
@@ -1902,12 +1909,12 @@ export default function ProjectPricerPage() {
     if (!estimate.workTypeName || estimate.workTypeName.trim() === "") {
       errs.workType = "Work Type selection is required";
     }
-    if (!estimate.customerName || estimate.customerName.trim() === "") {
+    if (customerIsBlank(estimate)) {
       errs.customer = "Customer is required";
     }
     // bidItems / pro items validated per-section only
     return errs;
-  }, [estimate.jobName, estimate.workTypeName, estimate.customerName]);
+  }, [estimate.jobName, estimate.workTypeName, estimate.customerName, estimate.customerId]);
 
   const isValid = Object.keys(validationErrors).length === 0;
 
@@ -3583,9 +3590,18 @@ export default function ProjectPricerPage() {
             {/* Send gate refusal — the SAME panel and SAME words as the Quotes page (Law 50), rendered
                 from the shared GatePanel component. Send variant, NO footer ("Edit in Pricer" is not a
                 control inside the Pricer). The rule is the lib's; this only renders what it refused. */}
-            {sendBlock && (
+            {sendBlock && (sendBlock.customerMissing ? (
+              <div
+                className="rounded-lg border p-3 text-left text-xs"
+                style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
+              >
+                <div className="font-medium" style={{ color: "#EB3300" }}>
+                  No customer on this quote — the CUSTOMER field is empty. A quote can’t be sent without a company on it.
+                </div>
+              </div>
+            ) : (
               <GatePanel failures={sendBlock.failures} variant="send" showEditInPricerFooter={false} />
-            )}
+            ))}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSendDialog(false)}>Cancel</Button>
