@@ -68,6 +68,7 @@ import type { LemGateLineFailure } from "@/lib/lem-detail";
 import { updateQuote } from "@/lib/quote-storage";
 import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line";
 import { resolveCustomerFromHandoff, findCustomerRecord } from "@/lib/customer-resolve";
+import { recipientCustomerWrite } from "@/lib/customer-recipient";
 import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
@@ -1670,32 +1671,22 @@ export default function ProjectPricerPage() {
       const nowDate = new Date();
       let id = selectedCustomerId || "";
       const idx = id ? list.findIndex((c) => c.id === id) : -1;
-      if (idx >= 0) {
-        list[idx] = {
-          ...list[idx],
-          contactName: sendName || list[idx].contactName,
-          email: sendEmail || list[idx].email,
-          phone: sendPhone || list[idx].phone,
-          updatedAt: nowDate,
-        };
+      // The recipient is the CONTACT, never the company identity. One pure decision decides the write:
+      // update the contact only (never rename), create named after the COMPANY (never the person), or
+      // block a company-less new customer (Law 50). See lib/customer-recipient.
+      const company = selectedCustomerName || estimate.customerName || "";
+      const write = recipientCustomerWrite(idx >= 0 ? list[idx] : null, company, { name: sendName, email: sendEmail, phone: sendPhone });
+      if (write.action === "block") return null; // no company name → never mint a person-named record
+      if (write.action === "update") {
+        list[idx] = { ...list[idx], ...write.patch, updatedAt: nowDate };
       } else {
         id = `cust_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        list.push({
-          id,
-          name: sendName || selectedCustomerName || "New Customer",
-          contactName: sendName || undefined,
-          email: sendEmail || undefined,
-          phone: sendPhone || undefined,
-          createdAt: nowDate,
-          updatedAt: nowDate,
-        } as Customer);
+        list.push({ id, ...write.record, createdAt: nowDate, updatedAt: nowDate } as Customer);
       }
       localStorage.setItem("pmz_customers", JSON.stringify(list));
       setCustomers(list);
-      if (id) {
-        setSelectedCustomerId(id);
-        if (sendName) setSelectedCustomerName(sendName);
-      }
+      // Persist the resolved id only — NOT the recipient as the company name (that was the Cause-1 leak).
+      if (id) setSelectedCustomerId(id);
       return id || null;
     } catch {
       return null;
