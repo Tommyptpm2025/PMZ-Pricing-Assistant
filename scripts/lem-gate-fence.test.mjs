@@ -40,7 +40,14 @@ const cleanLine = { id: "ok", description: "OK line",   laborEntries: [{ rateId:
 }
 {
   const { blocking } = classifyGateFailures(gate(emptyLine));
-  assert.equal(blocking.length, 1, "a line with NO LEM entries still BLOCKS");
+  assert.equal(blocking.length, 1, "an UNDECLARED line with NO LEM entries still BLOCKS");
+}
+{
+  // Cause 3: the SAME empty line, DECLARED a flat rate, is a zero — not a blank. It does NOT block.
+  const flatLine = { id: "flat", description: "Flat line", flatRate: true };
+  const { blocking, zeros } = classifyGateFailures(gate(flatLine));
+  assert.equal(blocking.length, 0, "a DECLARED flat line does NOT block (Cause 3) — the user declared no labor/equipment/material");
+  assert.equal(zeros.length, 1, "a declared flat line is routed to zeros — confirm-and-carry, not blocking");
 }
 {
   const { blocking, zeros } = classifyGateFailures(gate(mixedLine));

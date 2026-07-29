@@ -106,7 +106,7 @@ console.log("PASS: gate-panel derivation — the panel's blocker set is exactly 
 
 // ── 3 — COPY CHOKEPOINT: every panel string lives ONLY in components/GatePanel.tsx ─────────────
 const PANEL_STRINGS = [
-  "Can’t send yet — these entries have no hours or quantity behind them. Fix them before this price goes to the customer:",
+  "Can’t send yet — these lines have nothing priced behind them. Add the labor, equipment, or material, or mark the line a flat rate, before this price goes to the customer:",
   "Can’t accept yet — fix these entries before this quote can become a Work Order:",
   "no LEM detail entered",
   "incomplete entries:",

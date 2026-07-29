@@ -27,20 +27,26 @@ export interface GatePanelProps {
   /** Show the "Use 'Edit in Pricer' below to fix these entries." footer. Quotes page passes true; the
    *  Pricer passes false (there is no "Edit in Pricer" control inside the Pricer). Explicit, never inferred. */
   showEditInPricerFooter: boolean;
+  /** DECLARED flat-rate lines (Cause 3) — shown in the grey confirm section, not the red blocker box.
+   *  A flat line is a zero, not a blank: the user said there is no labor/equipment/material behind it. */
+  flatLines?: LemGateLineFailure[];
 }
 
-export default function GatePanel({ failures, variant, showEditInPricerFooter }: GatePanelProps) {
+export default function GatePanel({ failures, variant, showEditInPricerFooter, flatLines }: GatePanelProps) {
   const { blockers, zeros, zeroCount } = partitionGatePanel(failures);
+  const flats = flatLines || [];
   return (
     <>
-      {/* SECTION 1 — the blocker. Red, exactly as before. Genuine blanks / no-entry lines only. */}
+      {/* SECTION 1 — the blocker. Red. Genuine blanks / no-entry lines only. Hidden when there are none
+          (a flat-rate confirm can render this panel with no blockers). */}
+      {blockers.length > 0 && (
       <div
         className="rounded-lg border p-3 text-left text-xs"
         style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
       >
         <div className="font-medium mb-1.5" style={{ color: "#EB3300" }}>
           {variant === "send"
-            ? "Can’t send yet — these entries have no hours or quantity behind them. Fix them before this price goes to the customer:"
+            ? "Can’t send yet — these lines have nothing priced behind them. Add the labor, equipment, or material, or mark the line a flat rate, before this price goes to the customer:"
             : "Can’t accept yet — fix these entries before this quote can become a Work Order:"}
         </div>
         <div className="space-y-1.5">
@@ -63,6 +69,7 @@ export default function GatePanel({ failures, variant, showEditInPricerFooter }:
           <div className="mt-2 italic text-muted-foreground">Use “Edit in Pricer” below to fix these entries.</div>
         )}
       </div>
+      )}
 
       {/* SECTION 2 — the zeros. Plain grey, below Section 1. A zero is a decision, not a defect. */}
       {zeroCount > 0 && (
@@ -85,6 +92,24 @@ export default function GatePanel({ failures, variant, showEditInPricerFooter }:
                   ))}
                 </ul>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 3 — DECLARED flat-rate lines. Plain grey, in the confirm section (never the red box).
+          A flat line is the user's decision that there is no labor, equipment, or material behind it. */}
+      {flats.length > 0 && (
+        <div className="rounded-lg border p-3 text-left text-xs mt-2 text-muted-foreground">
+          <div className="font-medium mb-1.5">
+            Flat-rate {flats.length === 1 ? "line" : "lines"} — {flats.length}. Nothing to fix.
+          </div>
+          <div className="mb-1.5">
+            You marked {flats.length === 1 ? "this line" : "these lines"} as a flat rate — no labor, equipment, or material behind {flats.length === 1 ? "it" : "them"}. {flats.length === 1 ? "It prints" : "They print"} at the price shown. Change {flats.length === 1 ? "it" : "any of them"} if that’s not what you meant.
+          </div>
+          <div className="space-y-1.5">
+            {flats.map((f, i) => (
+              <div key={i} className="font-medium">Line “{f.description}”</div>
             ))}
           </div>
         </div>

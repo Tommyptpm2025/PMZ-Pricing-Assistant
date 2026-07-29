@@ -36,15 +36,25 @@ const NO_CATS: LemRateCatalogs = {
 // LEM detail is blank / missing / has no entries — that must stop a price from reaching a customer.
 // A TYPED ZERO is NOT blocking (it confirms-and-carries; that is an Accept concern). Non-EPP quotes
 // have no LEM detail, so nothing blocks. Pass real `cats` when you need named entries for display.
+// The send-gate gather loop: build each line's failure through the ONE rule (buildLineGateFailures)
+// and classify. Returns BOTH blocking (blanks / undeclared no-entry) and zeros (typed zeros +
+// declared flat-rate lines). One loop — sendBlockingFailures reads its .blocking (no second copy).
+export function sendGateFailures(
+  quote: Pick<SavedQuote, "quoteType" | "eppLineItems">,
+  cats: LemRateCatalogs = NO_CATS,
+): { blocking: LemGateLineFailure[]; zeros: LemGateLineFailure[] } {
+  if (quote.quoteType !== "EPP") return { blocking: [], zeros: [] };
+  const failures = (quote.eppLineItems || [])
+    .map((it, i) => buildLineGateFailures(it, cats, it.description?.trim() || `Line ${i + 1}`))
+    .filter((f): f is LemGateLineFailure => !!f);
+  return classifyGateFailures(failures);
+}
+
 export function sendBlockingFailures(
   quote: Pick<SavedQuote, "quoteType" | "eppLineItems">,
   cats: LemRateCatalogs = NO_CATS,
 ): LemGateLineFailure[] {
-  if (quote.quoteType !== "EPP") return [];
-  const failures = (quote.eppLineItems || [])
-    .map((it, i) => buildLineGateFailures(it, cats, it.description?.trim() || `Line ${i + 1}`))
-    .filter((f): f is LemGateLineFailure => !!f);
-  return classifyGateFailures(failures).blocking;
+  return sendGateFailures(quote, cats).blocking;
 }
 
 // The result of a transition attempt. The send gate makes a transition REFUSABLE, so the outcome

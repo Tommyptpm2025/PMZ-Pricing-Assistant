@@ -10,7 +10,7 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:epp && npm run test:pipeline && npm run test:quote-doc && npm run test:superuser && npm run test:variance && npm run test:lem-gate && npm run test:numeric-entry && npm run test:send-gate && npm run test:gate-panel && npm run test:customer-resolve && npm run test:customer-recipient && npm run test:customer-present",
+    "test": "npm run test:epp && npm run test:pipeline && npm run test:quote-doc && npm run test:superuser && npm run test:variance && npm run test:lem-gate && npm run test:numeric-entry && npm run test:send-gate && npm run test:gate-panel && npm run test:customer-resolve && npm run test:customer-recipient && npm run test:customer-present && npm run test:flat-rate",
     "test:epp": "node --import ./scripts/ts-ext-register.mjs scripts/epp-roundtrip.test.mjs",
     "test:pipeline": "node --import ./scripts/ts-ext-register.mjs scripts/pipeline-fence.test.mjs",
     "test:quote-doc": "node --import ./scripts/ts-ext-register.mjs scripts/quote-document-fence.test.mjs",
@@ -22,7 +22,8 @@
     "test:gate-panel": "node --import ./scripts/ts-ext-register.mjs scripts/gate-panel-copy-fence.test.mjs",
     "test:customer-resolve": "node --import ./scripts/ts-ext-register.mjs scripts/customer-resolve-fence.test.mjs",
     "test:customer-recipient": "node --import ./scripts/ts-ext-register.mjs scripts/customer-recipient-fence.test.mjs",
-    "test:customer-present": "node --import ./scripts/ts-ext-register.mjs scripts/customer-present-fence.test.mjs"
+    "test:customer-present": "node --import ./scripts/ts-ext-register.mjs scripts/customer-present-fence.test.mjs",
+    "test:flat-rate": "node --import ./scripts/ts-ext-register.mjs scripts/flat-rate-fence.test.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",

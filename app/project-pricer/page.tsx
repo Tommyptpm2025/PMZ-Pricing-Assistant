@@ -63,7 +63,7 @@ import {
 import { goldenFormula } from "@/lib/pricing";
 import { formatMoney } from "@/lib/format";
 import type { SavedQuote as PMZSavedQuote, LineItem, LemItem, Bucket, Customer, QuoteStatus } from "@/lib/pmz-types";
-import { sendQuoteForAcceptance, sendBlockingFailures } from "@/lib/quote-lifecycle";
+import { sendQuoteForAcceptance, sendBlockingFailures, sendGateFailures } from "@/lib/quote-lifecycle";
 import type { LemGateLineFailure } from "@/lib/lem-detail";
 import { updateQuote } from "@/lib/quote-storage";
 import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line";
@@ -104,6 +104,7 @@ interface BidItem {
   unit: string;
   unitPrice: number; // break-even unit cost (top of line); defaults to cost ÷ qty, editable
   priceOverridden?: boolean; // true once the user manually edits the top price (stops auto-seed from cost)
+  flatRate?: boolean; // declared flat rate — no labor/equipment/material behind this line (Cause 3)
   // EPP-only real per-line-item costing details (isolated from LEM) — now supports multiple entries per category
   laborEntries?: Array<{
     rateId?: string;
@@ -448,7 +449,7 @@ export default function ProjectPricerPage() {
   const [showSendDialog, setShowSendDialog] = React.useState(false);
   // Send gate (Law 50): the blocking failures that refuse this send, surfaced in the dialog as the
   // SAME panel with the SAME words as the Quotes page. Cleared when the dialog opens/closes.
-  const [sendBlock, setSendBlock] = React.useState<{ failures: LemGateLineFailure[]; customerMissing?: boolean } | null>(null);
+  const [sendBlock, setSendBlock] = React.useState<{ failures: LemGateLineFailure[]; customerMissing?: boolean; flatLines?: LemGateLineFailure[]; confirmFlat?: boolean } | null>(null);
   const [sendQuoteType, setSendQuoteType] = React.useState<"EPP" | "Full">("EPP");
   const [sendName, setSendName] = React.useState("");
   const [sendEmail, setSendEmail] = React.useState("");
@@ -1165,7 +1166,7 @@ export default function ProjectPricerPage() {
         item.id === id
           ? {
               ...item,
-              [field]: (field === "priceOverridden" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string))
+              [field]: (field === "priceOverridden" || field === "flatRate" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string))
                 ? (value === "" ? undefined : value)
                 : Math.max(0, Number(value) || 0),
             }
@@ -1694,7 +1695,7 @@ export default function ProjectPricerPage() {
     }
   }
 
-  function handleConfirmSend() {
+  function handleConfirmSend(flatConfirmed = false) {
     if (!isValidEmail(sendEmail)) return;
     // 0a) CUSTOMER GATE (Law 50) — a quote with no customer can't go out. Same rule as the Save-time
     //     validation (customerIsBlank), surfaced through the SAME send-block mechanism as the LEM gate.
@@ -1702,16 +1703,21 @@ export default function ProjectPricerPage() {
       setSendBlock({ failures: [], customerMissing: true });
       return;
     }
-    // 0) SEND GATE FIRST (Law 50) — a blank price must not reach a customer. Ask the ONE lib rule,
-    //    on the SAME line items the transition will see (serializeEppLine), BEFORE any side effect.
-    //    On refusal: show the same panel and STOP — no contact save, no quote save, no status, no PDF.
+    // 0) SEND GATE (Law 50) — one gather loop returns BOTH blockers (blanks / undeclared no-entry) and
+    //    zeros (typed zeros + DECLARED flat-rate lines). A blank still blocks; a declared flat line is a
+    //    zero and does NOT block — the owner sees it in the grey confirm section one last time, then sends.
     const gateItems = sendQuoteType === "EPP" ? estimate.bidItems.map((it) => serializeEppLine(it)) : [];
-    const blocking = sendBlockingFailures({ quoteType: sendQuoteType, eppLineItems: gateItems }, {
+    const { blocking, zeros } = sendGateFailures({ quoteType: sendQuoteType, eppLineItems: gateItems }, {
       laborRates, equipmentRates, materialRates, miscRates,
       getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
     });
+    const flatLines = zeros.filter((z) => z.flatRate);
     if (blocking.length > 0) {
-      setSendBlock({ failures: blocking });
+      setSendBlock({ failures: blocking, flatLines }); // block panel; flat lines ride along in the confirm section
+      return;
+    }
+    if (flatLines.length > 0 && !flatConfirmed) {
+      setSendBlock({ failures: [], flatLines, confirmFlat: true }); // confirm-and-carry: name the flat lines, then Send again
       return;
     }
     // 1) Save the recipient back to the customer record (create/update).
@@ -2473,6 +2479,20 @@ export default function ProjectPricerPage() {
                                 </select>
                                 </div>
                               </div>
+                              {/* Flat-rate declaration (Cause 3): plain language that there is no LEM behind
+                                  this line. A declared flat line is a zero, not a blank — it does not block Send. */}
+                              <label className="flex items-start gap-2 mb-3 text-sm cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={!!item.flatRate}
+                                  onChange={(e) => updateBidItem(item.id, "flatRate", e.target.checked)}
+                                  disabled={isReadOnly}
+                                  className="mt-0.5"
+                                />
+                                <span className="text-muted-foreground">
+                                  This line is a <span className="font-medium">flat rate</span> — there is no labor, equipment, or material behind it. It prints at the price above.
+                                </span>
+                              </label>
                               {/* Labor */}
                               <div className="mb-3">
                                 <div className="flex items-center mb-1">
@@ -3600,18 +3620,18 @@ export default function ProjectPricerPage() {
                 </div>
               </div>
             ) : (
-              <GatePanel failures={sendBlock.failures} variant="send" showEditInPricerFooter={false} />
+              <GatePanel failures={sendBlock.failures} flatLines={sendBlock.flatLines} variant="send" showEditInPricerFooter={false} />
             ))}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSendDialog(false)}>Cancel</Button>
             <Button
-              onClick={handleConfirmSend}
+              onClick={() => handleConfirmSend(!!sendBlock?.confirmFlat)}
               disabled={!isValidEmail(sendEmail)}
               className={cn("font-semibold text-white", !isValidEmail(sendEmail) && "opacity-60 cursor-not-allowed")}
               style={{ backgroundColor: "#EB3300" }}
             >
-              Send &amp; Open PDF
+              {sendBlock?.confirmFlat ? "Send anyway" : "Send & Open PDF"}
             </Button>
           </DialogFooter>
         </DialogContent>

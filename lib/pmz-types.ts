@@ -206,6 +206,10 @@ export interface LineItem {
   unitPrice: number;
   // Per-line LEM detail (EPP). Optional: a scope-only line may have none yet.
   priceOverridden?: boolean;
+  // Declared FLAT RATE: the user's explicit statement that there is no labor, equipment, or material
+  // behind this line. A declared flat line is a ZERO (confirm-and-carry), not a blank — it does not
+  // block Send (Law 50, Cause 3). An UNDECLARED line with no LEM rows is still a blank and still blocks.
+  flatRate?: boolean;
   laborEntries?: LaborEntry[];
   equipmentEntries?: EquipmentEntry[];
   materialEntries?: MaterialEntry[];

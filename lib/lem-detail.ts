@@ -289,7 +289,8 @@ export interface LemGateLineFailure {
   lineId: string;              // the bid line id (BidItem.id) — used to scroll/expand in the Pricer
   description: string;          // the bid line description
   noEntries: boolean;          // true when the line has no LEM entries at all
-  issues: LemGateEntryIssue[]; // the specific incomplete entries (empty when noEntries)
+  flatRate?: boolean;          // the line was DECLARED a flat rate — a zero (confirm-and-carry), not a blank
+  issues: LemGateEntryIssue[]; // the specific incomplete entries (empty when noEntries or flatRate)
 }
 
 /**
@@ -346,6 +347,11 @@ export function buildLineGateFailures(
   });
 
   const lineId = item?.id || "";
+  // DECLARED FLAT RATE (Cause 3): the user has explicitly stated there is no labor, equipment, or
+  // material behind this line. That is a ZERO, not a blank — noEntries:false with no issues, so
+  // classifyGateFailures routes it to `zeros` (confirm-and-carry), not `blocking`. It carries the
+  // flatRate flag so the confirm section can name it. An UNDECLARED no-LEM line still hard-blocks below.
+  if (item?.flatRate) return { lineId, description, noEntries: false, flatRate: true, issues: [] };
   if (!hasAnyEntry) return { lineId, description, noEntries: true, issues: [] };
   if (issues.length > 0) return { lineId, description, noEntries: false, issues };
   return null;

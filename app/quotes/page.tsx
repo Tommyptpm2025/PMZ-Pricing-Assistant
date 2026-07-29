@@ -649,7 +649,9 @@ export default function QuotesPage() {
       lines: zeros.map((z) => ({
         lineId: z.lineId,
         description: z.description,
-        items: z.issues.map((i) => `${i.category}: ${i.name} (${i.issue})`),
+        items: z.flatRate
+          ? ["Flat rate — no labor, equipment, or material"]
+          : z.issues.map((i) => `${i.category}: ${i.name} (${i.issue})`),
       })),
     };
   }
@@ -1851,12 +1853,14 @@ export default function QuotesPage() {
             <div className="space-y-2 text-sm max-h-[40vh] overflow-y-auto">
               {lemGateConfirm.zeros.map((z, i) => (
                 <div key={i}>
-                  <div className="font-medium">Line &ldquo;{z.description}&rdquo;</div>
-                  <ul className="list-disc pl-5 space-y-0.5 mt-0.5 text-xs text-muted-foreground">
-                    {z.issues.map((is, j) => (
-                      <li key={j}>{is.category}: {is.name} — {is.issue}</li>
-                    ))}
-                  </ul>
+                  <div className="font-medium">Line &ldquo;{z.description}&rdquo;{z.flatRate ? " — flat rate (no labor, equipment, or material)" : ""}</div>
+                  {!z.flatRate && (
+                    <ul className="list-disc pl-5 space-y-0.5 mt-0.5 text-xs text-muted-foreground">
+                      {z.issues.map((is, j) => (
+                        <li key={j}>{is.category}: {is.name} — {is.issue}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ))}
             </div>

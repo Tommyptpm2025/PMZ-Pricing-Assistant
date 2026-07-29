@@ -45,7 +45,10 @@ assert.ok(sendBlockingFailures({ quoteType: "EPP", eppLineItems: [{ id: "b", des
   "sendBlockingFailures flags a blank on an EPP quote");
 assert.equal(sendBlockingFailures({ quoteType: "Full", eppLineItems: [] }, CATS).length, 0,
   "sendBlockingFailures never blocks a non-EPP quote (no LEM detail)");
-console.log("PASS: send rule — a blank/no-entry BLOCKS; a typed zero PASSES; non-EPP never blocks");
+// Cause 3: a DECLARED flat line is a zero, not a blank — it does NOT block Send (undeclared still does, above).
+assert.equal(sendBlockingFailures({ quoteType: "EPP", eppLineItems: [{ id: "flat", description: "Flat", flatRate: true }] }, CATS).length, 0,
+  "sendBlockingFailures does NOT block a DECLARED flat line (Cause 3)");
+console.log("PASS: send rule — a blank/no-entry BLOCKS; a typed zero PASSES; a DECLARED flat line PASSES; non-EPP never blocks");
 
 // ── 2 — BEHAVIORAL: the TRANSITION refuses a blank and carries zeros, scoped to Ready for Approval ─
 const mkQuote = (entries) => ({

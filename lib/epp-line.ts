@@ -22,6 +22,7 @@ export interface EppBidLine {
   unitPrice: number;
   // Per-line LEM detail — carried through save so the costed line survives reload (no longer stripped).
   priceOverridden?: boolean;
+  flatRate?: boolean; // declared flat rate — carried through save so the declaration survives the round trip
   laborEntries?: LaborEntry[];
   equipmentEntries?: EquipmentEntry[];
   materialEntries?: MaterialEntry[];
@@ -41,6 +42,7 @@ export function serializeEppLine(item: {
   unit?: string;
   unitPrice?: number;
   priceOverridden?: boolean;
+  flatRate?: boolean;
   laborEntries?: LaborEntry[];
   equipmentEntries?: EquipmentEntry[];
   materialEntries?: MaterialEntry[];
@@ -56,6 +58,7 @@ export function serializeEppLine(item: {
     // Carry the per-line LEM detail through save (shallow-copy each array so we never alias
     // live estimate state). Omit a key entirely when absent so scope-only lines stay clean.
     ...(item.priceOverridden !== undefined ? { priceOverridden: item.priceOverridden } : {}),
+    ...(item.flatRate ? { flatRate: true } : {}),
     ...(item.laborEntries ? { laborEntries: item.laborEntries.map((e) => ({ ...e })) } : {}),
     ...(item.equipmentEntries ? { equipmentEntries: item.equipmentEntries.map((e) => ({ ...e })) } : {}),
     ...(item.materialEntries ? { materialEntries: item.materialEntries.map((e) => ({ ...e })) } : {}),
