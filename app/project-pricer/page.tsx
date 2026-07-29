@@ -70,6 +70,7 @@ import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line"
 import { resolveCustomerFromHandoff, findCustomerRecord } from "@/lib/customer-resolve";
 import { recipientCustomerWrite } from "@/lib/customer-recipient";
 import { customerIsBlank } from "@/lib/customer-present";
+import { resolveTargetMargin, profitTargetAndCeiling } from "@/lib/target-guidance";
 import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
@@ -987,16 +988,9 @@ export default function ProjectPricerPage() {
     if (!estimate.workTypeName || workTypes.length === 0) return 0;
     const wt = workTypes.find((w) => w.name === estimate.workTypeName);
     if (!wt || !wt.tiers || wt.tiers.length === 0) return 0;
-    if (size === 0) {
-      return wt.tiers[0].targetGpPercent;
-    }
-    for (let i = 0; i < wt.tiers.length; i++) {
-      const t = wt.tiers[i];
-      const low = t.low ?? 0;
-      const high = t.high ?? Infinity;
-      if (size >= low && size <= high) return t.targetGpPercent;
-    }
-    return wt.tiers[wt.tiers.length - 1].targetGpPercent;
+    // The tier-band lookup lives in ONE pure home (lib/target-guidance) so it can be unit-tested live
+    // and the header + per-line panel read the exact same resolver.
+    return resolveTargetMargin(wt.tiers, size);
   }
 
   // Per-line break-even cost — mirrors the eppPlannedCost summation exactly (labor + equipment +
@@ -1892,6 +1886,14 @@ export default function ProjectPricerPage() {
   // readout) on real costs existing, so green is never earned by absence.
   const hasCostBasis = eppPlannedCost > 0;
 
+  // Cause 3 Part 2 — NO-COST-BASIS target guidance. When there is no cost basis, the strip must not
+  // claim a profit it has not proven. targetMargin already resolves LIVE from the tier table
+  // (getTargetMarginForSize → resolveTargetMargin); with no cost it is getTargetMarginForSize(revenue).
+  // Show the goal explicitly LABELLED ("Gross Profit Target", "To hit …"), never as measured profit.
+  // Guarded on revenue > 0 and a resolvable target > 0 (no work type / zero revenue → no target line).
+  const showTargetGuidance = !hasCostBasis && totalRevenue > 0 && targetMargin > 0;
+  const { profitTarget: eppProfitTarget, costCeiling: eppCostCeiling } = profitTargetAndCeiling(totalRevenue, targetMargin);
+
   // Customer document mapping lives in lib/quote-document.ts so the Law 56 fence can EXECUTE
   // it rather than pin its call sites by source text. Component state is passed explicitly.
   const buildQuoteData = (source: any) =>
@@ -2300,6 +2302,12 @@ export default function ProjectPricerPage() {
                         return rest;
                       }), 0);
                     }
+                    // Cause 3 Part 2 — per-line no-cost guidance. Same rule as the header: no cost on THIS
+                    // line → no claimed profit; show the goal for the line's OWN revenue via the same
+                    // resolver (getTargetMarginForSize) and the same math (profitTargetAndCeiling).
+                    const lineHasCostBasis = computedItemCost > 0;
+                    const lineTargetMargin = getTargetMarginForSize(effectiveLineTotal);
+                    const { profitTarget: lineProfitTarget, costCeiling: lineCostCeiling } = profitTargetAndCeiling(effectiveLineTotal, lineTargetMargin);
                     // Option B: job-level target margin (overall quote required GP / selling price, then per-line contribution)
                     const targetForJob = targetMargin;
                     const totalRealCostForJob = eppPlannedCost;
@@ -3359,12 +3367,29 @@ export default function ProjectPricerPage() {
                               </div>
                               <div className="border-t pt-3 mt-2 flex flex-wrap gap-x-8 text-lg">
                                 <div>Total Cost: <span className="font-semibold tabular-nums">{formatMoney(computedItemCost)}</span></div>
-                                <div>Real GP: <span className="font-semibold tabular-nums">{formatMoney(effectiveLineTotal - computedItemCost)}</span> <span className="tabular-nums">({computedItemGpPct.toFixed(1)}%)</span></div>
-                                {estimate.workTypeName && targetMargin > 0 && (
-                                  <div className="text-muted-foreground">Target: {targetMargin.toFixed(0)}%</div>
+                                {lineHasCostBasis ? (
+                                  <>
+                                    <div>Real GP: <span className="font-semibold tabular-nums">{formatMoney(effectiveLineTotal - computedItemCost)}</span> <span className="tabular-nums">({computedItemGpPct.toFixed(1)}%)</span></div>
+                                    {estimate.workTypeName && targetMargin > 0 && (
+                                      <div className="text-muted-foreground">Target: {targetMargin.toFixed(0)}%</div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    {/* No cost on this line → no proven GP. "—", never a claimed 100%. Show the goal instead. */}
+                                    <div>Real GP: <span className="font-semibold tabular-nums">—</span> <span className="tabular-nums">(—)</span></div>
+                                    {lineTargetMargin > 0 && effectiveLineTotal > 0 && (
+                                      <>
+                                        <div><span className="font-semibold">Gross Profit Target:</span> <span className="tabular-nums">{formatMoney(lineProfitTarget)}</span></div>
+                                        <div className="text-muted-foreground">To hit {lineTargetMargin.toFixed(0)}%, your cost needs to land at or under <span className="tabular-nums">{formatMoney(lineCostCeiling)}</span>.</div>
+                                      </>
+                                    )}
+                                  </>
                                 )}
                               </div>
-                              <div className="text-base text-muted-foreground mt-2">Real GP% updates this line item (replaces 100% assumption).</div>
+                              {lineHasCostBasis && (
+                                <div className="text-base text-muted-foreground mt-2">Real GP% updates this line item (replaces 100% assumption).</div>
+                              )}
                               {/* Persistent target margin guidance — always visible (live) when costs exist, positioned after the blue note */}
                               <div className="mt-2 p-2 border border-amber-200 bg-amber-50/60 dark:bg-amber-950/60 dark:border-amber-800 rounded text-sm">
                                 {!hasEnteredCosts ? (
@@ -3430,6 +3455,13 @@ export default function ProjectPricerPage() {
             </div>
           </div>
 
+          {/* Cause 3 Part 2 — labeled GOAL above the strip when there is no cost basis. "Target" is
+              load-bearing: it is what makes the number safe to show. Never render it without the word. */}
+          {showTargetGuidance && (
+            <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 px-4 pt-1.5 text-center text-sm text-amber-900 dark:text-amber-200">
+              <span className="font-semibold text-amber-950 dark:text-amber-100">Gross Profit Target:</span> <span className="tabular-nums">{formatMoney(eppProfitTarget)}</span>
+            </div>
+          )}
           {/* EPP Summary Banner — Estimate Total (line totals) | Planned Cost (bid-time costs from panels) | Gross Profit $ | Gross Margin % | Target % | status badge */}
           <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 px-4 py-1.5 flex items-center justify-between text-lg">
             <div className="text-amber-900 dark:text-amber-200 flex-1">
@@ -3444,7 +3476,9 @@ export default function ProjectPricerPage() {
                 </div>
                 <div className="flex flex-col">
                   <span className="font-semibold text-amber-950 dark:text-amber-100">Gross Profit:</span>
-                  <span className="tabular-nums">{formatMoney(eppGrossProfitDollars)}</span>
+                  {/* No cost basis → no proven profit. Render "—" to match Gross Margin; the goal shows
+                      separately as the labeled "Gross Profit Target" line, never as measured profit. */}
+                  <span className="tabular-nums">{hasCostBasis ? formatMoney(eppGrossProfitDollars) : "—"}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="font-semibold text-amber-950 dark:text-amber-100">Gross Margin:</span>
@@ -3456,7 +3490,13 @@ export default function ProjectPricerPage() {
                   <span className="tabular-nums">{eppTargetPercent.toFixed(0)}%</span>
                 </div>
               </div>
-              {eppTargetPercent > 0 && (
+              {showTargetGuidance ? (
+                /* No cost basis: the golden formula on $0 cost degenerates to $0 (noise). State the
+                   cost CEILING in dollars instead — the largest cost that still hits the target. */
+                <div className="mt-1 text-center text-xs text-amber-700 dark:text-amber-300">
+                  To hit {targetMargin.toFixed(0)}%, your cost needs to land at or under <span className="tabular-nums">{formatMoney(eppCostCeiling)}</span>.
+                </div>
+              ) : eppTargetPercent > 0 && (
                 <div className="mt-1 text-center text-xs text-amber-700 dark:text-amber-300">
                   Recommended @ {eppTargetPercent.toFixed(0)}%: <span className="tabular-nums">{formatMoney(eppRecommendedBid)}</span>
                 </div>
