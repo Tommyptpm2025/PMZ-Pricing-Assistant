@@ -1,142 +1,56 @@
-# PMZ Pricing Assistant — Setup Progress & Continuation Guide
+# PMZ Pricing Assistant — Continuation Guide
 
-**Last Updated:** 2026-05-26  
-**Status:** Setup paused by user
-
----
-
-## Current Status
-
-You have started the scaffolding process but have not yet completed it.
-
-### Completed Steps
-
-- [x] Created the project folder (`C:\Users\Owner\PMZ-Pricing-Assistant`)
-- [x] Reviewed and have access to `PLAN.md` (full design)
-- [x] Reviewed `SETUP.md` (original run-it-yourself guide)
-- [x] Ran: `npx create-next-app@latest . --yes` *(reported via chat)*
-- [x] Ran: `npm install lucide-react sonner` *(reported via chat)*
-- [x] Ran: `npm install react-hook-form zod @hookform/resolvers` *(reported via chat)*
-
-### Not Yet Completed
-
-- [ ] `npx shadcn@latest init`
-- [ ] Adding shadcn/ui components
-- [ ] Pasting the professional PMZ blue/gray theme
-- [ ] Running `npm run dev`
-- [ ] Building the actual application UI
+**Last Updated:** 2026-07-30  
+**Status:** Shipped and working — the Next.js app builds, runs, and its fence tests pass.
 
 ---
 
-## Exact Next Command to Run Tomorrow
+## Current State
 
-When you resume, open PowerShell and run these commands **in order**:
+PMZ is a working Next.js application, not a scaffold in progress. The project is fully initialized, its dependencies are installed, the UI is built, and the app runs against its pinned local address. All development happens inside this `pmz/` folder.
 
-```powershell
-cd "$env:USERPROFILE\PMZ-Pricing-Assistant\pmz"
-```
+- The Next.js app is built and running (App Router, TypeScript, Tailwind, UI component library in place).
+- Dependencies are installed. After a fresh clone, run `npm install` once to restore `node_modules`.
+- The dev server is pinned to port 3007 in `package.json` (the One-Address Rule, Law 45), so a bare `npm run dev` always serves there.
+- The fence test suite passes (`npm test`).
 
-**First command to run:**
-
-```powershell
-npx shadcn@latest init
-```
-
-When prompted during `shadcn init`, use these choices:
-- Style: `default`
-- Base color: `slate`
-- CSS variables: `Yes`
-- Tailwind config: `Yes`
+**Do not run project-initialization commands in this repo.** The app already exists; re-initializing it would overwrite shipped work.
 
 ---
 
-## Remaining Steps (From Where We Left Off)
+## Run It
 
-After `shadcn init` succeeds, continue with these commands:
-
-### Step 7: Add shadcn components
-
-Run these one at a time:
-
-```powershell
-npx shadcn@latest add button
-npx shadcn@latest add card
-npx shadcn@latest add input
-npx shadcn@latest add label
-npx shadcn@latest add table
-npx shadcn@latest add tabs
-npx shadcn@latest add select
-npx shadcn@latest add slider
-npx shadcn@latest add dialog
-npx shadcn@latest add sheet
-npx shadcn@latest add badge
-npx shadcn@latest add separator
-npx shadcn@latest add tooltip
-npx shadcn@latest add alert
-npx shadcn@latest add skeleton
-npx shadcn@latest add sidebar
-```
-
-### Step 8: Start the dev server (after components are added)
+From inside `pmz/`:
 
 ```powershell
 npm run dev
 ```
 
-Then open **http://localhost:3007** in your browser.
+The command serves the app at its pinned address (printed on startup). To run the fence tests:
+
+```powershell
+npm test
+```
 
 ---
 
-## Theme (Professional Blue/Gray)
-
-The full ready-to-paste `globals.css` with the contractor-appropriate color system is saved in this folder as:
-
-**`pmz-theme.css`**
-
-**How to apply it tomorrow:**
-
-1. After running `npx create-next-app@latest . --yes` (if not already fully done on disk) and after `shadcn init`,
-2. Open `app/globals.css`
-3. Delete everything inside it
-4. Copy the entire contents of `pmz-theme.css` and paste it into `app/globals.css`
-5. Save the file
-
----
-
-## Important Files in This Folder
+## Key Files
 
 | File                  | Purpose                                      |
 |-----------------------|----------------------------------------------|
 | `PLAN.md`             | Full project design, architecture, and specs |
-| `SETUP.md`            | Original detailed run-it-yourself guide      |
-| `CONTINUE-HERE.md`    | This file — current progress & resume guide  |
-| `pmz-theme.css`       | Ready-to-paste professional theme            |
+| `SETUP.md`            | The original run-it-yourself guide — historical; the app is already set up |
+| `CLAUDE.md`           | Standing build instructions, conventions, and the One-Address Rule |
+| `BOOK-OF-LAWS.md`     | The project's accumulated laws |
+| `CONTINUE-HERE.md`    | This file — current state and entry point |
+| `pmz-theme.css`       | The professional blue/gray theme (already applied to `app/globals.css`) |
 
 ---
 
-## Quick Resume Instructions for Tomorrow
+## Where to Go Next
 
-1. Open PowerShell
-2. Run:
-   ```powershell
-   cd "$env:USERPROFILE\PMZ-Pricing-Assistant\pmz"
-   ```
-3. Run the next command: `npx shadcn@latest init`
-4. Follow the prompts (use `default` + `slate`)
-5. Continue with the component additions listed above
-6. Apply the theme from `pmz-theme.css` when ready
-7. Start the dev server with `npm run dev`
-
-When you reach the point where `http://localhost:3007` shows the default Next.js page and the project is running, type:
-
-**"Scaffold complete"**
+Open work lives in the project's specs and laws, not in setup. For current build state and next steps, see `CLAUDE.md`, `BOOK-OF-LAWS.md`, and the build-specific specs. This file no longer tracks scaffolding.
 
 ---
 
-**You are in a good position.** The hardest part (initializing the Next.js project and installing the core form/validation libraries) is already done.
-
-Take your time tomorrow. All the key reference material is saved in this folder.
-
----
-
-**End of continuation guide.**
+*Historical note: this file once tracked the project's initial scaffolding. That setup is long finished; the original steps are preserved in `SETUP.md` for history only and must not be run against the shipped repo.*
