@@ -1,0 +1,226 @@
+@import "tailwindcss";
+
+/* ============================================
+   PMZ Pricing Assistant - Professional Theme
+   Performance Margin Brand (Red #EB3300 / Burgundy #7D1424)
+   ============================================ */
+
+:root {
+  /* === Performance Margin Brand Colors === */
+  --primary: #EB3300;           /* Performance Margin Red */
+  --primary-foreground: #FFFFFF;
+  --primary-600: #C72A00;
+  --primary-700: #A62300;
+
+  /* === Accent === */
+  --accent: #7D1424;            /* Rich Burgundy */
+  --accent-foreground: #FFFFFF;
+
+  /* === Semantic Colors === */
+  --success: #15803D;
+  --success-foreground: #FFFFFF;
+  --warning: #B45309;
+  --danger: #B91C1C;
+
+  /* === Backgrounds === */
+  --background: #FAFAFA;
+  --surface: #FFFFFF;
+  --surface-2: #F4F4F5;
+
+  /* === Text === */
+  --foreground: #212322;
+  --foreground-muted: #5F5F5F;
+  --foreground-subtle: #6B6B6B;
+
+  /* === Borders & Dividers === */
+  --border: #E5E5E7;
+  --border-strong: #D4D4D8;
+
+  /* === Sidebar & Navigation === */
+  --sidebar-bg: #212322;
+  --sidebar-foreground: #E5E5E5;
+  --sidebar-accent: #7D1424;
+
+  /* === Form & Interactive === */
+  --input: #FFFFFF;
+  --input-border: #D4D4D8;
+  --ring: #EB3300;
+
+  /* === Money & Numbers === */
+  --price-positive: #15803D;
+  --price-negative: #EB3300;
+}
+
+/* Base body styling */
+body {
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* ============================================
+   Professional Typography & Pricing UI
+   ============================================ */
+
+h1, h2, h3 {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+/* Large prominent numbers (prices, rates) */
+.price,
+.metric-value {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.currency {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle section labels */
+.label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--foreground-subtle);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* ============================================
+   Card & Surface Styling
+   ============================================ */
+
+.card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgb(15 23 42 / 0.04);
+}
+
+.card-hover:hover {
+  box-shadow: 0 4px 6px -1px rgb(15 23 42 / 0.06), 
+              0 2px 4px -2px rgb(15 23 42 / 0.06);
+  transition: box-shadow 0.2s ease;
+}
+
+/* ============================================
+   Sidebar Styling
+   ============================================ */
+
+.sidebar {
+  background-color: var(--sidebar-bg);
+  color: var(--sidebar-foreground);
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.sidebar-link:hover {
+  background-color: rgba(235, 51, 0, 0.18);
+  color: white;
+}
+
+.sidebar-link.active {
+  background-color: var(--sidebar-accent);
+  color: white;
+  font-weight: 600;
+}
+
+/* ============================================
+   Form Enhancements
+   ============================================ */
+
+input, select, textarea {
+  background-color: var(--input);
+  border: 1px solid var(--input-border);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--ring);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(235, 51, 0, 0.15);
+}
+
+.input-large {
+  font-size: 1.125rem;
+  font-weight: 600;
+  padding: 0.875rem 1rem;
+}
+
+/* ============================================
+   Table Styling
+   ============================================ */
+
+table {
+  font-feature-settings: "tnum";
+}
+
+th {
+  font-weight: 600;
+  color: var(--foreground-muted);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+td {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+.text-danger  { color: var(--danger); }
+
+.bg-success { background-color: var(--success); color: white; }
+.bg-warning { background-color: var(--warning); color: white; }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
+}
+
+/* ============================================
+   shadcn/ui Variable Mapping
+   ============================================ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--danger);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-card: var(--surface);
+  --color-muted: var(--foreground-subtle);
+  --color-muted-foreground: var(--foreground-muted);
+  --font-heading: var(--font-heading, system-ui, sans-serif);
+  --font-sans: var(--font-sans, system-ui, sans-serif);
+}
