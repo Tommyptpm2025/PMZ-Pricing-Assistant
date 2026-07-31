@@ -128,5 +128,16 @@ console.log("PASS: people migration — consolidates both registries + legacy es
     pricer.includes("salespersonId: id"),
     "the roster picker must store salespersonId = the Person id (never the name string)"
   );
+
+  // First-click validation: the Salesperson/Estimator requirement joins the same highlight group as
+  // Job Name / Work Type (validationErrors keyed off the same gate), not only the Proceed-Anyway path.
+  assert.ok(
+    pricer.includes("errs.salesperson") && pricer.includes("salespersonGateBlocks(people, estimate.salespersonId)"),
+    "the salesperson requirement must be part of validationErrors (first-click group), keyed off salespersonGateBlocks"
+  );
+  assert.ok(
+    pricer.includes("saveAttempted && validationErrors.salesperson"),
+    "the salesperson field must highlight on the FIRST Save click, alongside jobName/workType"
+  );
 }
 console.log("PASS: people wiring — quote carries salespersonId (round-trips; legacy name still loads); saveQuote writes it; the gate is LIVE (ROSTER_PICKER_ENABLED=true), picker stores the id");

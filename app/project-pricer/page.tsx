@@ -288,7 +288,6 @@ export default function ProjectPricerPage() {
   // the Law-50 attribution gate against it. (The legacy pmz_salespeople / pmz_estimators registries are
   // no longer read or written anywhere — retired in step 2.)
   const { people } = usePeople();
-  const [salespersonMissing, setSalespersonMissing] = React.useState(false);
   const rosterSalespeople = React.useMemo(
     () => listActiveByRole(people, "salesperson").slice().sort((a, b) => a.name.localeCompare(b.name)),
     [people]
@@ -1423,15 +1422,12 @@ export default function ProjectPricerPage() {
       const quotes: PMZSavedQuote[] = raw ? JSON.parse(raw) : [];
       const now = new Date().toISOString();
 
-      // Law 50 spirit (Company Roster): once an ACTIVE salesperson exists, a quote may not save
-      // unattributed — a blank salespersonId blocks. Enforcement is DORMANT until step 2 wires the
-      // roster picker (ROSTER_PICKER_ENABLED), so today saves are never blocked; the gate LOGIC is
-      // live and unit-tested meanwhile. When the picker lands, flipping the switch turns this on.
+      // Law 50 (Company Roster): once an ACTIVE salesperson exists, a quote may not save unattributed —
+      // a blank salespersonId blocks (even on Proceed Anyway). The first-click highlight for this lives
+      // in validationErrors.salesperson; this is the hard save-time gate. Gated on ROSTER_PICKER_ENABLED.
       if (ROSTER_PICKER_ENABLED && salespersonGateBlocks(people, estimate.salespersonId)) {
-        setSalespersonMissing(true);
         return null;
       }
-      setSalespersonMissing(false);
 
       const selectedWT = workTypes.find((w: any) => w.name === estimate.workTypeName);
       const workTypeId = (selectedWT as any)?.id || estimate.workTypeName || "";
@@ -1895,7 +1891,7 @@ export default function ProjectPricerPage() {
 
   // Validation for header/common fields (EPP/Pro sections validate their items separately)
   const validationErrors = React.useMemo(() => {
-    const errs: Partial<Record<"jobName" | "workType" | "customer", string>> = {};
+    const errs: Partial<Record<"jobName" | "workType" | "customer" | "salesperson", string>> = {};
     if (!estimate.jobName || estimate.jobName.trim() === "") {
       errs.jobName = "Job Name is required";
     }
@@ -1905,9 +1901,14 @@ export default function ProjectPricerPage() {
     if (customerIsBlank(estimate)) {
       errs.customer = "Customer is required";
     }
+    // Salesperson/Estimator joins the FIRST-CLICK highlight group: required only when the roster has an
+    // active salesperson (same rule the save gate enforces — Law 50, blanks block).
+    if (salespersonGateBlocks(people, estimate.salespersonId)) {
+      errs.salesperson = "Salesperson/Estimator is required";
+    }
     // bidItems / pro items validated per-section only
     return errs;
-  }, [estimate.jobName, estimate.workTypeName, estimate.customerName, estimate.customerId]);
+  }, [estimate.jobName, estimate.workTypeName, estimate.customerName, estimate.customerId, estimate.salespersonId, people]);
 
   const isValid = Object.keys(validationErrors).length === 0;
 
@@ -2150,11 +2151,11 @@ export default function ProjectPricerPage() {
                 onValueChange={(id) => {
                   const person = people.find((p) => p.id === id);
                   updateEstimate({ salespersonId: id, salesperson: person?.name || "", estimator: person?.name || "" });
-                  setSalespersonMissing(false);
                 }}
               >
                 <SelectTrigger className={cn(
-                  "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]"
+                  "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]",
+                  saveAttempted && validationErrors.salesperson && "border-[#EB3300] ring-2 ring-[#EB3300]"
                 )}>
                   <SelectValue placeholder="Select salesperson/estimator" />
                 </SelectTrigger>
@@ -2170,8 +2171,8 @@ export default function ProjectPricerPage() {
                   On file: <span className="font-medium text-foreground">{estimate.salesperson}</span> (legacy name — reselect from the roster to attribute by id)
                 </p>
               )}
-              {salespersonMissing ? (
-                <p className="mt-1 text-[11px] font-medium text-red-600">Select a salesperson/estimator before saving — your roster has an active salesperson (Law 50).</p>
+              {saveAttempted && validationErrors.salesperson ? (
+                <p className="mt-1 text-[11px] font-medium text-[#EB3300]">{validationErrors.salesperson}</p>
               ) : (
                 <p className="mt-1 text-[11px] text-muted-foreground">Who owns this job? Manage people in Company Setup → Company Roster.</p>
               )}

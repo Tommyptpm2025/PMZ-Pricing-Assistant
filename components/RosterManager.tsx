@@ -23,35 +23,63 @@ const ROLE_LABELS: Record<Role, string> = {
   boss: "Boss",
 }
 
+// Reject clearly malformed emails (must contain @ and a domain with a dot). Empty is allowed — email
+// is optional; the caller only validates non-empty values.
+function isValidEmail(v: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
+}
+
 export default function RosterManager() {
   const { people, addPerson, updatePerson } = usePeople()
 
   const [name, setName] = React.useState("")
   const [email, setEmail] = React.useState("")
   const [phone, setPhone] = React.useState("")
-  const [roles, setRoles] = React.useState<Role[]>(["salesperson"])
+  // No default roles — roles are chosen, never defaulted (a foreman must not silently gain a sales role).
+  const [roles, setRoles] = React.useState<Role[]>([])
+  const [emailError, setEmailError] = React.useState<string | null>(null)
+  const [roleError, setRoleError] = React.useState<string | null>(null)
 
   const sorted = React.useMemo(
     () => [...people].sort((a, b) => a.name.localeCompare(b.name)),
     [people]
   )
 
-  const toggleNewRole = (r: Role) =>
+  const toggleNewRole = (r: Role) => {
+    setRoleError(null)
     setRoles((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]))
+  }
 
   const addNew = () => {
     if (!name.trim()) return
+    const trimmedEmail = email.trim()
+    let ok = true
+    if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+      setEmailError("Enter a valid email (e.g. name@company.com), or leave it blank.")
+      ok = false
+    } else {
+      setEmailError(null)
+    }
+    if (roles.length === 0) {
+      setRoleError("Pick at least one role.")
+      ok = false
+    } else {
+      setRoleError(null)
+    }
+    if (!ok) return
     addPerson({
       name,
-      email: email.trim() || undefined,
+      email: trimmedEmail || undefined,
       phone: phone.trim() || undefined,
-      roles: roles.length ? roles : (["salesperson"] as Role[]),
+      roles,
       active: true,
     })
     setName("")
     setEmail("")
     setPhone("")
-    setRoles(["salesperson"])
+    setRoles([])
+    setEmailError(null)
+    setRoleError(null)
   }
 
   const togglePersonRole = (id: string, current: Role[], r: Role) => {
@@ -92,10 +120,11 @@ export default function RosterManager() {
               <Input
                 id="roster-email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); setEmailError(null) }}
                 placeholder="e.g. scott@company.com"
                 className="mt-1.5"
               />
+              {emailError && <p className="mt-1 text-[11px] font-medium text-[#EB3300]">{emailError}</p>}
             </div>
             <div>
               <Label htmlFor="roster-phone">
@@ -125,6 +154,7 @@ export default function RosterManager() {
                   </label>
                 ))}
               </div>
+              {roleError && <p className="mt-1.5 text-[11px] font-medium text-[#EB3300]">{roleError}</p>}
             </div>
           </div>
           <div className="mt-4">
