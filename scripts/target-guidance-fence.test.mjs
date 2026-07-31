@@ -45,6 +45,22 @@ assert.equal(resolveTargetMargin(CP, 20000), 22, "$20,000 → 22% band");
 }
 console.log("PASS: target guidance — resolveTargetMargin is live by band ($10k→23%, $4k→24%); profit/ceiling agree with the golden formula");
 
+// ── 1b — BAND EDGES (Cause 5 step 1b): every band's LOW and HIGH boundary resolves to that band ──
+// Expected values are LITERAL, never read from CP — a fence that derives its expectations from the
+// table it guards proves nothing. These catch the off-by-one class (<= vs <, >= vs >) that the
+// interior-point cases above cannot: each boundary value sits exactly on a band edge.
+assert.equal(resolveTargetMargin(CP, 0), 24, "band edge: $0 (LOW edge of $0–$5,000; size-0 path) → 24%");
+assert.equal(resolveTargetMargin(CP, 5000), 24, "band edge: $5,000 (HIGH edge of $0–$5,000) → 24%");
+assert.equal(resolveTargetMargin(CP, 5001), 23, "band edge: $5,001 (LOW edge of $5,001–$15,000) → 23%");
+assert.equal(resolveTargetMargin(CP, 15000), 23, "band edge: $15,000 (HIGH edge of $5,001–$15,000) → 23%");
+assert.equal(resolveTargetMargin(CP, 15001), 22, "band edge: $15,001 (LOW edge of $15,001–$30,000) → 22%");
+assert.equal(resolveTargetMargin(CP, 30000), 22, "band edge: $30,000 (HIGH edge of $15,001–$30,000) → 22%");
+assert.equal(resolveTargetMargin(CP, 30001), 20, "band edge: $30,001 (LOW edge of $30,001–$75,000) → 20%");
+assert.equal(resolveTargetMargin(CP, 75000), 20, "band edge: $75,000 (HIGH edge of $30,001–$75,000) → 20%");
+assert.equal(resolveTargetMargin(CP, 75001), 18, "band edge: $75,001 (LOW edge of $75,001–$100,000) → 18%");
+assert.equal(resolveTargetMargin(CP, 100000), 18, "band edge: $100,000 (HIGH edge of $75,001–$100,000) → 18%");
+console.log("PASS: target-guidance band edges — every band's low and high boundary resolves to that band (literal expectations; off-by-one caught)");
+
 // ── 2 — STRUCTURAL: the strip tells the truth, one math home, no blend ─────────────────────────
 // M2 — Gross Profit is "—" with no cost basis, never revenue.
 assert.ok(
