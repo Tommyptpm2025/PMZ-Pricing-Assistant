@@ -75,6 +75,7 @@ import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
 import { useEstimators } from "@/lib/estimators";
+import { usePeople, salespersonGateBlocks, ROSTER_PICKER_ENABLED } from "@/lib/people";
 import { getAllTerms, type TermsBlock } from "@/lib/terms";
 
 // Stable ID generator (avoids Date.now/Math.random during SSR/hydration for client-only data)
@@ -144,6 +145,8 @@ interface CurrentEstimate {
   jobName: string;
   workTypeName: string;
   salesperson: string;
+  salespersonId?: string; // Person-id attribution (Company Roster). Set by the roster picker (step 2);
+                          // wired through save + gate now. The legacy `salesperson` name stays for display.
   estimator: string;
   estimatedRevenue: number; // the total they are bidding (used for tier + target comparison)
   bidItems: BidItem[];
@@ -284,6 +287,10 @@ export default function ProjectPricerPage() {
 
   // Salesperson registry (Settings → Salespeople). The dropdown reads ACTIVE people, sorted A–Z.
   const { salespeople } = useSalespeople();
+  // Company Roster (lib/people.ts) — migrates the legacy registries once on first load. Read here so the
+  // save path can enforce the Law-50 attribution gate. The roster picker itself lands in step 2.
+  const { people } = usePeople();
+  const [salespersonMissing, setSalespersonMissing] = React.useState(false);
   const activeSalespeople = React.useMemo(
     () => salespeople.filter((s) => s.active).map((s) => s.name).sort((a, b) => a.localeCompare(b)),
     [salespeople]
@@ -349,6 +356,7 @@ export default function ProjectPricerPage() {
     jobName: "",
     workTypeName: "",
     salesperson: "",
+    salespersonId: "",
     estimator: "",
     estimatedRevenue: 24500,
     bidItems: [],
@@ -585,6 +593,7 @@ export default function ProjectPricerPage() {
             jobName: saved.jobName || "",
             workTypeName: saved.workTypeName || saved.workType || saved.workTypeId || "",
             salesperson: saved.salesperson || "",
+            salespersonId: saved.salespersonId || "",
             estimator: saved.estimator || "",
             estimatedRevenue: saved.estimatedRevenue || saved.totalRevenue || 20000,
             bidItems: saved.bidItems || saved.eppLineItems || [],
@@ -1423,6 +1432,16 @@ export default function ProjectPricerPage() {
       const quotes: PMZSavedQuote[] = raw ? JSON.parse(raw) : [];
       const now = new Date().toISOString();
 
+      // Law 50 spirit (Company Roster): once an ACTIVE salesperson exists, a quote may not save
+      // unattributed — a blank salespersonId blocks. Enforcement is DORMANT until step 2 wires the
+      // roster picker (ROSTER_PICKER_ENABLED), so today saves are never blocked; the gate LOGIC is
+      // live and unit-tested meanwhile. When the picker lands, flipping the switch turns this on.
+      if (ROSTER_PICKER_ENABLED && salespersonGateBlocks(people, estimate.salespersonId)) {
+        setSalespersonMissing(true);
+        return null;
+      }
+      setSalespersonMissing(false);
+
       const selectedWT = workTypes.find((w: any) => w.name === estimate.workTypeName);
       const workTypeId = (selectedWT as any)?.id || estimate.workTypeName || "";
       const workTypeName = estimate.workTypeName || (selectedWT as any)?.name || "";
@@ -1534,6 +1553,7 @@ export default function ProjectPricerPage() {
         workTypeId,
         workType: workTypeName,
         salesperson: estimate.salesperson || "",
+        salespersonId: estimate.salespersonId || "",
         estimator: estimate.estimator || "",
         // also store full customer snapshot for preview
         customerDetails: {
@@ -2131,7 +2151,7 @@ export default function ProjectPricerPage() {
               <Label className="text-xs font-medium tracking-wider text-muted-foreground">SALESPERSON</Label>
               <Select
                 value={estimate.salesperson}
-                onValueChange={(val) => updateEstimate({ salesperson: val })}
+                onValueChange={(val) => { updateEstimate({ salesperson: val }); setSalespersonMissing(false); }}
               >
                 <SelectTrigger className={cn(
                   "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]"
@@ -2149,7 +2169,11 @@ export default function ProjectPricerPage() {
                   )}
                 </SelectContent>
               </Select>
-              <p className="mt-1 text-[11px] text-muted-foreground">Who owns this job?</p>
+              {salespersonMissing ? (
+                <p className="mt-1 text-[11px] font-medium text-red-600">Select a salesperson before saving — your roster has an active salesperson (Law 50).</p>
+              ) : (
+                <p className="mt-1 text-[11px] text-muted-foreground">Who owns this job?</p>
+              )}
             </div>
 
             <div>

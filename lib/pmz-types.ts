@@ -262,6 +262,9 @@ export interface SavedQuote {
   customerId: string;
   workTypeId: string;
   salesperson: string;
+  salespersonId?: string; // Person-id attribution (Company Roster, lib/people.ts). Optional: legacy
+                          // quotes carry only the name string above, which stays readable for display
+                          // and is never backfilled. New saves stamp the roster id here.
   estimator?: string; // Estimator Registry name selected on the quote (Tier B token source)
   status: QuoteStatus;
   locked: boolean;
