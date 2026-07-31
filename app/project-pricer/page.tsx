@@ -536,6 +536,16 @@ export default function ProjectPricerPage() {
 
   // Context-aware has-items for buttons (EPP vs Pro separate)
   const eppHasItems = estimate.bidItems && estimate.bidItems.length > 0;
+  // Worksheet emptiness for FIRST-CLICK validation: no lines, OR lines that are all empty (no
+  // description, quantity, or price). eppHasItems keeps the simpler has-any-line rule for the Send button.
+  const eppWorksheetEmpty =
+    !estimate.bidItems ||
+    !estimate.bidItems.some(
+      (it) =>
+        (!!it.description && it.description.trim() !== "") ||
+        (typeof it.quantity === "number" && it.quantity > 0) ||
+        (typeof it.unitPrice === "number" && it.unitPrice > 0)
+    );
   const proHasItems = realLEMItems && realLEMItems.length > 0;
 
   // Load work types, saved estimate, and rate profiles from other pillars
@@ -1602,7 +1612,7 @@ export default function ProjectPricerPage() {
     // Not a hard block anymore: if required header fields or line items are incomplete, surface the
     // red highlights + warning and wait for the estimator to confirm via "Proceed Anyway" (which
     // calls doSaveEPP directly). When everything's complete, save immediately.
-    if (!isValid || !eppHasItems) return;
+    if (!isValid || eppWorksheetEmpty) return;
     doSaveEPP(false);
   }
 
@@ -1919,7 +1929,7 @@ export default function ProjectPricerPage() {
   if (validationErrors.jobName) eppIncompleteFields.push("Job Name");
   if (validationErrors.workType) eppIncompleteFields.push("Work Type");
   if (validationErrors.customer) eppIncompleteFields.push("Customer");
-  if (!eppHasItems) eppIncompleteFields.push("at least one line item");
+  if (eppWorksheetEmpty) eppIncompleteFields.push("at least one bid line");
   const proItemError = proSaveAttempted && !proHasItems ? "At least one item is required" : null;
 
   // Computed for Grand Total using (user-editable or auto-default target) % as true margin
@@ -2207,8 +2217,17 @@ export default function ProjectPricerPage() {
           )}
         </div>
 
+        {/* First-click validation: an empty/all-blank worksheet gets the same required-field treatment
+            as the header fields — inline message + a red ring on the worksheet card below. */}
+        {saveAttempted && eppWorksheetEmpty && !isReadOnly && (
+          <p className="px-1 text-[11px] font-medium text-[#EB3300]">Add at least one bid line</p>
+        )}
+
         {!bidItemsCollapsed && (
-        <Card className="card overflow-hidden border">
+        <Card className={cn(
+          "card overflow-hidden border",
+          saveAttempted && eppWorksheetEmpty && !isReadOnly && "border-[#EB3300] ring-2 ring-[#EB3300]"
+        )}>
           <div className="overflow-x-auto">
             <div>
               <div className={`${BID_GRID} ${BID_ROW_MINW} bg-muted/30 h-10 text-sm font-medium text-foreground border-b`}>
