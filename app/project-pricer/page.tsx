@@ -73,9 +73,7 @@ import { customerIsBlank } from "@/lib/customer-present";
 import { resolveTargetMargin, resolveTargetTier, profitTargetAndCeiling } from "@/lib/target-guidance";
 import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
-import { useSalespeople } from "@/lib/salespeople";
-import { useEstimators } from "@/lib/estimators";
-import { usePeople, salespersonGateBlocks, ROSTER_PICKER_ENABLED } from "@/lib/people";
+import { usePeople, salespersonGateBlocks, ROSTER_PICKER_ENABLED, listActiveByRole } from "@/lib/people";
 import { getAllTerms, type TermsBlock } from "@/lib/terms";
 
 // Stable ID generator (avoids Date.now/Math.random during SSR/hydration for client-only data)
@@ -285,22 +283,15 @@ export default function ProjectPricerPage() {
     getMiscCostPerUnit,
   } = useRateStore();
 
-  // Salesperson registry (Settings → Salespeople). The dropdown reads ACTIVE people, sorted A–Z.
-  const { salespeople } = useSalespeople();
-  // Company Roster (lib/people.ts) — migrates the legacy registries once on first load. Read here so the
-  // save path can enforce the Law-50 attribution gate. The roster picker itself lands in step 2.
+  // Company Roster (lib/people.ts) — the ONE people home; migrates the legacy registries once on first
+  // load. The Salesperson/Estimator picker reads ACTIVE salesperson-role people; the save path enforces
+  // the Law-50 attribution gate against it. (The legacy pmz_salespeople / pmz_estimators registries are
+  // no longer read or written anywhere — retired in step 2.)
   const { people } = usePeople();
   const [salespersonMissing, setSalespersonMissing] = React.useState(false);
-  const activeSalespeople = React.useMemo(
-    () => salespeople.filter((s) => s.active).map((s) => s.name).sort((a, b) => a.localeCompare(b)),
-    [salespeople]
-  );
-
-  // Estimator registry (Company Setup → Estimators). Dropdown reads ACTIVE people, sorted A–Z.
-  const { estimators } = useEstimators();
-  const activeEstimators = React.useMemo(
-    () => estimators.filter((e) => e.active).map((e) => e.name).sort((a, b) => a.localeCompare(b)),
-    [estimators]
+  const rosterSalespeople = React.useMemo(
+    () => listActiveByRole(people, "salesperson").slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [people]
   );
 
   // Correct labor burdened hourly rate using the imported calculateLaborRate (fixes broken labor calc in EPP panel)
@@ -1892,7 +1883,9 @@ export default function ProjectPricerPage() {
     buildQuoteDocument(source, {
       estimate,
       currentCustomer,
-      estimators,
+      // The roster is the people source now (estimator folded into the Person). buildQuoteDocument
+      // resolves the estimator's contact info by name from this list (Tier B document tokens).
+      estimators: people,
       lemCats: {
         laborRates, equipmentRates, materialRates, miscRates,
         getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
@@ -2147,58 +2140,41 @@ export default function ProjectPricerPage() {
               )}
             </div>
 
+            {/* One roster picker — Salesperson/Estimator folded to a single person (gaveled ruling).
+                Stores the Person id (salespersonId), never the name string; the name is mirrored onto
+                the legacy salesperson/estimator fields so existing documents keep rendering. */}
             <div>
-              <Label className="text-xs font-medium tracking-wider text-muted-foreground">SALESPERSON</Label>
+              <Label className="text-xs font-medium tracking-wider text-muted-foreground">SALESPERSON/ESTIMATOR</Label>
               <Select
-                value={estimate.salesperson}
-                onValueChange={(val) => { updateEstimate({ salesperson: val }); setSalespersonMissing(false); }}
+                value={estimate.salespersonId || ""}
+                onValueChange={(id) => {
+                  const person = people.find((p) => p.id === id);
+                  updateEstimate({ salespersonId: id, salesperson: person?.name || "", estimator: person?.name || "" });
+                  setSalespersonMissing(false);
+                }}
               >
                 <SelectTrigger className={cn(
                   "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]"
                 )}>
-                  <SelectValue placeholder="Select salesperson" />
+                  <SelectValue placeholder="Select salesperson/estimator" />
                 </SelectTrigger>
                 <SelectContent>
-                  {activeSalespeople.map((name) => (
-                    <SelectItem key={`sales-${name}`} value={name}>{name}</SelectItem>
+                  {rosterSalespeople.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                   ))}
-                  {/* Backward-compat: keep a quote's stored salesperson visible even when it's not an
-                      active registry entry (legacy free-text or a since-deactivated person), marked "(unlisted)". */}
-                  {estimate.salesperson && !activeSalespeople.includes(estimate.salesperson) && (
-                    <SelectItem value={estimate.salesperson}>{estimate.salesperson} (unlisted)</SelectItem>
-                  )}
                 </SelectContent>
               </Select>
-              {salespersonMissing ? (
-                <p className="mt-1 text-[11px] font-medium text-red-600">Select a salesperson before saving — your roster has an active salesperson (Law 50).</p>
-              ) : (
-                <p className="mt-1 text-[11px] text-muted-foreground">Who owns this job?</p>
+              {/* Legacy quotes carry only a name string (no roster id) — show it read-only until reselected. */}
+              {!estimate.salespersonId && estimate.salesperson && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  On file: <span className="font-medium text-foreground">{estimate.salesperson}</span> (legacy name — reselect from the roster to attribute by id)
+                </p>
               )}
-            </div>
-
-            <div>
-              <Label className="text-xs font-medium tracking-wider text-muted-foreground">ESTIMATOR</Label>
-              <Select
-                value={estimate.estimator}
-                onValueChange={(val) => updateEstimate({ estimator: val })}
-              >
-                <SelectTrigger className={cn(
-                  "mt-1.5 text-lg font-medium h-8 w-full min-w-0 rounded-lg border border-[var(--input-border)] bg-[var(--input)] px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:shadow-[0_0_0_3px_rgba(235,51,0,0.15)]"
-                )}>
-                  <SelectValue placeholder="Select estimator" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeEstimators.map((name) => (
-                    <SelectItem key={`est-${name}`} value={name}>{name}</SelectItem>
-                  ))}
-                  {/* Backward-compat: keep a quote's stored estimator visible even when it's not an
-                      active registry entry (a since-deactivated person), marked "(unlisted)". */}
-                  {estimate.estimator && !activeEstimators.includes(estimate.estimator) && (
-                    <SelectItem value={estimate.estimator}>{estimate.estimator} (unlisted)</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-              <p className="mt-1 text-[11px] text-muted-foreground">Who built this bid?</p>
+              {salespersonMissing ? (
+                <p className="mt-1 text-[11px] font-medium text-red-600">Select a salesperson/estimator before saving — your roster has an active salesperson (Law 50).</p>
+              ) : (
+                <p className="mt-1 text-[11px] text-muted-foreground">Who owns this job? Manage people in Company Setup → Company Roster.</p>
+              )}
             </div>
           </div>
         </CardContent>

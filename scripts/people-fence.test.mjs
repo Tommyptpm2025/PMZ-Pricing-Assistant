@@ -113,16 +113,20 @@ console.log("PASS: people migration — consolidates both registries + legacy es
   assert.ok(pricer.includes("salespersonId: estimate.salespersonId"), "saveQuote writes salespersonId onto the quote record");
   assert.ok(pricer.includes("salespersonGateBlocks("), "the save path reads salespersonGateBlocks — blank blocks once an active salesperson exists (Law 50 spirit)");
 
-  // DORMANCY — enforcement is gated behind ROSTER_PICKER_ENABLED, and that switch is OFF in step 1, so
-  // the app never blocks a save before the picker exists. The gate LOGIC above stays fully proven.
+  // ENFORCEMENT LIVE — the save-site gate is wired behind ROSTER_PICKER_ENABLED, now flipped ON (step 2).
   assert.ok(
     pricer.includes("ROSTER_PICKER_ENABLED && salespersonGateBlocks("),
-    "enforcement must be gated behind ROSTER_PICKER_ENABLED at the save site — dormant until step 2 wires the picker (the app may never sit on main blocking every save)"
+    "enforcement must be gated behind ROSTER_PICKER_ENABLED at the save site — one switch controls it"
   );
   const people = read("lib/people.ts");
   assert.ok(
-    /export const ROSTER_PICKER_ENABLED:\s*boolean\s*=\s*false/.test(people),
-    "ROSTER_PICKER_ENABLED is false in step 1 — the gate is DORMANT; step 2 flips it (and this line) when the roster picker lands"
+    /export const ROSTER_PICKER_ENABLED:\s*boolean\s*=\s*true/.test(people),
+    "ROSTER_PICKER_ENABLED is true in step 2 — the roster picker is wired, so the attribution gate is LIVE"
+  );
+  // The picker stores the Person id (not the name string): the pricer resolves the selection to an id.
+  assert.ok(
+    pricer.includes("salespersonId: id"),
+    "the roster picker must store salespersonId = the Person id (never the name string)"
   );
 }
-console.log("PASS: people wiring — quote salespersonId is optional and round-trips; saveQuote writes it; the gate is wired but DORMANT (ROSTER_PICKER_ENABLED=false) until the picker");
+console.log("PASS: people wiring — quote carries salespersonId (round-trips; legacy name still loads); saveQuote writes it; the gate is LIVE (ROSTER_PICKER_ENABLED=true), picker stores the id");

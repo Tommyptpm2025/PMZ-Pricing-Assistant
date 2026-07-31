@@ -11,8 +11,7 @@ import {
   computeAnnualInterest,
   type CompanySettings,
 } from "@/lib/company-settings"
-import { useEstimators } from "@/lib/estimators"
-import RegistryManager, { type RegistryItem } from "@/components/RegistryManager"
+import RosterManager from "@/components/RosterManager"
 import { formatPhone, PHONE_PLACEHOLDER } from "@/lib/phone"
 
 // Local draft type alias for readability
@@ -143,8 +142,9 @@ export default function CompanySetupPage() {
         <Field label="Payment Methods" value={form.company.payment_methods} onChange={(v) => setField("company", "payment_methods", v)} placeholder="e.g. Check, ACH, all major cards" multiline />
       </Section>
 
-      {/* Estimators — registry (mirrors the Salesperson Registry pattern, one pattern everywhere) */}
-      <EstimatorRegistry />
+      {/* Company Roster — the ONE place people are created/edited (Law 9). Replaces the old Estimators
+          and Salespeople registry builders. Migrated people from step 1 appear here automatically. */}
+      <RosterManager />
 
       {/* Terms */}
       <Section title="Default Terms" description="Drive the auto-composed Payment Terms block. Enter numbers only (no % sign).">
@@ -222,46 +222,6 @@ function Section({
         <div className="grid gap-4 sm:grid-cols-2">{children}</div>
       </CardContent>
     </Card>
-  )
-}
-
-// Estimator Registry — thin adapter over the shared RegistryManager (the same component the
-// Salesperson Registry uses, so the two stay one pattern). Maps the estimator hook to the
-// generic add/update/delete + normalized item shape.
-function EstimatorRegistry() {
-  const { estimators, addEstimator, updateEstimator, deleteEstimator } = useEstimators()
-
-  const items: RegistryItem[] = estimators.map((e) => ({
-    id: e.id,
-    name: e.name,
-    active: e.active,
-    values: { name: e.name, title: e.title || "", email: e.email || "", phone: e.phone || "" },
-  }))
-
-  return (
-    <RegistryManager
-      title="Estimators"
-      itemNoun="Estimator"
-      description="The registry the Project Pricer’s estimator dropdown reads from. Inactive people stay on record but are hidden from the dropdown."
-      fields={[
-        { key: "name", label: "Name", required: true, placeholder: "e.g. Tom Peterson" },
-        { key: "title", label: "Title", placeholder: "e.g. Founder / Estimator" },
-        { key: "email", label: "Email", placeholder: "e.g. tom@company.com" },
-        { key: "phone", label: "Phone", placeholder: PHONE_PLACEHOLDER, format: "phone" },
-      ]}
-      items={items}
-      onAdd={(v, active) => addEstimator({ name: v.name, title: v.title, email: v.email, phone: v.phone, active })}
-      onUpdate={(id, v, active) =>
-        updateEstimator(id, {
-          name: v.name.trim(),
-          title: v.title.trim() || undefined,
-          email: v.email.trim() || undefined,
-          phone: v.phone.trim() || undefined,
-          active,
-        })
-      }
-      onDelete={(id) => deleteEstimator(id)}
-    />
   )
 }
 

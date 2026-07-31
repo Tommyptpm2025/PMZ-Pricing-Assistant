@@ -1,21 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { Settings } from "lucide-react"
-import { useSalespeople } from "@/lib/salespeople"
-import RegistryManager, { type RegistryItem } from "@/components/RegistryManager"
-import { PHONE_PLACEHOLDER } from "@/lib/phone"
+import Link from "next/link"
+import { Settings, ArrowRight } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 
 export default function SettingsPage() {
-  const { salespeople, addSalesperson, updateSalesperson, deleteSalesperson } = useSalespeople()
-
-  const items: RegistryItem[] = salespeople.map((s) => ({
-    id: s.id,
-    name: s.name,
-    active: s.active,
-    values: { name: s.name, email: s.email || "", phone: s.phone || "" },
-  }))
-
   return (
     <div className="max-w-5xl space-y-8 pb-12">
       <div className="flex items-center gap-3">
@@ -26,28 +17,25 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Salesperson Registry — shared RegistryManager (same pattern as Estimators in Company Setup) */}
-      <RegistryManager
-        title="Salespeople"
-        itemNoun="Salesperson"
-        description="The registry the Project Pricer’s salesperson dropdown reads from. Inactive people stay on record but are hidden from the dropdown."
-        fields={[
-          { key: "name", label: "Name", required: true, placeholder: "e.g. Scott Sinnott" },
-          { key: "email", label: "Email", placeholder: "e.g. scott@company.com" },
-          { key: "phone", label: "Phone", placeholder: PHONE_PLACEHOLDER, format: "phone" },
-        ]}
-        items={items}
-        onAdd={(v, active) => addSalesperson({ name: v.name, email: v.email, phone: v.phone, active })}
-        onUpdate={(id, v, active) =>
-          updateSalesperson(id, {
-            name: v.name.trim(),
-            email: v.email.trim() || undefined,
-            phone: v.phone.trim() || undefined,
-            active,
-          })
-        }
-        onDelete={(id) => deleteSalesperson(id)}
-      />
+      {/* The Salespeople builder that used to live here has been retired. People now have ONE home —
+          the Company Roster in Company Setup (Law 9, One Birthplace). This card redirects there. */}
+      <Card className="card">
+        <CardHeader>
+          <CardTitle className="text-xl">People moved to the Company Roster</CardTitle>
+          <CardDescription>
+            Salespeople, estimators, foremen, and everyone else are now managed in one place — the
+            Company Roster — with roles and an active toggle. Your existing salespeople and estimators
+            were migrated there automatically.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild>
+            <Link href="/company-setup">
+              Open Company Roster <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   )
 }

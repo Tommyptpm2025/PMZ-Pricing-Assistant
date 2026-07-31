@@ -182,11 +182,10 @@ export function planMigration(
 
 // ── ATTRIBUTION GATE (Law 50 spirit) ─────────────────────────────────────────────────────────────
 
-// Enforcement switch. The gate LOGIC below is always live and unit-tested, but its ENFORCEMENT at the
-// save site stays DORMANT until step 2 wires the roster picker that can actually set salespersonId.
-// Until a picker exists, a blank id must NOT block saves — the app may never sit on main blocking every
-// save. Step 2 flips this to true when the picker lands (and updates the fence line that pins it false).
-export const ROSTER_PICKER_ENABLED: boolean = false;
+// Enforcement switch. The roster picker is wired (step 2), so the attribution gate is now LIVE: with an
+// active salesperson on the roster, a blank salespersonId blocks a save. The gate LOGIC below remains
+// pure and unit-tested independently of this switch.
+export const ROSTER_PICKER_ENABLED: boolean = true;
 
 // A salesperson attribution is required at save once at least one ACTIVE salesperson exists.
 export function salespersonRequired(people: Person[]): boolean {
