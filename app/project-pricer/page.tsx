@@ -70,7 +70,7 @@ import { serializeEppLine, eppLineTotal, eppTotalRevenue } from "@/lib/epp-line"
 import { resolveCustomerFromHandoff, findCustomerRecord } from "@/lib/customer-resolve";
 import { recipientCustomerWrite } from "@/lib/customer-recipient";
 import { customerIsBlank } from "@/lib/customer-present";
-import { resolveTargetMargin, profitTargetAndCeiling } from "@/lib/target-guidance";
+import { resolveTargetMargin, resolveTargetTier, profitTargetAndCeiling } from "@/lib/target-guidance";
 import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
 import { useSalespeople } from "@/lib/salespeople";
@@ -966,23 +966,13 @@ export default function ProjectPricerPage() {
   // tier and the marked-up recommended bid. (Defined here so targetMargin can key off it.)
   const eppPlannedCost = (estimate.bidItems || []).reduce((sum, item) => sum + lineBreakEvenCost(item), 0);
 
-  // Target Margin % — the pricing tier is keyed off the MARKED-UP recommended bid (cost ÷ (1 − margin)),
-  // which itself depends on the margin, so we resolve the fixed point (tiers are monotonic bands).
-  // Only returns a real value AFTER a work type is selected (no default until chosen).
+  // Target Margin % — the band is resolved from REVENUE (the entered bid / totalRevenue), ALWAYS.
+  // Cost never picks the band (Cause 5): a heavy-cost job and a light-cost job at the same bid get the
+  // same target. Only returns a real value AFTER a work type is selected (no default until chosen).
   const targetMargin = React.useMemo(() => {
     if (!estimate.workTypeName || workTypes.length === 0) return 0;
-    const cost = eppPlannedCost || 0;
-    // Before any costs are entered, fall back to tiering by the running bid total (legacy behavior).
-    if (cost <= 0) return getTargetMarginForSize(totalRevenue || 0);
-    let m = getTargetMarginForSize(cost);
-    for (let i = 0; i < 12; i++) {
-      const bid = goldenFormula(cost, m);
-      const m2 = getTargetMarginForSize(bid);
-      if (m2 === m) break;
-      m = m2;
-    }
-    return m;
-  }, [estimate.workTypeName, workTypes, eppPlannedCost, totalRevenue]);
+    return getTargetMarginForSize(totalRevenue || 0);
+  }, [estimate.workTypeName, workTypes, totalRevenue]);
 
   function getTargetMarginForSize(size: number): number {
     if (!estimate.workTypeName || workTypes.length === 0) return 0;
@@ -1437,31 +1427,13 @@ export default function ProjectPricerPage() {
       const workTypeId = (selectedWT as any)?.id || estimate.workTypeName || "";
       const workTypeName = estimate.workTypeName || (selectedWT as any)?.name || "";
 
-      // Determine the pricing tier that was used for target GP (based on revenue size)
-      let pricingTierId = "tier-0";
+      // The pricing tier used for target GP — resolved from REVENUE via the ONE band-resolution home
+      // (lib/target-guidance), the same one the on-screen target reads. No hand-copied band loop.
       const tiers = (selectedWT as any)?.tiers || (selectedWT as any)?.pricingTiers || [];
-      let size = totalRevenue || 0;
-      let matchedIndex = -1;
-      if (tiers.length > 0) {
-        if (size === 0) {
-          matchedIndex = 0;
-        } else {
-          for (let i = 0; i < tiers.length; i++) {
-            const t = tiers[i];
-            const low = t.low ?? 0;
-            const high = t.high ?? Infinity;
-            if (size >= low && size <= high) {
-              matchedIndex = i;
-              break;
-            }
-          }
-          if (matchedIndex < 0) matchedIndex = tiers.length - 1;
-        }
-        if (matchedIndex >= 0) {
-          const t = tiers[matchedIndex];
-          pricingTierId = (t as any)?.id || (t as any)?.pricingTierId || `tier-${matchedIndex}`;
-        }
-      }
+      const tierMatch = resolveTargetTier(tiers, totalRevenue || 0);
+      const pricingTierId = tierMatch
+        ? ((tierMatch.tier as any)?.id || (tierMatch.tier as any)?.pricingTierId || `tier-${tierMatch.index}`)
+        : "tier-0";
       const targetGpSource = { workTypeId, pricingTierId };
 
       const getBucketForType = (t: 'labor' | 'equipment' | 'material'): Bucket => {
