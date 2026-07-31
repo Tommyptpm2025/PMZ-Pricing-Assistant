@@ -44,6 +44,7 @@ export interface TrackerQuoteInput {
   status: QuoteStatus;
   createdAt?: string;
   updatedAt?: string;
+  jobName?: string;
   customerId?: string;
   customerName?: string;
   customer?: string;
@@ -74,6 +75,7 @@ export interface TrackerActuals {
 export interface TrackerRow {
   quoteId: string;
   date: string;
+  jobName: string;
   customerId: string;
   customer: string;
   workType: string;
@@ -108,6 +110,7 @@ export function deriveTrackerRows(quotes: TrackerQuoteInput[], people: Person[])
       return {
         quoteId: q.id,
         date: nonEmpty(q.createdAt) || nonEmpty(q.updatedAt) || "",
+        jobName: nonEmpty(q.jobName) || "—",
         customerId: nonEmpty(q.customerId),
         customer: nonEmpty(q.customerName) || nonEmpty(q.customer) || "—",
         workType: nonEmpty(q.workType) || nonEmpty(q.workTypeId) || "—",
