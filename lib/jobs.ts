@@ -134,6 +134,33 @@ export function saveJobs(jobs: Job[]): void {
   }
 }
 
+// A job's actual recorded cost = Σ (foreman actualQty × bid-time unit cost) over every recipe row.
+// `complete` is true only when EVERY row has both a reported actualQty and a cost basis — so a partly
+// reported (or basis-less legacy) job is flagged incomplete, and callers can render GP blank rather
+// than a cost that's negative-by-omission. A job with no recipe rows is never "complete".
+export function jobActualCost(
+  job: Pick<Job, "recipeLines" | "rowCostBasis">
+): { cost: number; complete: boolean } {
+  let cost = 0;
+  let complete = true;
+  let rowCount = 0;
+  for (const line of job.recipeLines || []) {
+    for (const section of line.sections || []) {
+      for (const row of section.rows || []) {
+        rowCount++;
+        const basis = job.rowCostBasis ? job.rowCostBasis[row.id] : undefined;
+        if (row.actualQty == null || typeof basis !== "number") {
+          complete = false;
+          continue;
+        }
+        cost += row.actualQty * basis;
+      }
+    }
+  }
+  if (rowCount === 0) complete = false;
+  return { cost, complete };
+}
+
 // Single-line site address from a structured address-ish object. Mirrors the Pricer/PDF address
 // formatting (street, city, state, zip) but collapsed to one line for the work order.
 function formatSiteAddressLine(

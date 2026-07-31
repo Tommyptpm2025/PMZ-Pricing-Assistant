@@ -56,21 +56,29 @@ export interface TrackerQuoteInput {
   salespersonId?: string;
   salesperson?: string;       // legacy name string (display only)
   decisionNote?: string;
-  // Job actuals — present once the job produces them. RULING: actuals come from the JOB, not the quote
-  // (Law 9 — born where work happens). Step 2's call site joins the quote to its job and passes these
-  // in; a quote with no linked job has null actuals, shown honestly. Quotes never gain actual-cost fields.
-  actualRevenue?: number;
-  actualGpDollars?: number;
-  actualGpPercent?: number;
+  // Job actuals inputs (Law 9 — actuals come from the JOB). The call site joins the quote to its job
+  // and passes the job's recorded actual COST + whether that cost data is complete. Actual REVENUE is
+  // the frozen accepted bid (totalRevenue above) plus approved change orders, recognized here by status
+  // (see deriveTrackerRows). changeOrderRevenue joins this sum when the change-order lane is built.
+  actualCost?: number;
+  actualCostComplete?: boolean;
+  changeOrderRevenue?: number;
   // Loss capture.
   objection?: string;
 }
 
 export interface TrackerActuals {
   revenue: number;
-  gpDollars: number;
-  gpPercent: number;
+  gpDollars: number | null;  // null when cost data is missing/incomplete — never negative-by-omission
+  gpPercent: number | null;
 }
+
+// RULING (recorded at the join): a job's ACTUAL REVENUE = the frozen accepted bid (totalRevenue) plus
+// approved change orders, RECOGNIZED ONLY once the job reaches Invoiced or beyond (Paid). Before that,
+// actuals are blank — never zero, never an estimate (earned facts, Law 38 spirit). ACTUAL GP = actual
+// revenue − the job's actual recorded cost, computed ONLY when that cost data is complete; otherwise
+// GP is blank. Legacy "Completed" is NOT named by the ruling and is left unrecognized (flagged).
+const REVENUE_RECOGNIZED: ReadonlySet<QuoteStatus> = new Set<QuoteStatus>(["Invoiced", "Paid"]);
 
 export interface TrackerRow {
   quoteId: string;
@@ -103,10 +111,16 @@ export function deriveTrackerRows(quotes: TrackerQuoteInput[], people: Person[])
       const salesperson = salespersonId
         ? (byId.get(salespersonId)?.name || nonEmpty(q.salesperson) || "—")
         : (nonEmpty(q.salesperson) || "—");
-      const actuals: TrackerActuals | null =
-        typeof q.actualRevenue === "number"
-          ? { revenue: q.actualRevenue, gpDollars: q.actualGpDollars ?? 0, gpPercent: q.actualGpPercent ?? 0 }
-          : null;
+      // Actuals recognized only at Invoiced+ (earned facts). Revenue = frozen bid + approved change
+      // orders. GP derived only when the job's actual cost data is complete; else GP is blank (null).
+      let actuals: TrackerActuals | null = null;
+      if (REVENUE_RECOGNIZED.has(q.status)) {
+        const revenue = (q.totalRevenue ?? 0) + (q.changeOrderRevenue ?? 0);
+        const costKnown = q.actualCostComplete === true && typeof q.actualCost === "number";
+        const gpDollars = costKnown ? revenue - (q.actualCost as number) : null;
+        const gpPercent = gpDollars !== null && revenue > 0 ? (gpDollars / revenue) * 100 : null;
+        actuals = { revenue, gpDollars, gpPercent };
+      }
       return {
         quoteId: q.id,
         date: nonEmpty(q.createdAt) || nonEmpty(q.updatedAt) || "",

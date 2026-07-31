@@ -26,7 +26,7 @@ const QUOTES = [
   { id: "q_sched",   status: "Scheduled",          totalRevenue: 30000, grossProfitDollars: 6000, workType: "Paving",   salesperson: "Legacy Sam" }, // legacy name, no id
   { id: "q_prog",    status: "In Progress",        totalRevenue: 15000, grossProfitDollars: 3000, workType: "Sealcoat" },                            // unattributed
   { id: "q_rti",     status: "Ready to Invoice",   totalRevenue: 25000, grossProfitDollars: 5000, workType: "Sealcoat" },
-  { id: "q_inv",     status: "Invoiced",           totalRevenue: 40000, grossProfitDollars: 8000, workType: "Sealcoat", actualRevenue: 41000, actualGpDollars: 8200, actualGpPercent: 20 },
+  { id: "q_inv",     status: "Invoiced",           totalRevenue: 40000, grossProfitDollars: 8000, workType: "Sealcoat", actualCost: 32000, actualCostComplete: true }, // Invoiced → actuals recognized
   { id: "q_paid",    status: "Paid",               totalRevenue: 12000, grossProfitDollars: 2000, workType: "Sealcoat", salespersonId: "p_ghost", salesperson: "Ghost Name" }, // id not in roster → fallback name
   { id: "q_comp",    status: "Completed",          totalRevenue: 8000,  grossProfitDollars: 1000, workType: "Sealcoat" },
   { id: "q_decl",    status: "Declined",           totalRevenue: 20000, grossProfitDollars: 4000, workType: "Paving",   decisionNote: "price" },     // LOST, objection via decisionNote
@@ -59,8 +59,8 @@ assert.equal(byId("q_sched").salesperson, "Legacy Sam", "a legacy name-string qu
 assert.equal(byId("q_prog").salesperson, "—", "an unattributed quote shows a dash");
 assert.equal(byId("q_paid").salesperson, "Ghost Name", "an id not on the roster falls back to the stored name");
 assert.equal(byId("q_bid").bidAmount, 10000, "bid amount is the frozen totalRevenue");
-assert.deepEqual(byId("q_inv").actuals, { revenue: 41000, gpDollars: 8200, gpPercent: 20 }, "actuals appear when present");
-assert.equal(byId("q_appr").actuals, null, "no actuals ⇒ null, never fabricated");
+assert.deepEqual(byId("q_inv").actuals, { revenue: 40000, gpDollars: 8000, gpPercent: 20 }, "Invoiced row: actual revenue = frozen bid; GP = revenue − complete cost");
+assert.equal(byId("q_appr").actuals, null, "an Approved (pre-Invoiced) quote has null actuals — never fabricated");
 assert.equal(byId("q_decl").objection, "price", "a LOST row surfaces its objection (from decisionNote)");
 assert.equal(byId("q_lost").objection, "competitor", "a LOST row surfaces its explicit objection");
 assert.equal(byId("q_appr").objection, null, "a non-LOST row carries no objection");
@@ -96,3 +96,18 @@ assert.equal(empty.all.winRateByCount, 0, "no decided bids → win-by-count 0, n
 assert.equal(empty.all.winRateByDollars, 0, "no decided dollars → win-by-$ 0, not NaN");
 assert.equal(empty.all.blendedMarginPercent, 0, "no accepted revenue → blended margin 0, not NaN/Infinity");
 console.log("PASS: sales-tracker scoreboard — dollar & count win rates, accepted GP, blended margin match hand-calc; per-work-type partitions; zero guarded");
+
+// ── 4 — ACTUALS RECOGNITION (ruling: earned facts at Invoiced+) ─────────────────────────────────────
+const base = { id: "j", totalRevenue: 40000, actualCost: 32000, actualCostComplete: true };
+const atInvoiced = deriveTrackerRows([{ ...base, status: "Invoiced" }], [])[0];
+assert.deepEqual(atInvoiced.actuals, { revenue: 40000, gpDollars: 8000, gpPercent: 20 }, "Invoiced → actual revenue = frozen bid; GP = revenue − complete cost");
+const atEarlier = deriveTrackerRows([{ ...base, status: "Ready to Invoice" }], [])[0];
+assert.equal(atEarlier.actuals, null, "the SAME job before Invoiced → actuals blank (null), never zero or an estimate");
+const atPaid = deriveTrackerRows([{ ...base, status: "Paid" }], [])[0];
+assert.equal(atPaid.actuals.revenue, 40000, "Paid (beyond Invoiced) also recognizes actual revenue");
+const incompleteCost = deriveTrackerRows([{ id: "j2", status: "Invoiced", totalRevenue: 40000, actualCostComplete: false }], [])[0];
+assert.equal(incompleteCost.actuals.revenue, 40000, "revenue is recognized at Invoiced even when cost data is incomplete");
+assert.equal(incompleteCost.actuals.gpDollars, null, "incomplete cost data → GP blank (null), not negative-by-omission");
+const atCompleted = deriveTrackerRows([{ ...base, status: "Completed" }], [])[0];
+assert.equal(atCompleted.actuals, null, "legacy Completed is NOT named by the ruling → left unrecognized (flagged)");
+console.log("PASS: sales-tracker actuals — recognized at Invoiced+ (earned facts); GP only with complete cost; blank before Invoiced and on incomplete cost");

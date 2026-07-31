@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { BarChart3 } from "lucide-react";
 import { usePeople } from "@/lib/people";
-import { loadJobs, type Job } from "@/lib/jobs";
+import { loadJobs, jobActualCost, type Job } from "@/lib/jobs";
 import type { SavedQuote } from "@/lib/pmz-types";
 import {
   deriveTrackerRows,
@@ -64,20 +64,25 @@ export default function SalesTrackerPage() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  // The quote→job link is job.quoteId. RULING: actuals come from the JOB (Law 9). A Job today carries
-  // raw foreman actualQty + rowCostBasis (derivable actual COST) but NO actual-revenue / actual-GP
-  // fields, so there is nothing to pass into the row yet — actuals stay blank, honestly (see the flag in
-  // the tracker doc). When job actuals are defined, merge them off the linked job at this join.
+  // The quote→job link is job.quoteId. RULING (see lib/sales-tracker.ts): actuals come from the JOB
+  // (Law 9), recognized only at Invoiced+. Here we join each quote to its job and pass the job's actual
+  // COST (and whether it's complete) in; deriveTrackerRows applies the recognition + GP rule. No linked
+  // job ⇒ no cost data ⇒ GP blank (revenue still recognized at Invoiced+ from the frozen bid).
   const jobByQuoteId = React.useMemo(() => {
     const m = new Map<string, Job>();
     for (const j of jobs) if (j.quoteId) m.set(j.quoteId, j);
     return m;
   }, [jobs]);
 
-  const rows: TrackerRow[] = React.useMemo(
-    () => deriveTrackerRows(quotes, people),
-    [quotes, people]
-  );
+  const rows: TrackerRow[] = React.useMemo(() => {
+    const inputs = quotes.map((q) => {
+      const job = jobByQuoteId.get(q.id);
+      if (!job) return q;
+      const { cost, complete } = jobActualCost(job);
+      return { ...q, actualCost: cost, actualCostComplete: complete };
+    });
+    return deriveTrackerRows(inputs, people);
+  }, [quotes, people, jobByQuoteId]);
   const scoreboard = React.useMemo(() => computeScoreboard(rows), [rows]);
 
   // How many rows have an existing linked job — surfaces the "actuals pending" reality honestly.
@@ -181,8 +186,8 @@ export default function SalesTrackerPage() {
                 <div>
                   <CardTitle className="text-xl">Bids &amp; Jobs</CardTitle>
                   <CardDescription>
-                    {rows.length} bid{rows.length === 1 ? "" : "s"} · {linkedJobCount} with a linked job
-                    {linkedJobCount > 0 ? " (actuals pending a ruling on job actuals)" : ""}
+                    {rows.length} bid{rows.length === 1 ? "" : "s"} · {linkedJobCount} with a linked job ·
+                    actuals recognized at Invoiced+ (earned facts)
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
@@ -248,7 +253,7 @@ export default function SalesTrackerPage() {
                           <TableCell className="text-right tabular-nums">{pct(r.margin)}</TableCell>
                           <TableCell><BucketBadge bucket={r.bucket} /></TableCell>
                           <TableCell className="text-right tabular-nums">{r.actuals ? money(r.actuals.revenue) : "—"}</TableCell>
-                          <TableCell className="text-right tabular-nums">{r.actuals ? money(r.actuals.gpDollars) : "—"}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.actuals && r.actuals.gpDollars != null ? money(r.actuals.gpDollars) : "—"}</TableCell>
                           <TableCell className="max-w-[140px] truncate text-muted-foreground" title={r.objection ?? ""}>{r.objection ?? "—"}</TableCell>
                         </TableRow>
                       ))
