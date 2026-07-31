@@ -74,11 +74,11 @@ export interface TrackerActuals {
 }
 
 // RULING (recorded at the join): a job's ACTUAL REVENUE = the frozen accepted bid (totalRevenue) plus
-// approved change orders, RECOGNIZED ONLY once the job reaches Invoiced or beyond (Paid). Before that,
-// actuals are blank — never zero, never an estimate (earned facts, Law 38 spirit). ACTUAL GP = actual
-// revenue − the job's actual recorded cost, computed ONLY when that cost data is complete; otherwise
-// GP is blank. Legacy "Completed" is NOT named by the ruling and is left unrecognized (flagged).
-const REVENUE_RECOGNIZED: ReadonlySet<QuoteStatus> = new Set<QuoteStatus>(["Invoiced", "Paid"]);
+// approved change orders, RECOGNIZED ONLY when the job is realized money — Invoiced, Paid, or legacy
+// Completed (all three are the Qualifying Set, Law 2). Earlier statuses stay blank — never zero, never
+// an estimate (earned facts, Law 38 spirit). ACTUAL GP = actual revenue − the job's actual recorded
+// cost, computed ONLY when that cost data is complete; otherwise GP is blank.
+const REVENUE_RECOGNIZED: ReadonlySet<QuoteStatus> = new Set<QuoteStatus>(["Invoiced", "Paid", "Completed"]);
 
 export interface TrackerRow {
   quoteId: string;

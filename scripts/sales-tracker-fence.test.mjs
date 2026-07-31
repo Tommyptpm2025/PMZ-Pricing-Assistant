@@ -109,5 +109,5 @@ const incompleteCost = deriveTrackerRows([{ id: "j2", status: "Invoiced", totalR
 assert.equal(incompleteCost.actuals.revenue, 40000, "revenue is recognized at Invoiced even when cost data is incomplete");
 assert.equal(incompleteCost.actuals.gpDollars, null, "incomplete cost data → GP blank (null), not negative-by-omission");
 const atCompleted = deriveTrackerRows([{ ...base, status: "Completed" }], [])[0];
-assert.equal(atCompleted.actuals, null, "legacy Completed is NOT named by the ruling → left unrecognized (flagged)");
+assert.deepEqual(atCompleted.actuals, { revenue: 40000, gpDollars: 8000, gpPercent: 20 }, "legacy Completed is realized money → recognizes actuals, same rules as Invoiced");
 console.log("PASS: sales-tracker actuals — recognized at Invoiced+ (earned facts); GP only with complete cost; blank before Invoiced and on incomplete cost");
