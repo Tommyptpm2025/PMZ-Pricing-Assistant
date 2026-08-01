@@ -12,6 +12,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BarChart3 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ScorecardView } from "@/components/ScorecardView";
 import { usePeople } from "@/lib/people";
 import { loadJobs, jobActualCost, type Job } from "@/lib/jobs";
 import type { SavedQuote } from "@/lib/pmz-types";
@@ -126,16 +128,24 @@ export default function SalesTrackerPage() {
         </div>
       </div>
 
-      {rows.length === 0 ? (
-        <Card className="card">
-          <CardContent className="flex min-h-[220px] flex-col items-center justify-center gap-2 text-center">
-            <BarChart3 className="h-8 w-8 text-muted-foreground" />
-            <p className="text-lg font-medium">Your tracker builds itself as you save and send bids.</p>
-            <p className="text-sm text-muted-foreground">Draft quotes stay invisible here until they&rsquo;re sent.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <>
+      <Tabs defaultValue="bids" className="w-full">
+        <TabsList>
+          <TabsTrigger value="bids">Bids &amp; Jobs</TabsTrigger>
+          <TabsTrigger value="scorecard">Scorecard</TabsTrigger>
+        </TabsList>
+
+        {/* Bids & Jobs — the tracker rows + scoreboard (acceptance rates live here, not on the Scorecard) */}
+        <TabsContent value="bids" className="space-y-8">
+          {rows.length === 0 ? (
+            <Card className="card">
+              <CardContent className="flex min-h-[220px] flex-col items-center justify-center gap-2 text-center">
+                <BarChart3 className="h-8 w-8 text-muted-foreground" />
+                <p className="text-lg font-medium">Your tracker builds itself as you save and send bids.</p>
+                <p className="text-sm text-muted-foreground">Draft quotes stay invisible here until they&rsquo;re sent.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
           {/* Scoreboard first */}
           <Card className="card">
             <CardHeader className="pb-4">
@@ -263,8 +273,15 @@ export default function SalesTrackerPage() {
               </div>
             </CardContent>
           </Card>
-        </>
-      )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* Scorecard — goals vs booked actuals, its own view (separate from the tracker rows) */}
+        <TabsContent value="scorecard">
+          <ScorecardView rows={rows} people={people} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

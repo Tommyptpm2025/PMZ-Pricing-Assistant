@@ -22,6 +22,7 @@ import {
   ChevronRight,
   Box,
   Building2,
+  Target,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -61,6 +62,7 @@ const navItems: NavItem[] = [
     ],
   },
   { href: "/jobs", label: "Jobs / Foreman", icon: ClipboardList },
+  { href: "/goals-entry", label: "Goals Entry", icon: Target },
   { href: "/sales-tracker", label: "Sales Tracker", icon: BarChart3 },
   { href: "/reports", label: "Reports", icon: FileText, disabled: true },
   {
