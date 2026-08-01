@@ -9,7 +9,8 @@
  * Run: node --import ./scripts/ts-ext-register.mjs scripts/sales-tracker-fence.test.mjs
  */
 import assert from "node:assert/strict";
-import { deriveTrackerRows, computeScoreboard, statusBucket } from "../lib/sales-tracker.ts";
+import { deriveTrackerRows, computeScoreboard, computeScorecard, statusBucket } from "../lib/sales-tracker.ts";
+import { upsertGoal, findGoal, goalsForYear, goalsForSalesperson } from "../lib/sales-goals.ts";
 
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg} (got ${a}, expected ${b})`);
 
@@ -111,3 +112,115 @@ assert.equal(incompleteCost.actuals.gpDollars, null, "incomplete cost data → G
 const atCompleted = deriveTrackerRows([{ ...base, status: "Completed" }], [])[0];
 assert.deepEqual(atCompleted.actuals, { revenue: 40000, gpDollars: 8000, gpPercent: 20 }, "legacy Completed is realized money → recognizes actuals, same rules as Invoiced");
 console.log("PASS: sales-tracker actuals — recognized at Invoiced+ (earned facts); GP only with complete cost; blank before Invoiced and on incomplete cost");
+
+// ── 5 — SALES GOALS STORE (pure core) ────────────────────────────────────────────────────────────────
+// Goals are ENTERED (Law 82). upsert replaces a cell in place (never duplicates); find returns null for
+// an unset cell (never a fabricated zero goal); year/salesperson filters key by id.
+let GOALS = [];
+GOALS = upsertGoal(GOALS, { year: 2026, salespersonId: "p1", workTypeId: "wtA", goalSalesDollars: 100000, goalMarginPct: 25 });
+GOALS = upsertGoal(GOALS, { year: 2026, salespersonId: "p1", workTypeId: "wtB", goalSalesDollars: 50000,  goalMarginPct: 20 });
+GOALS = upsertGoal(GOALS, { year: 2026, salespersonId: "p2", workTypeId: "wtA", goalSalesDollars: 80000,  goalMarginPct: 30 });
+// p2/wtB deliberately has NO goal.
+GOALS = upsertGoal(GOALS, { year: 2025, salespersonId: "p1", workTypeId: "wtA", goalSalesDollars: 999999, goalMarginPct: 99 }); // other year — must never touch 2026
+assert.equal(GOALS.length, 4, "four distinct goal cells stored");
+GOALS = upsertGoal(GOALS, { year: 2026, salespersonId: "p1", workTypeId: "wtA", goalSalesDollars: 100000, goalMarginPct: 25 }); // re-enter same cell
+assert.equal(GOALS.length, 4, "re-entering the SAME (year,person,workType) cell replaces in place — never duplicates");
+assert.equal(findGoal(GOALS, 2026, "p2", "wtB"), null, "an unset cell is null (a dash), never a fabricated zero goal");
+assert.equal(findGoal(GOALS, 2026, "p1", "wtA").goalSalesDollars, 100000, "a set cell finds by (year,person,workType) id");
+assert.equal(goalsForYear(GOALS, 2026).length, 3, "goalsForYear 2026 excludes the 2025 goal");
+assert.equal(goalsForSalesperson(GOALS, "p1").length, 3, "goalsForSalesperson lists p1's goals across years (2026 wtA + wtB, 2025 wtA)");
+console.log("PASS: sales-goals store — upsert replaces a cell (no duplicates); unset cell is null; year & salesperson filters key by id");
+
+// ── 6 — SCORECARD (goals vs BOOKED wins, BY WORK TYPE; hand-calculated literals) ───────────────────────
+// Two salespeople (Ann=p1, Bob=p2) × two work types (wtA, wtB). Goals above: p1/wtA, p1/wtB, p2/wtA set;
+// p2/wtB missing. Wins below (ACCEPTED, dated 2026). A LOST row, a BID row, and a 2025 win are seeded to
+// prove ONLY accepted-bucket wins in THIS year count.
+const SC_PEOPLE = [
+  { id: "p1", name: "Ann Ant", roles: ["salesperson"], active: true, createdAt: "2026-01-01T00:00:00Z" },
+  { id: "p2", name: "Bob Bee", roles: ["salesperson"], active: true, createdAt: "2026-01-01T00:00:00Z" },
+];
+const SC_QUOTES = [
+  // p1/wtA — one booked win: sold 120000, GP 30000 (25%)
+  { id: "w1", status: "Approved", createdAt: "2026-03-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 120000, grossProfitDollars: 30000 },
+  // p1/wtB — NO win at all
+  // p2/wtA — sold 80000, GP 20000 (25%)
+  { id: "w2", status: "Approved", createdAt: "2026-04-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p2", totalRevenue: 80000,  grossProfitDollars: 20000 },
+  // p2/wtB — sold 40000, GP 8000 (20%), but the boss set NO goal for this cell
+  { id: "w3", status: "Approved", createdAt: "2026-05-01T00:00:00Z", workTypeId: "wtB", salespersonId: "p2", totalRevenue: 40000,  grossProfitDollars: 8000 },
+  // NOISE that must NOT count toward booked wins:
+  { id: "n_lost", status: "Lost",              createdAt: "2026-03-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 999999, grossProfitDollars: 500000 }, // lost
+  { id: "n_bid",  status: "Ready for Approval", createdAt: "2026-03-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 888888, grossProfitDollars: 400000 }, // outstanding bid
+  { id: "n_2025", status: "Approved",           createdAt: "2025-03-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 777777, grossProfitDollars: 300000 }, // wrong year
+];
+const scRows = deriveTrackerRows(SC_QUOTES, SC_PEOPLE);
+const card = computeScorecard(scRows, GOALS, SC_PEOPLE, 2026);
+
+// grid shape
+assert.deepEqual(card.workTypeIds, ["wtA", "wtB"], "columns are the work-type IDs present, sorted");
+assert.deepEqual(card.people.map((r) => r.salespersonId), ["p1", "p2"], "rows are the salespeople, sorted by name (Ann, Bob)");
+const ann = card.people.find((r) => r.salespersonId === "p1");
+const bob = card.people.find((r) => r.salespersonId === "p2");
+
+// ---- MUTATION TARGET: goal margin dollars = sales × percent ----
+// p1/wtA: 100000 × 25% = 25000. Flipping × to + in marginDollarsOf yields 100000 + 0.25 = 100000.25 and
+// this exact assertion FAILS, naming margin dollars.
+assert.equal(ann.byWorkType["wtA"].goal.marginDollars, 25000, "p1/wtA goal margin dollars = sales × percent = 100000 × 25% = 25000");
+assert.equal(ann.byWorkType["wtB"].goal.marginDollars, 10000, "p1/wtB goal margin dollars = 50000 × 20% = 10000");
+assert.equal(bob.byWorkType["wtA"].goal.marginDollars, 24000, "p2/wtA goal margin dollars = 80000 × 30% = 24000");
+
+// p1/wtA — goal set, win present
+assert.equal(ann.byWorkType["wtA"].actual.salesDollars, 120000, "p1/wtA booked sales = the accepted bid (120000) — LOST/BID/2025 noise excluded");
+assert.equal(ann.byWorkType["wtA"].actual.gpDollars, 30000, "p1/wtA booked GP frozen at bid = 30000");
+near(ann.byWorkType["wtA"].actual.marginPct, 25, "p1/wtA actual margin % = 30000/120000 = 25%");
+assert.equal(ann.byWorkType["wtA"].salesDeltaDollars, 20000, "p1/wtA sales delta = 120000 − 100000");
+assert.equal(ann.byWorkType["wtA"].marginDeltaDollars, 5000, "p1/wtA margin-$ delta = 30000 − 25000");
+near(ann.byWorkType["wtA"].salesPercentToGoal, 120, "p1/wtA percent-to-goal (sales) = 120000/100000 = 120%");
+near(ann.byWorkType["wtA"].marginPercentToGoal, 120, "p1/wtA percent-to-goal (margin$) = 30000/25000 = 120%");
+
+// p1/wtB — goal set, NO win → genuine zeros against a real goal (0%, NOT null, NOT 100%)
+assert.equal(ann.byWorkType["wtB"].actual.salesDollars, 0, "p1/wtB has no win → booked sales 0");
+assert.equal(ann.byWorkType["wtB"].actual.marginPct, null, "p1/wtB no booked sales → actual margin % is null (no 0-division)");
+assert.equal(ann.byWorkType["wtB"].salesDeltaDollars, -50000, "p1/wtB sales delta = 0 − 50000");
+assert.equal(ann.byWorkType["wtB"].salesPercentToGoal, 0, "p1/wtB percent-to-goal = 0/50000 = 0% (a real goal missed, not a blank)");
+
+// p2/wtB — NO goal but a real win → EVERY to-goal field null (never 100%, never #DIV/0!)
+assert.equal(bob.byWorkType["wtB"].goal, null, "p2/wtB has no goal → goal is null");
+assert.equal(bob.byWorkType["wtB"].actual.salesDollars, 40000, "p2/wtB win still shows its actual (40000)");
+assert.equal(bob.byWorkType["wtB"].salesDeltaDollars, null, "p2/wtB no goal → sales delta null (not the actual, not zero)");
+assert.equal(bob.byWorkType["wtB"].salesPercentToGoal, null, "p2/wtB no goal → percent-to-goal null — NEVER 100%, NEVER an error");
+assert.equal(bob.byWorkType["wtB"].marginPercentToGoal, null, "p2/wtB no goal → margin percent-to-goal null");
+
+// p2/wtA — goal set, win present, margin under goal
+near(bob.byWorkType["wtA"].marginPercentToGoal, (20000 / 24000) * 100, "p2/wtA margin percent-to-goal = 20000/24000");
+assert.equal(bob.byWorkType["wtA"].salesPercentToGoal, 100, "p2/wtA sales percent-to-goal = 80000/80000 = 100%");
+
+// SCOPING LAW: each person scored against THEIR OWN goals only. Ann's total goal is 150000 (100000+50000);
+// her percent-to-goal is 120000/150000 = 80%. If the code wrongly scored her against the COMPANY goal
+// (230000) this would be ~52.17% — this literal catches that leak.
+near(ann.total.salesPercentToGoal, 80, "p1 TOTAL percent-to-goal = 120000 / 150000 (p1's OWN goal) = 80% — not scored against the company goal");
+assert.equal(ann.total.goal.salesDollars, 150000, "p1 total goal = SUM of p1's own cells (100000 + 50000)");
+assert.equal(bob.total.goal.salesDollars, 80000, "p2 total goal = SUM of p2's own set cells (80000 only — wtB has no goal)");
+near(bob.total.salesPercentToGoal, 150, "p2 TOTAL percent-to-goal = 120000 booked / 80000 goal = 150% (his own book)");
+
+// COMPANY per-work-type totals = SUM of the individual goals (scoping law), all wins for actuals
+assert.equal(card.byWorkType["wtA"].goal.salesDollars, 180000, "company wtA goal = p1(100000)+p2(80000) — SUM of individual goals");
+assert.equal(card.byWorkType["wtA"].goal.marginDollars, 49000, "company wtA goal margin$ = 25000 + 24000");
+assert.equal(card.byWorkType["wtA"].actual.salesDollars, 200000, "company wtA booked sales = 120000 + 80000");
+near(card.byWorkType["wtA"].salesPercentToGoal, (200000 / 180000) * 100, "company wtA percent-to-goal = 200000/180000");
+assert.equal(card.byWorkType["wtB"].goal.salesDollars, 50000, "company wtB goal = p1(50000) only (p2 unset) — SUM of individual goals");
+
+// GRAND TOTAL
+assert.equal(card.companyTotal.goal.salesDollars, 230000, "company total goal = 180000 + 50000");
+assert.equal(card.companyTotal.goal.marginDollars, 59000, "company total goal margin$ = 49000 + 10000");
+assert.equal(card.companyTotal.actual.salesDollars, 240000, "company total booked sales = 200000 + 40000 (includes the ungoaled p2/wtB win)");
+assert.equal(card.companyTotal.actual.gpDollars, 58000, "company total booked GP = 50000 + 8000");
+assert.equal(card.companyTotal.salesDeltaDollars, 10000, "company total sales delta = 240000 − 230000");
+near(card.companyTotal.salesPercentToGoal, (240000 / 230000) * 100, "company total percent-to-goal = 240000/230000");
+
+// A scorecard over NO goals and NO rows must not divide by zero anywhere.
+const emptyCard = computeScorecard([], [], SC_PEOPLE, 2026);
+assert.equal(emptyCard.companyTotal.goal, null, "no goals → company goal null, never a zero-dollar phantom");
+assert.equal(emptyCard.companyTotal.salesPercentToGoal, null, "no goal → company percent-to-goal null, never NaN/100%");
+assert.equal(emptyCard.people.length, 2, "roster salespeople still appear as (empty) rows");
+assert.equal(emptyCard.people[0].total.actual.salesDollars, 0, "an empty row shows zero actuals, not a crash");
+console.log("PASS: sales-tracker scorecard — goals×booked-wins by work type; margin$ = sales×%; missing-goal cells null (never 100%/#DIV/0!); each person scored on their OWN goals; totals both directions; zero guarded");
