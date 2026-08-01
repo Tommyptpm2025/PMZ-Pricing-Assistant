@@ -8,7 +8,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Person } from "@/lib/people";
 import { useSalesGoals, goalsForYear } from "@/lib/sales-goals";
-import { useWorkTypes } from "@/lib/work-types";
+import { useWorkTypes, resolveWorkTypeLabel } from "@/lib/work-types";
 import { computeScorecard, type TrackerRow, type ScorecardCell } from "@/lib/sales-tracker";
 
 /**
@@ -81,7 +81,21 @@ export function ScorecardView({ rows, people }: { rows: TrackerRow[]; people: Pe
     for (const wt of workTypes) m.set(wt.id, wt.name);
     return m;
   }, [workTypes]);
-  const wtLabel = (id: string) => nameByWorkTypeId.get(id) || (id === "" ? "Unassigned" : id);
+  // Name-string history carried on the tracker rows (a saved quote's denormalized workType), keyed by
+  // work-type id — the fallback for an id whose work type has since been renamed or retired. Only a
+  // GENUINE name is captured: when a legacy row has no name, deriveTrackerRows sets workType = the id
+  // (or "—"), so those are excluded — we never resurface a raw id as if it were a name.
+  const historyNameByWorkTypeId = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) {
+      if (!r.workTypeId || m.has(r.workTypeId)) continue;
+      if (r.workType && r.workType !== r.workTypeId && r.workType !== "—") m.set(r.workTypeId, r.workType);
+    }
+    return m;
+  }, [rows]);
+  // Never render a raw id to a human: live store name → retired name-string → "(unknown work type)".
+  const wtLabel = (id: string) =>
+    resolveWorkTypeLabel(id, (x) => nameByWorkTypeId.get(x), (x) => historyNameByWorkTypeId.get(x));
 
   const hasGoals = React.useMemo(() => goalsForYear(goals, year).length > 0, [goals, year]);
   const card = React.useMemo(() => computeScorecard(rows, goals, people, year), [rows, goals, people, year]);

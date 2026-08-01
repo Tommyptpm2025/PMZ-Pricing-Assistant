@@ -19,6 +19,30 @@ export interface WorkTypeRef {
 
 export const WORK_TYPES_KEY = 'pmz_work_types_v2';
 
+/**
+ * Human label for a work-type id — NEVER a raw id shown to a person. Resolution order:
+ *   1. the current store name (a live work type) — shown plainly;
+ *   2. else the name-string history carried on the records themselves (e.g. a saved quote's
+ *      denormalized workType), marked "(retired)" so it reads as a work type that no longer exists;
+ *   3. else "(unknown work type)".
+ * An empty id — a record with no work type at all — reads as "Unassigned".
+ *
+ * The two sources are passed as accessors so any surface supplies its own live store + history without
+ * this helper knowing their shape. Pure and side-effect-free.
+ */
+export function resolveWorkTypeLabel(
+  id: string,
+  liveName: (id: string) => string | undefined,
+  historyName: (id: string) => string | undefined
+): string {
+  if (id === '') return 'Unassigned';
+  const live = liveName(id);
+  if (live && live.trim() !== '') return live;
+  const hist = historyName(id);
+  if (hist && hist.trim() !== '') return `${hist} (retired)`;
+  return '(unknown work type)';
+}
+
 export function loadWorkTypes(): WorkTypeRef[] {
   if (typeof window === 'undefined') return [];
   try {
