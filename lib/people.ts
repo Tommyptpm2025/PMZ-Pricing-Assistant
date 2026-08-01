@@ -34,6 +34,10 @@ export interface Person {
 export const PEOPLE_KEY = 'pmz_people_v1';
 export const PEOPLE_EVENT = 'pmz-people-updated';
 
+// One-time legacy-attribution backfill flag + provenance record (see LEGACY ATTRIBUTION BACKFILL). Its
+// mere presence — any value — means the backfill has run and must NEVER run again.
+export const ATTRIBUTION_BACKFILL_KEY = 'pmz_attribution_backfill_v1';
+
 // Legacy source keys — read once at migration, then left untouched.
 const SALESPEOPLE_KEY = 'pmz_salespeople';
 const ESTIMATORS_KEY = 'pmz_estimators';
@@ -180,6 +184,113 @@ export function planMigration(
   return migratePeople(sources.salespeople, sources.estimators, sources.legacyEstimator, idFactory, now);
 }
 
+// ── LEGACY ATTRIBUTION BACKFILL (pure core) ────────────────────────────────────────────────────────
+//
+// CLAIM THE HISTORY. Records saved before attribution moved to Person ids carry only a salesperson NAME
+// STRING (a saved quote's or job's `salesperson`). This one-time backfill stamps the matching Person id
+// onto those records so the scorecard and tracker can attribute history by id — WITHOUT losing the name.
+//
+// The laws it holds:
+//   • MONEY IS UNTOUCHABLE. Only the attribution pair (salesperson / salespersonId) is ever read or
+//     written. Every other field — amount, GP, status, date, anything — passes through byte-identical
+//     (a changed record is a shallow copy; an unchanged one is the SAME reference).
+//   • NEVER overwrite an existing salespersonId. A record already attributed is left exactly as-is.
+//   • Write an id ONLY on an UNAMBIGUOUS match: the trimmed, case-insensitive name resolves to EXACTLY
+//     ONE person on the roster. Two people share the name → ambiguous, skipped. No one matches → skipped.
+//     A skip never guesses.
+//   • The legacy name string stays in place, for provenance.
+
+// A record the backfill can attribute. It reads ONLY these two fields; everything else is opaque and
+// carried through untouched.
+export interface AttributableRecord {
+  salesperson?: string;
+  salespersonId?: string;
+}
+
+export interface AttributionCounts {
+  matched: number;
+  ambiguousSkipped: number;
+  noMatchSkipped: number;
+}
+
+// lowercase+trim name → the ids of every roster person with that name. length > 1 ⇒ ambiguous.
+function rosterNameIndex(people: Person[]): Map<string, string[]> {
+  const idx = new Map<string, string[]>();
+  for (const p of people || []) {
+    const key = (p.name || '').trim().toLowerCase();
+    if (!key) continue;
+    const ids = idx.get(key);
+    if (ids) ids.push(p.id);
+    else idx.set(key, [p.id]);
+  }
+  return idx;
+}
+
+const hasSalespersonId = (rec: AttributableRecord): boolean =>
+  typeof rec.salespersonId === 'string' && rec.salespersonId.trim() !== '';
+
+// Stamp the matching Person id onto each UNATTRIBUTED, name-carrying record. Returns a NEW array; a
+// changed record is a shallow copy with salespersonId added (all other fields identical), and an
+// unchanged record is returned by the SAME reference. Never mutates the input.
+export function backfillAttribution<T extends AttributableRecord>(
+  records: T[],
+  people: Person[]
+): { records: T[]; counts: AttributionCounts } {
+  const idx = rosterNameIndex(people);
+  let matched = 0;
+  let ambiguousSkipped = 0;
+  let noMatchSkipped = 0;
+  const out = (records || []).map((rec) => {
+    // GUARD: an already-attributed record is NEVER overwritten. (Mutation target — remove this and the
+    // backfill clobbers existing salespersonIds, which the fence forbids.)
+    if (hasSalespersonId(rec)) return rec;
+    const name = (rec.salesperson ?? '').trim();
+    if (name === '') return rec; // no legacy name → not a candidate at all
+    const ids = idx.get(name.toLowerCase()) ?? [];
+    if (ids.length === 1) {
+      matched++;
+      return { ...rec, salespersonId: ids[0] };
+    }
+    if (ids.length > 1) {
+      ambiguousSkipped++; // two people share the name — never guess which
+      return rec;
+    }
+    noMatchSkipped++; // a real name, but no one on the roster carries it
+    return rec;
+  });
+  return { records: out, counts: { matched, ambiguousSkipped, noMatchSkipped } };
+}
+
+export interface AttributionBackfillPlan {
+  quotes: AttributableRecord[];
+  jobs: AttributableRecord[];
+  counts: AttributionCounts;                                    // combined totals across both stores
+  byStore: { quotes: AttributionCounts; jobs: AttributionCounts };
+}
+
+// Decide the backfill purely: if the flag key already holds ANY value, NEVER run again (return null).
+// Only on a truly absent flag (null) do we produce the attributed record arrays + inspectable counts.
+export function planAttributionBackfill(
+  existingFlagRaw: string | null,
+  quotes: AttributableRecord[],
+  jobs: AttributableRecord[],
+  people: Person[]
+): AttributionBackfillPlan | null {
+  if (existingFlagRaw !== null) return null; // flag present (even '') → already ran, never twice
+  const q = backfillAttribution(quotes, people);
+  const j = backfillAttribution(jobs, people);
+  return {
+    quotes: q.records,
+    jobs: j.records,
+    counts: {
+      matched: q.counts.matched + j.counts.matched,
+      ambiguousSkipped: q.counts.ambiguousSkipped + j.counts.ambiguousSkipped,
+      noMatchSkipped: q.counts.noMatchSkipped + j.counts.noMatchSkipped,
+    },
+    byStore: { quotes: q.counts, jobs: j.counts },
+  };
+}
+
 // ── ATTRIBUTION GATE (Law 50 spirit) ─────────────────────────────────────────────────────────────
 
 // Enforcement switch. The roster picker is wired (step 2), so the attribution gate is now LIVE: with an
@@ -255,11 +366,74 @@ export function migrateIfNeeded(): Person[] {
   return planned;
 }
 
+// Legacy record stores the backfill reads/writes. Kept as local literals (JOBS_KEY mirrors
+// lib/jobs.ts JOBS_STORAGE_KEY) so people.ts stays decoupled from those modules.
+const SAVED_QUOTES_KEY = 'pmz_saved_quotes';
+const JOBS_KEY = 'pmz_jobs_v1';
+
+function readRecordArray(key: string): AttributableRecord[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// Run the legacy-attribution backfill ONCE, guarded by ATTRIBUTION_BACKFILL_KEY. Idempotent even if the
+// flag write were to fail — the per-record guard skips already-attributed records — so a re-run can
+// never double-attribute or clobber. A store is rewritten only when it actually gained an attribution;
+// the flag always records the summary (matched / ambiguous-skipped / no-match-skipped) so the numbers
+// stay inspectable later. MONEY UNTOUCHED: only the attribution field is ever written back.
+export function runAttributionBackfillIfNeeded(people: Person[]): void {
+  if (typeof localStorage === 'undefined') return;
+  let flag: string | null;
+  try {
+    flag = localStorage.getItem(ATTRIBUTION_BACKFILL_KEY);
+  } catch {
+    return;
+  }
+  const quotes = readRecordArray(SAVED_QUOTES_KEY);
+  const jobs = readRecordArray(JOBS_KEY);
+  const plan = planAttributionBackfill(flag, quotes, jobs, people);
+  if (plan === null) return; // flag present → already ran
+  try {
+    if (plan.byStore.quotes.matched > 0) localStorage.setItem(SAVED_QUOTES_KEY, JSON.stringify(plan.quotes));
+  } catch {
+    // storage error — leave the store; the guard keeps a later re-run safe
+  }
+  try {
+    if (plan.byStore.jobs.matched > 0) localStorage.setItem(JOBS_KEY, JSON.stringify(plan.jobs));
+  } catch {
+    // storage error — as above
+  }
+  try {
+    localStorage.setItem(
+      ATTRIBUTION_BACKFILL_KEY,
+      JSON.stringify({
+        ranAt: nowIso(),
+        matched: plan.counts.matched,
+        ambiguousSkipped: plan.counts.ambiguousSkipped,
+        noMatchSkipped: plan.counts.noMatchSkipped,
+        byStore: plan.byStore,
+      })
+    );
+  } catch {
+    // couldn't record the flag — the backfill still ran; the guard makes a re-run harmless
+  }
+}
+
 export function usePeople() {
   const [people, setPeople] = useState<Person[]>([]);
 
   const load = useCallback(() => {
-    setPeople(migrateIfNeeded());
+    const list = migrateIfNeeded();
+    // Runs on load; guarded by ATTRIBUTION_BACKFILL_KEY so it can never run twice. Needs the roster
+    // (list) to match legacy name-strings against, so it runs right after migration.
+    runAttributionBackfillIfNeeded(list);
+    setPeople(list);
   }, []);
 
   useEffect(() => {

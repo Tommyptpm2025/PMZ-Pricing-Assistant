@@ -23,6 +23,8 @@ import {
   migratePeople,
   planMigration,
   salespersonGateBlocks,
+  backfillAttribution,
+  planAttributionBackfill,
 } from "../lib/people.ts";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -141,3 +143,70 @@ console.log("PASS: people migration — consolidates both registries + legacy es
   );
 }
 console.log("PASS: people wiring — quote carries salespersonId (round-trips; legacy name still loads); saveQuote writes it; the gate is LIVE (ROSTER_PICKER_ENABLED=true), picker stores the id");
+
+// ── 4 — LEGACY ATTRIBUTION BACKFILL: claim the history without touching money ──────────────────────
+{
+  // Roster: p1 unique; p2 unique; p3 & p4 SHARE a name (case-insensitively) → that name is ambiguous.
+  const roster = [
+    { id: "p1", name: "Ann Roster", roles: ["salesperson"], active: true, createdAt: "2026-01-01T00:00:00Z" },
+    { id: "p2", name: "Bob Byrd", roles: ["salesperson"], active: true, createdAt: "2026-01-01T00:00:00Z" },
+    { id: "p3", name: "Dup Name", roles: ["salesperson"], active: true, createdAt: "2026-01-01T00:00:00Z" },
+    { id: "p4", name: "dup name", roles: ["salesperson"], active: false, createdAt: "2026-01-01T00:00:00Z" },
+  ];
+
+  // Quote-shaped records carrying MONEY fields, so we can prove nothing but attribution changes.
+  const quotes = [
+    { id: "q1", salesperson: "Ann Roster", totalRevenue: 10000, grossProfitDollars: 2500, status: "Approved", createdAt: "2026-03-01" }, // exact match → p1
+    { id: "q2", salesperson: "  ann roster  ", totalRevenue: 20000, status: "Lost" },       // case + whitespace variant → p1
+    { id: "q3", salesperson: "Nobody Here", totalRevenue: 30000 },                          // unknown → skipped
+    { id: "q4", salesperson: "Dup Name", totalRevenue: 40000 },                             // ambiguous (p3/p4) → skipped
+    { id: "q5", salesperson: "Ann Roster", salespersonId: "pX", totalRevenue: 50000 },       // ALREADY attributed → untouched
+    { id: "q6", totalRevenue: 60000 },                                                      // no legacy name → not a candidate
+  ];
+  const before = JSON.parse(JSON.stringify(quotes)); // deep snapshot for byte-identical proof
+  const { records: out, counts } = backfillAttribution(quotes, roster);
+
+  // exact + case/whitespace matches get the id; the legacy NAME STRING stays for provenance
+  assert.equal(out[0].salespersonId, "p1", "exact-name match gets the roster id");
+  assert.equal(out[0].salesperson, "Ann Roster", "the legacy name string is kept in place (provenance)");
+  assert.equal(out[1].salespersonId, "p1", "a case + whitespace variant still matches the same person");
+
+  // unknown + ambiguous are skipped (never guessed)
+  assert.equal(out[2].salespersonId, undefined, "an unknown name is skipped — no id written");
+  assert.equal(out[3].salespersonId, undefined, "two people share the name → ambiguous → skipped, never guessed");
+
+  // MUTATION TARGET: an already-attributed record is NEVER overwritten (its 'pX' survives, not 'p1').
+  assert.equal(out[4].salespersonId, "pX", "an existing salespersonId is NEVER overwritten (kept 'pX', not reassigned to 'p1')");
+  assert.equal(out[5].salespersonId, undefined, "a record with no legacy name is not a candidate — nothing written");
+
+  // counts are inspectable: 2 matched, 1 ambiguous, 1 no-match (q6 has no name → counted in none)
+  assert.deepEqual(counts, { matched: 2, ambiguousSkipped: 1, noMatchSkipped: 1 }, "counts: 2 matched, 1 ambiguous-skipped, 1 no-match-skipped");
+
+  // BYTE-IDENTICAL: strip attribution, everything else (money, status, date, id) is unchanged
+  const stripId = ({ salespersonId, ...rest }) => rest;
+  for (let i = 0; i < quotes.length; i++) {
+    assert.deepEqual(stripId(out[i]), stripId(before[i]), `record ${i}: every non-attribution field is byte-identical (money never touched)`);
+  }
+  // unchanged records are returned by the SAME reference; only matched ones are fresh copies
+  assert.ok(out[2] === quotes[2] && out[3] === quotes[3] && out[4] === quotes[4] && out[5] === quotes[5], "skipped/untouched records are the same object reference — no needless rewrite");
+  assert.ok(out[0] !== quotes[0] && out[1] !== quotes[1], "a matched record is a NEW object (input never mutated)");
+  assert.equal(quotes[0].salespersonId, undefined, "the input array was not mutated in place");
+
+  // planAttributionBackfill: combines both stores + the runs-once guard
+  const jobs = [
+    { id: "j1", salesperson: "BOB BYRD", contractValue: 99999 }, // case variant → p2
+    { id: "j2", salesperson: "Ghost", contractValue: 1 },        // no match
+  ];
+  const plan = planAttributionBackfill(null, quotes, jobs, roster);
+  assert.ok(plan !== null, "flag absent (null) → the backfill plan runs");
+  assert.deepEqual(plan.byStore.quotes, { matched: 2, ambiguousSkipped: 1, noMatchSkipped: 1 }, "per-store quote counts");
+  assert.deepEqual(plan.byStore.jobs, { matched: 1, ambiguousSkipped: 0, noMatchSkipped: 1 }, "per-store job counts (Bob matched by case-variant, Ghost skipped)");
+  assert.deepEqual(plan.counts, { matched: 3, ambiguousSkipped: 1, noMatchSkipped: 2 }, "combined counts across both stores");
+  assert.equal(plan.jobs[0].salespersonId, "p2", "a job record is attributed too");
+  assert.equal(plan.quotes[4].salespersonId, "pX", "an already-attributed record stays untouched inside the plan as well");
+
+  // runs-once guard: ANY existing flag value blocks a re-run (never twice)
+  assert.equal(planAttributionBackfill('{"matched":3}', quotes, jobs, roster), null, "a present flag → the backfill NEVER runs again");
+  assert.equal(planAttributionBackfill("", quotes, jobs, roster), null, "even an empty-string flag value blocks a re-run — presence is the guard");
+}
+console.log("PASS: people attribution backfill — exact/case/whitespace match gets the id; unknown & ambiguous skipped; existing id never overwritten; money byte-identical; runs once");
