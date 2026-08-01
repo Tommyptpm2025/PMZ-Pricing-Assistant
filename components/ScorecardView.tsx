@@ -28,6 +28,48 @@ const deltaClass = (n: number | null) =>
 
 const YEARS = [2025, 2026, 2027];
 
+// The source workbook's three-column shape, used at EVERY altitude (company → work type → person) so
+// the eye learns one format once: GOALS (Sales $ / Margin % / Margin $) beside BOOKED (same three),
+// then Delta $ and % to Goal. The vertical rules mark the Goals / Booked / to-Goal blocks.
+function GroupedHead({ firstCol }: { firstCol: string }) {
+  return (
+    <TableHeader>
+      <TableRow>
+        <TableHead rowSpan={2}>{firstCol}</TableHead>
+        <TableHead colSpan={3} className="border-l text-center text-[11px] uppercase tracking-wide text-muted-foreground">Goals</TableHead>
+        <TableHead colSpan={3} className="border-l text-center text-[11px] uppercase tracking-wide text-muted-foreground">Booked</TableHead>
+        <TableHead rowSpan={2} className="border-l text-right">Delta $</TableHead>
+        <TableHead rowSpan={2} className="text-right">% to Goal</TableHead>
+      </TableRow>
+      <TableRow>
+        <TableHead className="border-l text-right">Sales $</TableHead>
+        <TableHead className="text-right">Margin %</TableHead>
+        <TableHead className="text-right">Margin $</TableHead>
+        <TableHead className="border-l text-right">Sales $</TableHead>
+        <TableHead className="text-right">Margin %</TableHead>
+        <TableHead className="text-right">Margin $</TableHead>
+      </TableRow>
+    </TableHeader>
+  );
+}
+
+// The eight data cells of the shared shape for one ScorecardCell. Goal side dashes when no goal exists
+// (never 0%, never an error); the Booked side is always a real number.
+function CellCols({ c }: { c: ScorecardCell }) {
+  return (
+    <>
+      <TableCell className="border-l text-right tabular-nums">{money0(c.goal?.salesDollars ?? null)}</TableCell>
+      <TableCell className="text-right tabular-nums">{pct1(c.goal?.marginPct ?? null)}</TableCell>
+      <TableCell className="text-right tabular-nums">{money0(c.goal?.marginDollars ?? null)}</TableCell>
+      <TableCell className="border-l text-right tabular-nums">{money(c.actual.salesDollars)}</TableCell>
+      <TableCell className="text-right tabular-nums">{pct1(c.actual.marginPct)}</TableCell>
+      <TableCell className="text-right tabular-nums">{money(c.actual.gpDollars)}</TableCell>
+      <TableCell className={cn("border-l text-right tabular-nums", deltaClass(c.salesDeltaDollars))}>{delta(c.salesDeltaDollars)}</TableCell>
+      <TableCell className="text-right tabular-nums font-semibold">{pct1(c.salesPercentToGoal)}</TableCell>
+    </>
+  );
+}
+
 export function ScorecardView({ rows, people }: { rows: TrackerRow[]; people: Person[] }) {
   const { goals } = useSalesGoals();
   const { workTypes } = useWorkTypes();
@@ -102,49 +144,30 @@ export function ScorecardView({ rows, people }: { rows: TrackerRow[]; people: Pe
         {YearPicker}
       </div>
 
-      {/* SUMMARY FIRST — company totals: summed goals vs booked actuals, delta, % to goal */}
+      {/* COMPANY BLOCK — "how is the year going": each work type in the three-column shape, rolled up
+          to the bolded company Totals row. */}
       <Card className="card">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Company — Goals vs Booked</CardTitle>
-          <CardDescription>Summed goals across everyone vs booked wins this year.</CardDescription>
+          <CardDescription>Each work type&rsquo;s goals beside what was booked, rolled up to the company total.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead></TableHead>
-                  <TableHead className="text-right">Goal</TableHead>
-                  <TableHead className="text-right">Booked (actual)</TableHead>
-                  <TableHead className="text-right">Delta</TableHead>
-                  <TableHead className="text-right">% to Goal</TableHead>
+          <Table>
+            <GroupedHead firstCol="Work Type" />
+            <TableBody>
+              {card.workTypeIds.map((wtId) => (
+                <TableRow key={wtId}>
+                  <TableCell className="font-medium">{wtLabel(wtId)}</TableCell>
+                  <CellCols c={card.byWorkType[wtId]} />
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow>
-                  <TableCell className="font-medium">Sales $</TableCell>
-                  <TableCell className="text-right tabular-nums">{money0(co.goal?.salesDollars ?? null)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{money(co.actual.salesDollars)}</TableCell>
-                  <TableCell className={cn("text-right tabular-nums", deltaClass(co.salesDeltaDollars))}>{delta(co.salesDeltaDollars)}</TableCell>
-                  <TableCell className="text-right tabular-nums font-semibold">{pct1(co.salesPercentToGoal)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="font-medium">Margin $</TableCell>
-                  <TableCell className="text-right tabular-nums">{money0(co.goal?.marginDollars ?? null)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{money(co.actual.gpDollars)}</TableCell>
-                  <TableCell className={cn("text-right tabular-nums", deltaClass(co.marginDeltaDollars))}>{delta(co.marginDeltaDollars)}</TableCell>
-                  <TableCell className="text-right tabular-nums font-semibold">{pct1(co.marginPercentToGoal)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="font-medium">Margin %</TableCell>
-                  <TableCell className="text-right tabular-nums">{pct1(co.goal?.marginPct ?? null)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{pct1(co.actual.marginPct)}</TableCell>
-                  <TableCell className="text-right text-muted-foreground">—</TableCell>
-                  <TableCell className="text-right text-muted-foreground">—</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
+              ))}
+              {/* Roll-up Totals row — bolded, like the workbook's Totals line */}
+              <TableRow className="border-t-2 bg-muted/40 font-semibold">
+                <TableCell>All work types</TableCell>
+                <CellCols c={co} />
+              </TableRow>
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 
@@ -172,48 +195,22 @@ export function ScorecardView({ rows, people }: { rows: TrackerRow[]; people: Pe
                   <span className="w-20 text-right text-sm font-semibold tabular-nums">{pct1(t.salesPercentToGoal)}</span>
                 </button>
 
-                {/* Expanded work-type rows */}
+                {/* Expanded work-type rows — SAME three-column shape as the company block */}
                 {isOpen && (
-                  <div className="border-t px-2 pb-2 pt-1 overflow-x-auto">
+                  <div className="border-t px-2 pb-2 pt-1">
                     <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Work Type</TableHead>
-                          <TableHead className="text-right">Goal Sales</TableHead>
-                          <TableHead className="text-right">Booked</TableHead>
-                          <TableHead className="text-right">Delta</TableHead>
-                          <TableHead className="text-right">% to Goal</TableHead>
-                          <TableHead className="text-right">Goal Mgn $</TableHead>
-                          <TableHead className="text-right">Booked GP</TableHead>
-                          <TableHead className="text-right">Mgn % to Goal</TableHead>
-                        </TableRow>
-                      </TableHeader>
+                      <GroupedHead firstCol="Work Type" />
                       <TableBody>
-                        {card.workTypeIds.map((wtId) => {
-                          const c: ScorecardCell = row.byWorkType[wtId];
-                          return (
-                            <TableRow key={wtId}>
-                              <TableCell className="font-medium">{wtLabel(wtId)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{money0(c.goal?.salesDollars ?? null)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{money(c.actual.salesDollars)}</TableCell>
-                              <TableCell className={cn("text-right tabular-nums", deltaClass(c.salesDeltaDollars))}>{delta(c.salesDeltaDollars)}</TableCell>
-                              <TableCell className="text-right tabular-nums font-medium">{pct1(c.salesPercentToGoal)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{money0(c.goal?.marginDollars ?? null)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{money(c.actual.gpDollars)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{pct1(c.marginPercentToGoal)}</TableCell>
-                            </TableRow>
-                          );
-                        })}
-                        {/* Person total */}
+                        {card.workTypeIds.map((wtId) => (
+                          <TableRow key={wtId}>
+                            <TableCell className="font-medium">{wtLabel(wtId)}</TableCell>
+                            <CellCols c={row.byWorkType[wtId]} />
+                          </TableRow>
+                        ))}
+                        {/* Person total — same shape, bolded */}
                         <TableRow className="border-t-2 bg-muted/40 font-semibold">
                           <TableCell>Total</TableCell>
-                          <TableCell className="text-right tabular-nums">{money0(t.goal?.salesDollars ?? null)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{money(t.actual.salesDollars)}</TableCell>
-                          <TableCell className={cn("text-right tabular-nums", deltaClass(t.salesDeltaDollars))}>{delta(t.salesDeltaDollars)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{pct1(t.salesPercentToGoal)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{money0(t.goal?.marginDollars ?? null)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{money(t.actual.gpDollars)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{pct1(t.marginPercentToGoal)}</TableCell>
+                          <CellCols c={t} />
                         </TableRow>
                       </TableBody>
                     </Table>
