@@ -10,7 +10,7 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:epp && npm run test:pipeline && npm run test:quote-doc && npm run test:superuser && npm run test:variance && npm run test:lem-gate && npm run test:numeric-entry && npm run test:send-gate && npm run test:gate-panel && npm run test:customer-resolve && npm run test:customer-recipient && npm run test:customer-present && npm run test:flat-rate && npm run test:target-guidance && npm run test:people && npm run test:sales-tracker",
+    "test": "npm run test:epp && npm run test:pipeline && npm run test:quote-doc && npm run test:superuser && npm run test:variance && npm run test:lem-gate && npm run test:numeric-entry && npm run test:send-gate && npm run test:gate-panel && npm run test:customer-resolve && npm run test:customer-recipient && npm run test:customer-present && npm run test:flat-rate && npm run test:target-guidance && npm run test:people && npm run test:sales-tracker && npm run test:worktype-backfill",
     "test:epp": "node --import ./scripts/ts-ext-register.mjs scripts/epp-roundtrip.test.mjs",
     "test:pipeline": "node --import ./scripts/ts-ext-register.mjs scripts/pipeline-fence.test.mjs",
     "test:quote-doc": "node --import ./scripts/ts-ext-register.mjs scripts/quote-document-fence.test.mjs",
@@ -26,7 +26,8 @@
     "test:flat-rate": "node --import ./scripts/ts-ext-register.mjs scripts/flat-rate-fence.test.mjs",
     "test:target-guidance": "node --import ./scripts/ts-ext-register.mjs scripts/target-guidance-fence.test.mjs",
     "test:people": "node --import ./scripts/ts-ext-register.mjs scripts/people-fence.test.mjs",
-    "test:sales-tracker": "node --import ./scripts/ts-ext-register.mjs scripts/sales-tracker-fence.test.mjs"
+    "test:sales-tracker": "node --import ./scripts/ts-ext-register.mjs scripts/sales-tracker-fence.test.mjs",
+    "test:worktype-backfill": "node --import ./scripts/ts-ext-register.mjs scripts/worktype-backfill-fence.test.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",
