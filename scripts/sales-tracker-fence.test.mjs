@@ -224,3 +224,97 @@ assert.equal(emptyCard.companyTotal.salesPercentToGoal, null, "no goal → compa
 assert.equal(emptyCard.people.length, 2, "roster salespeople still appear as (empty) rows");
 assert.equal(emptyCard.people[0].total.actual.salesDollars, 0, "an empty row shows zero actuals, not a crash");
 console.log("PASS: sales-tracker scorecard — goals×booked-wins by work type; margin$ = sales×%; missing-goal cells null (never 100%/#DIV/0!); each person scored on their OWN goals; totals both directions; zero guarded");
+
+// ── 7 — SCORECARD *PERFORMED* BLOCK (recognized money, beside BOOKED) ──────────────────────────────────
+// BOOKED answers "what did he sell"; PERFORMED answers "what has the company actually earned". A job that
+// is booked but NOT yet recognized belongs to BOOKED only. Recognition is NOT restated in the scorecard —
+// it is inherited from TrackerRow.actuals (Invoiced / Paid / legacy Completed; GP only on complete cost).
+// Fixtures, all 2026, Ann=p1 / Bob=p2, work types wtA / wtB:
+//   pf1  Ann wtA  Invoiced, complete cost   bid 100000 gpAtBid 25000 | cost 70000  → performed 100000, GP 30000 (30%)
+//   pf2  Ann wtA  Approved, NOT invoiced    bid  60000 gpAtBid 15000               → BOOKED ONLY, performed nothing
+//   pf3  Ann wtB  Invoiced, INCOMPLETE cost bid  50000 gpAtBid 12500               → performed 50000, GP null
+//   pf4  Bob wtA  legacy Completed + CO     bid  80000 gpAtBid 20000 | CO 5000, cost 63750 → performed 85000, GP 21250 (25%)
+//   pf5  Bob wtB  Approved, NOT invoiced    bid  40000 gpAtBid 10000               → BOOKED ONLY, performed nothing
+const PF_QUOTES = [
+  { id: "pf1", status: "Invoiced",  createdAt: "2026-02-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 100000, grossProfitDollars: 25000, actualCost: 70000, actualCostComplete: true },
+  { id: "pf2", status: "Approved",  createdAt: "2026-03-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 60000,  grossProfitDollars: 15000 },
+  { id: "pf3", status: "Invoiced",  createdAt: "2026-04-01T00:00:00Z", workTypeId: "wtB", salespersonId: "p1", totalRevenue: 50000,  grossProfitDollars: 12500, actualCost: 38000, actualCostComplete: false },
+  { id: "pf4", status: "Completed", createdAt: "2026-05-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p2", totalRevenue: 80000,  grossProfitDollars: 20000, changeOrderRevenue: 5000, actualCost: 63750, actualCostComplete: true },
+  { id: "pf5", status: "Approved",  createdAt: "2026-06-01T00:00:00Z", workTypeId: "wtB", salespersonId: "p2", totalRevenue: 40000,  grossProfitDollars: 10000 },
+  // NOISE that must never reach PERFORMED:
+  { id: "pfn_2025", status: "Invoiced", createdAt: "2025-07-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 999999, grossProfitDollars: 111111, actualCost: 1, actualCostComplete: true }, // wrong year
+  { id: "pfn_lost", status: "Lost",     createdAt: "2026-07-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 888888, grossProfitDollars: 222222, actualCost: 1, actualCostComplete: true }, // lost — never recognized
+];
+const pfRows = deriveTrackerRows(PF_QUOTES, SC_PEOPLE);
+const pcard = computeScorecard(pfRows, GOALS, SC_PEOPLE, 2026);
+const annP = pcard.people.find((r) => r.salespersonId === "p1");
+const bobP = pcard.people.find((r) => r.salespersonId === "p2");
+
+// ---- Invoiced + complete cost: appears in BOTH columns, with DIFFERENT numbers ----
+assert.equal(annP.byWorkType["wtA"].actual.salesDollars, 160000, "Ann/wtA BOOKED sales = pf1 100000 + pf2 60000 (both accepted wins)");
+assert.equal(annP.byWorkType["wtA"].actual.gpDollars, 40000, "Ann/wtA BOOKED GP frozen at bid = 25000 + 15000");
+// ---- MUTATION TARGET: PERFORMED must exclude the booked-but-unrecognized job ----
+// Making PERFORMED fall back to the bid for ACCEPTED rows yields 160000 here and this assertion FAILS,
+// naming pf2 — the Approved-but-not-invoiced job that belongs to BOOKED only.
+assert.equal(annP.byWorkType["wtA"].performed.salesDollars, 100000, "Ann/wtA PERFORMED sales = pf1 (Invoiced) 100000 ONLY — pf2 is Accepted-but-not-invoiced: BOOKED, never PERFORMED");
+assert.equal(annP.byWorkType["wtA"].performed.gpDollars, 30000, "Ann/wtA PERFORMED GP = recognized revenue 100000 − complete actual cost 70000 = 30000 (NOT the 25000 booked at bid)");
+near(annP.byWorkType["wtA"].performed.marginPct, 30, "Ann/wtA PERFORMED margin = 30000/100000 = 30% — the job earned better than the 25% it was sold at");
+assert.equal(annP.byWorkType["wtA"].performed.jobCount, 1, "Ann/wtA recognized exactly one job");
+assert.equal(annP.byWorkType["wtA"].performed.costedJobCount, 1, "Ann/wtA that one job has complete cost data");
+
+// ---- Accepted but not invoiced, standing ALONE: BOOKED shows, PERFORMED is blank (never zero) ----
+assert.equal(bobP.byWorkType["wtB"].actual.salesDollars, 40000, "Bob/wtB BOOKED sales = pf5 40000 — an accepted win counts the moment it is accepted");
+assert.equal(bobP.byWorkType["wtB"].performed.salesDollars, null, "Bob/wtB PERFORMED sales null — pf5 was never invoiced, so nothing is earned: a DASH, never $0");
+assert.equal(bobP.byWorkType["wtB"].performed.gpDollars, null, "Bob/wtB PERFORMED GP null — nothing recognized to compute margin from");
+assert.equal(bobP.byWorkType["wtB"].performed.marginPct, null, "Bob/wtB PERFORMED margin null — never NaN, never 0%");
+assert.equal(bobP.byWorkType["wtB"].performed.jobCount, 0, "Bob/wtB recognized no jobs");
+
+// ---- Invoiced with INCOMPLETE cost: sales recognized, margin blank ----
+assert.equal(annP.byWorkType["wtB"].performed.salesDollars, 50000, "Ann/wtB PERFORMED sales = 50000 — revenue IS recognized at Invoiced even with incomplete cost data");
+assert.equal(annP.byWorkType["wtB"].performed.gpDollars, null, "Ann/wtB PERFORMED GP null — cost data incomplete: blank, never an estimate, never negative-by-omission");
+assert.equal(annP.byWorkType["wtB"].performed.marginPct, null, "Ann/wtB PERFORMED margin null — no GP to divide");
+assert.equal(annP.byWorkType["wtB"].performed.costedSalesDollars, 0, "Ann/wtB no costed revenue backs a margin");
+assert.equal(annP.byWorkType["wtB"].performed.jobCount, 1, "Ann/wtB recognized one job (revenue counted)...");
+assert.equal(annP.byWorkType["wtB"].performed.costedJobCount, 0, "...of which none carries complete cost — the coverage gap is reported, not hidden");
+
+// ---- Legacy Completed is realized money, and change orders join PERFORMED revenue (not the bid) ----
+assert.equal(bobP.byWorkType["wtA"].actual.salesDollars, 80000, "Bob/wtA BOOKED sales = the frozen bid 80000 — the change order is NOT booked revenue");
+assert.equal(bobP.byWorkType["wtA"].performed.salesDollars, 85000, "Bob/wtA PERFORMED sales = bid 80000 + approved change order 5000 — legacy Completed recognizes, same rules as Invoiced");
+assert.equal(bobP.byWorkType["wtA"].performed.gpDollars, 21250, "Bob/wtA PERFORMED GP = 85000 − 63750 = 21250");
+near(bobP.byWorkType["wtA"].performed.marginPct, 25, "Bob/wtA PERFORMED margin = 21250/85000 = 25%");
+
+// ---- Person totals ----
+assert.equal(annP.total.actual.salesDollars, 210000, "Ann TOTAL BOOKED = 100000 + 60000 + 50000");
+assert.equal(annP.total.performed.salesDollars, 150000, "Ann TOTAL PERFORMED = pf1 100000 + pf3 50000 — pf2 never recognized");
+assert.equal(annP.total.performed.gpDollars, 30000, "Ann TOTAL PERFORMED GP = pf1 only (pf3's cost is incomplete)");
+assert.equal(annP.total.performed.costedSalesDollars, 100000, "Ann's margin denominator is the COSTED slice (100000), not all recognized sales (150000)");
+near(annP.total.performed.marginPct, 30, "Ann TOTAL PERFORMED margin = 30000/100000 = 30% — ties out to the dollars it was computed from, NOT 30000/150000");
+assert.equal(annP.total.performed.jobCount, 2, "Ann recognized 2 jobs...");
+assert.equal(annP.total.performed.costedJobCount, 1, "...1 of them fully costed — the margin covers part of the total, and says so");
+assert.equal(bobP.total.performed.salesDollars, 85000, "Bob TOTAL PERFORMED = pf4 only (pf5 not invoiced)");
+near(bobP.total.performed.marginPct, 25, "Bob TOTAL PERFORMED margin = 21250/85000 = 25%");
+
+// ---- Both-direction totals: work type and company ----
+assert.equal(pcard.byWorkType["wtA"].performed.salesDollars, 185000, "company wtA PERFORMED = pf1 100000 + pf4 85000");
+assert.equal(pcard.byWorkType["wtA"].performed.gpDollars, 51250, "company wtA PERFORMED GP = 30000 + 21250");
+assert.equal(pcard.byWorkType["wtB"].performed.salesDollars, 50000, "company wtB PERFORMED = pf3 only (pf5 unrecognized)");
+assert.equal(pcard.byWorkType["wtB"].performed.gpDollars, null, "company wtB PERFORMED GP null — its only recognized job has incomplete cost");
+assert.equal(pcard.companyTotal.actual.salesDollars, 330000, "company TOTAL BOOKED = 100000+60000+50000+80000+40000");
+assert.equal(pcard.companyTotal.performed.salesDollars, 235000, "company TOTAL PERFORMED = 100000 + 50000 + 85000 — 2025 and LOST noise excluded");
+assert.equal(pcard.companyTotal.performed.gpDollars, 51250, "company TOTAL PERFORMED GP = 30000 + 21250");
+assert.equal(pcard.companyTotal.performed.costedSalesDollars, 185000, "company margin denominator = the costed slice 185000, not 235000");
+near(pcard.companyTotal.performed.marginPct, (51250 / 185000) * 100, "company TOTAL PERFORMED margin = 51250/185000");
+assert.equal(pcard.companyTotal.performed.jobCount, 3, "3 recognized jobs company-wide (the 2025 Invoiced job is a different year)");
+assert.equal(pcard.companyTotal.performed.costedJobCount, 2, "2 of the 3 fully costed");
+assert.ok(
+  pcard.companyTotal.performed.salesDollars < pcard.companyTotal.actual.salesDollars,
+  "PERFORMED trails BOOKED while work is in flight — that gap is the answer to a real question, not an error"
+);
+
+// ---- A cell with NO goal still reports performed; an empty scorecard divides by nothing ----
+assert.equal(bobP.byWorkType["wtB"].goal, null, "Bob/wtB has no goal (unchanged by the performed block)");
+const emptyPerf = computeScorecard([], [], SC_PEOPLE, 2026).companyTotal.performed;
+assert.equal(emptyPerf.salesDollars, null, "no rows → company PERFORMED sales null, never a phantom $0");
+assert.equal(emptyPerf.marginPct, null, "no rows → company PERFORMED margin null, never NaN/Infinity");
+assert.equal(emptyPerf.jobCount, 0, "no rows → no recognized jobs");
+console.log("PASS: sales-tracker scorecard PERFORMED — recognized money beside booked (Invoiced/Paid/legacy Completed only, inherited from row actuals); booked-not-invoiced never performs; GP only on complete cost with the margin tied to its costed denominator; change orders join performed revenue; totals both directions; blanks never zeros");

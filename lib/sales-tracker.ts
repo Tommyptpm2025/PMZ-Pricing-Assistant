@@ -14,9 +14,10 @@ import type { SalesGoal } from "./sales-goals";
  *   computeScoreboard(rows) — per work type AND all-up: win/loss ratios by DOLLARS and by COUNT,
  *     accepted GP, blended margin. All derived; every division guarded against a zero denominator.
  *   computeScorecard(rows, goals, people, year) — the goals-vs-actuals scorecard grid, BY WORK TYPE
- *     (gaveled), per salesperson and both-direction totals. Goals are the boss's entered targets
- *     (Law 82); actuals are BOOKED wins. Every division guarded — this grid is incapable of the source
- *     workbook's #DIV/0! by construction. See computeScorecard for the scoping law.
+ *     (gaveled), per salesperson and both-direction totals. Three blocks per cell: GOALS (the boss's
+ *     entered targets, Law 82), BOOKED (wins sold), PERFORMED (recognized money). Every division
+ *     guarded — this grid is incapable of the source workbook's #DIV/0! by construction. See
+ *     computeScorecard for the scoping law.
  */
 
 export type TrackerBucket = "BID" | "ACCEPTED" | "LOST";
@@ -216,16 +217,26 @@ export function computeScoreboard(rows: TrackerRow[]): Scoreboard {
   return { all: statsFor(rows), byWorkType };
 }
 
-// ── SCORECARD — goals vs actuals, BY WORK TYPE ───────────────────────────────────────────────────────
+// ── SCORECARD — goals vs booked vs performed, BY WORK TYPE ───────────────────────────────────────────
 //
-// DEFINITION (read before touching the math): scorecard ACTUALS are BOOKED wins — what the salesperson
-// SOLD. Sales dollars = the ACCEPTED-bucket bid amount (frozen totalRevenue, Law 56); GP is frozen at
-// bid (gpAtBid). This is NOT the same as execution/recognition actuals — invoiced revenue and realized
-// GP — which live on the tracker ROWS (TrackerRow.actuals) and on the scoreboard, NOT here. A win counts
-// on the scorecard the moment it is accepted; how the job later executes is a different question.
+// DEFINITION (read before touching the math): every cell carries THREE blocks, answering three different
+// questions. Never blend them.
 //
-// GOALS are the boss's entered targets (Law 82, PMZ Informs the Owner Decides) — never derived, never
-// auto-adjusted. Goal margin dollars = goal sales dollars × goal margin percent.
+//   GOALS     — what the boss said to sell. Entered targets (Law 82, PMZ Informs the Owner Decides):
+//               never derived, never auto-adjusted. Goal margin dollars = goal sales × goal margin %.
+//   BOOKED    — what the salesperson SOLD. Sales dollars = the ACCEPTED-bucket bid amount (frozen
+//               totalRevenue, Law 56); GP is frozen at bid (gpAtBid). A win counts the MOMENT it is
+//               accepted — how the job later executes is not this column's question.
+//   PERFORMED — what the company actually EARNED. Recognized revenue and realized GP, straight off
+//               TrackerRow.actuals — the ONE home of the recognition rule (Invoiced / Paid / legacy
+//               Completed only; GP only where the job's actual cost data is complete). Nothing is
+//               re-derived here; if the recognition rule ever changes it changes in deriveTrackerRows
+//               and this column follows.
+//
+// THE POINT OF TWO ACTUAL COLUMNS: a job that is booked but not yet recognized contributes to BOOKED and
+// NOT to PERFORMED. Booked $300k / performed $180k is not an error — it is the answer to "how much of
+// what he sold has the company actually earned?" Any change that makes an unrecognized win show up in
+// PERFORMED destroys that question. The fence mutation-proves exactly this.
 //
 // CRITICAL SCOPING LAW: a salesperson's row is scored against THAT PERSON'S goals only. Company totals
 // use the SUM of the individual goals. One person is NEVER scored against a company-wide goal — the
@@ -247,12 +258,37 @@ export interface ScorecardActual {
   marginPct: number | null;   // gpDollars / salesDollars; null when no booked sales
 }
 
+// PERFORMED — recognized money, aggregated from TrackerRow.actuals. NOTHING here is an estimate and
+// nothing is zero-by-omission:
+//   salesDollars — recognized revenue (frozen bid + approved change orders, per the recognition rule).
+//                  NULL when this cell has recognized nothing yet — a dash, not "$0". (BOOKED shows a
+//                  real 0 against a real goal; PERFORMED shows blank, because "not earned yet" and
+//                  "earned nothing" are different statements and only the first is knowable here.)
+//   gpDollars    — realized GP summed over ONLY the recognized jobs whose actual cost data is complete.
+//                  NULL when no job in the cell has complete cost. A half-costed cell reports the GP it
+//                  can stand behind, never a total inflated by uncosted jobs counted at zero cost.
+//   marginPct    — gpDollars ÷ costedSalesDollars. The denominator is the COSTED slice, not all
+//                  recognized sales, so the percent ties out against the dollars it was computed from.
+//   costedSalesDollars / jobCount / costedJobCount — the coverage facts. When costedJobCount < jobCount
+//                  the margin covers only part of the cell; the display uses this to say so rather than
+//                  letting a partial margin read as a whole one.
+export interface ScorecardPerformed {
+  salesDollars: number | null;
+  gpDollars: number | null;
+  marginPct: number | null;
+  costedSalesDollars: number;  // the revenue the GP was computed against (the marginPct denominator)
+  jobCount: number;            // recognized jobs in this cell
+  costedJobCount: number;      // of those, the ones with complete actual cost data
+}
+
 // One cell of the grid: a (salesperson × work type) intersection, a person's total, a work-type total,
-// or the company total. actual is always present (zeros when there are no wins) so the grid always
-// renders; goal and every to-goal field are null when the boss set no goal for this cell.
+// or the company total. actual (BOOKED) is always present (zeros when there are no wins) so the grid
+// always renders; goal and every to-goal field are null when the boss set no goal for this cell;
+// performed carries nulls where nothing has been recognized/costed.
 export interface ScorecardCell {
   goal: ScorecardGoal | null;
   actual: ScorecardActual;
+  performed: ScorecardPerformed;
   salesDeltaDollars: number | null;    // actual.salesDollars − goal.salesDollars
   marginDeltaDollars: number | null;   // actual.gpDollars − goal.marginDollars
   salesPercentToGoal: number | null;   // actual.salesDollars / goal.salesDollars × 100
@@ -282,6 +318,13 @@ function marginDollarsOf(salesDollars: number, marginPct: number): number {
 
 interface GoalAgg { salesDollars: number; marginDollars: number }
 interface ActualAgg { salesDollars: number; gpDollars: number }
+interface PerformedAgg {
+  salesDollars: number;
+  costedSalesDollars: number;
+  gpDollars: number;
+  jobCount: number;
+  costedJobCount: number;
+}
 
 // Year of a tracker row's date (leading YYYY of the ISO string), or null when absent/unparseable — a
 // row with no usable date can't be attributed to a scorecard year and is left out of it.
@@ -300,20 +343,48 @@ const addActual = (m: Map<string, ActualAgg>, key: string, a: ActualAgg) => {
   if (cur) { cur.salesDollars += a.salesDollars; cur.gpDollars += a.gpDollars; }
   else m.set(key, { salesDollars: a.salesDollars, gpDollars: a.gpDollars });
 };
+const addPerformed = (m: Map<string, PerformedAgg>, key: string, p: PerformedAgg) => {
+  const cur = m.get(key);
+  if (cur) {
+    cur.salesDollars += p.salesDollars;
+    cur.costedSalesDollars += p.costedSalesDollars;
+    cur.gpDollars += p.gpDollars;
+    cur.jobCount += p.jobCount;
+    cur.costedJobCount += p.costedJobCount;
+  } else m.set(key, { ...p });
+};
 
-// Build one cell from a (possibly absent) goal and an actual. No goal → goal + every to-goal field is
-// null (dash). Every division guarded: a zero denominator yields null, never NaN/Infinity, never 100%.
-function buildCell(goal: GoalAgg | null, actual: ActualAgg): ScorecardCell {
+// PERFORMED block from its aggregate. Counts — not dollars — decide blank vs. a number, so a genuinely
+// recognized $0 job is still a number while a cell that recognized nothing stays blank. Division guarded.
+function buildPerformed(p: PerformedAgg): ScorecardPerformed {
+  const gpDollars = p.costedJobCount > 0 ? p.gpDollars : null;
+  return {
+    salesDollars: p.jobCount > 0 ? p.salesDollars : null,
+    gpDollars,
+    marginPct: gpDollars !== null && p.costedSalesDollars > 0 ? (gpDollars / p.costedSalesDollars) * 100 : null,
+    costedSalesDollars: p.costedSalesDollars,
+    jobCount: p.jobCount,
+    costedJobCount: p.costedJobCount,
+  };
+}
+
+// Build one cell from a (possibly absent) goal, the booked actual, and the performed aggregate. No goal
+// → goal + every to-goal field is null (dash). Every division guarded: a zero denominator yields null,
+// never NaN/Infinity, never 100%. To-goal comparisons measure BOOKED against goal — performed is
+// reported beside them, never substituted into them.
+function buildCell(goal: GoalAgg | null, actual: ActualAgg, performed: PerformedAgg): ScorecardCell {
   const actualMarginPct = actual.salesDollars > 0 ? (actual.gpDollars / actual.salesDollars) * 100 : null;
   const actualOut: ScorecardActual = {
     salesDollars: actual.salesDollars,
     gpDollars: actual.gpDollars,
     marginPct: actualMarginPct,
   };
+  const performedOut = buildPerformed(performed);
   if (!goal) {
     return {
       goal: null,
       actual: actualOut,
+      performed: performedOut,
       salesDeltaDollars: null,
       marginDeltaDollars: null,
       salesPercentToGoal: null,
@@ -324,6 +395,7 @@ function buildCell(goal: GoalAgg | null, actual: ActualAgg): ScorecardCell {
   return {
     goal: { salesDollars: goal.salesDollars, marginPct: goalMarginPct, marginDollars: goal.marginDollars },
     actual: actualOut,
+    performed: performedOut,
     salesDeltaDollars: actual.salesDollars - goal.salesDollars,
     marginDeltaDollars: actual.gpDollars - goal.marginDollars,
     salesPercentToGoal: goal.salesDollars > 0 ? (actual.salesDollars / goal.salesDollars) * 100 : null,
@@ -332,6 +404,7 @@ function buildCell(goal: GoalAgg | null, actual: ActualAgg): ScorecardCell {
 }
 
 const EMPTY_ACTUAL: ActualAgg = { salesDollars: 0, gpDollars: 0 };
+const EMPTY_PERFORMED: PerformedAgg = { salesDollars: 0, costedSalesDollars: 0, gpDollars: 0, jobCount: 0, costedJobCount: 0 };
 
 export function computeScorecard(
   rows: TrackerRow[],
@@ -362,8 +435,8 @@ export function computeScorecard(
     workTypeIds.add(g.workTypeId);
   }
 
-  // ── Actuals = BOOKED wins this year (ACCEPTED bucket only). A win with no salespersonId still counts
-  // in the company + work-type totals (an honest company number) but belongs to no person row.
+  // ── BOOKED = wins this year (ACCEPTED bucket only). A win with no salespersonId still counts in the
+  // company + work-type totals (an honest company number) but belongs to no person row.
   const actualByCell = new Map<string, ActualAgg>();     // `${personId}::${wtId}`
   const actualByPerson = new Map<string, ActualAgg>();   // personId
   const actualByWorkType = new Map<string, ActualAgg>(); // wtId
@@ -385,12 +458,56 @@ export function computeScorecard(
     }
   }
 
+  // ── PERFORMED = recognized money this year. The gate is `r.actuals` — a row carries actuals ONLY when
+  // deriveTrackerRows recognized it (Invoiced / Paid / legacy Completed). That is the one home of the
+  // rule and it is NOT restated here: no status list, no bucket test, no fallback to the bid. A booked
+  // win that has not been recognized has null actuals, is skipped by this loop, and therefore appears in
+  // BOOKED and not in PERFORMED — which is the whole point of the two columns.
+  const performedByCell = new Map<string, PerformedAgg>();     // `${personId}::${wtId}`
+  const performedByPerson = new Map<string, PerformedAgg>();   // personId
+  const performedByWorkType = new Map<string, PerformedAgg>(); // wtId
+  let performedCompany: PerformedAgg = { ...EMPTY_PERFORMED };
+  const performedPersonIds = new Set<string>();
+
+  for (const r of rows || []) {
+    const a = r.actuals;
+    if (!a) continue;                              // not recognized — BOOKED only, never PERFORMED
+    if (rowYear(r.date) !== year) continue;        // scoped to the scorecard year, same as booked
+    const wtId = r.workTypeId || "";
+    // GP counts only where the job's actual cost data is complete — deriveTrackerRows already nulls
+    // gpDollars otherwise, so an incomplete job contributes its revenue and NOTHING to the margin.
+    const costed = a.gpDollars !== null;
+    const revenue = a.revenue || 0;
+    const agg: PerformedAgg = {
+      salesDollars: revenue,
+      costedSalesDollars: costed ? revenue : 0,
+      gpDollars: costed ? (a.gpDollars as number) : 0,
+      jobCount: 1,
+      costedJobCount: costed ? 1 : 0,
+    };
+    workTypeIds.add(wtId);
+    addPerformed(performedByWorkType, wtId, agg);
+    performedCompany = {
+      salesDollars: performedCompany.salesDollars + agg.salesDollars,
+      costedSalesDollars: performedCompany.costedSalesDollars + agg.costedSalesDollars,
+      gpDollars: performedCompany.gpDollars + agg.gpDollars,
+      jobCount: performedCompany.jobCount + agg.jobCount,
+      costedJobCount: performedCompany.costedJobCount + agg.costedJobCount,
+    };
+    if (r.salespersonId) {
+      addPerformed(performedByCell, `${r.salespersonId}::${wtId}`, agg);
+      addPerformed(performedByPerson, r.salespersonId, agg);
+      performedPersonIds.add(r.salespersonId);
+    }
+  }
+
   // ── Row set: every active roster salesperson, plus anyone carrying a goal or a booked win this year
   // (an off-roster / departed id still gets scored on their own book). Sorted by resolved name, then id.
   const salespersonIds = new Set<string>();
   for (const p of people || []) if (p.active && p.roles.includes("salesperson")) salespersonIds.add(p.id);
   for (const id of goalPersonIds) salespersonIds.add(id);
   for (const id of actualPersonIds) salespersonIds.add(id);
+  for (const id of performedPersonIds) salespersonIds.add(id); // (a subset of actualPersonIds — kept explicit)
 
   const sortedWorkTypeIds = Array.from(workTypeIds).sort();
   const sortedPersonIds = Array.from(salespersonIds).sort((a, b) => {
@@ -404,14 +521,19 @@ export function computeScorecard(
     for (const wtId of sortedWorkTypeIds) {
       byWorkType[wtId] = buildCell(
         goalByCell.get(`${pid}::${wtId}`) ?? null,
-        actualByCell.get(`${pid}::${wtId}`) ?? EMPTY_ACTUAL
+        actualByCell.get(`${pid}::${wtId}`) ?? EMPTY_ACTUAL,
+        performedByCell.get(`${pid}::${wtId}`) ?? EMPTY_PERFORMED
       );
     }
     return {
       salespersonId: pid,
       salesperson: nameById.get(pid) || pid,
       byWorkType,
-      total: buildCell(goalByPerson.get(pid) ?? null, actualByPerson.get(pid) ?? EMPTY_ACTUAL),
+      total: buildCell(
+        goalByPerson.get(pid) ?? null,
+        actualByPerson.get(pid) ?? EMPTY_ACTUAL,
+        performedByPerson.get(pid) ?? EMPTY_PERFORMED
+      ),
     };
   });
 
@@ -419,13 +541,15 @@ export function computeScorecard(
   for (const wtId of sortedWorkTypeIds) {
     byWorkType[wtId] = buildCell(
       goalByWorkType.get(wtId) ?? null,
-      actualByWorkType.get(wtId) ?? EMPTY_ACTUAL
+      actualByWorkType.get(wtId) ?? EMPTY_ACTUAL,
+      performedByWorkType.get(wtId) ?? EMPTY_PERFORMED
     );
   }
 
   const companyTotal = buildCell(
     goalCompany.salesDollars > 0 || goalCompany.marginDollars > 0 ? goalCompany : null,
-    actualCompany
+    actualCompany,
+    performedCompany
   );
 
   return { year, workTypeIds: sortedWorkTypeIds, people: peopleRows, byWorkType, companyTotal };
