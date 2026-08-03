@@ -12,10 +12,16 @@ import { useWorkTypes, resolveWorkTypeLabel } from "@/lib/work-types";
 import { computeScorecard, type TrackerRow, type ScorecardCell } from "@/lib/sales-tracker";
 
 /**
- * SCORECARD VIEW — goals vs BOOKED actuals, one screen, one question. All math is in
+ * SCORECARD VIEW — goals vs booked vs performed, one screen, one question. All math is in
  * lib/sales-tracker.ts (computeScorecard); this only renders. Summary FIRST (company totals), then one
  * compact, expandable section per salesperson — each scored ONLY against their own goals, a dash where
  * no goal exists. Acceptance rates are NOT duplicated here; they live on the Bids & Jobs view.
+ *
+ * THREE BLOCKS, LAYERED NOT SMASHED: GOALS (what to sell) · BOOKED (what was sold) · PERFORMED (what
+ * was earned). Delta $ and % to Goal stay anchored to BOOKED vs GOALS — that pair measures SELLING
+ * performance and always has. There is deliberately NO second delta pair for performed: the two blocks
+ * sitting side by side ARE the booked-vs-performed comparison, and a reader can subtract two aligned
+ * columns without a third set of numbers competing for the same eye.
  */
 
 const money = (n: number) =>
@@ -28,44 +34,76 @@ const deltaClass = (n: number | null) =>
 
 const YEARS = [2025, 2026, 2027];
 
-// The source workbook's three-column shape, used at EVERY altitude (company → work type → person) so
-// the eye learns one format once: GOALS (Sales $ / Margin % / Margin $) beside BOOKED (same three),
-// then Delta $ and % to Goal. The vertical rules mark the Goals / Booked / to-Goal blocks.
+// SPACE: twelve columns beat nine, so the numeric columns are TIGHTENED rather than dropped — narrower
+// gutters and a smaller numeric type size. Dollars keep full precision (no "$120K" rounding): on a money
+// scorecard the exact number IS the product. The Table primitive already wraps in overflow-x-auto, so a
+// narrow screen scrolls the grid inside its card instead of dropping a column or breaking the page.
+const NUM = "px-1.5 py-2 text-right text-xs tabular-nums";
+const NUM_HEAD = "px-1.5 text-right text-xs";
+const GROUP_HEAD = "border-l px-1.5 text-center text-[11px] uppercase tracking-wide text-muted-foreground";
+
+// The source workbook's three-column shape, used at EVERY altitude (company → work type → person) so the
+// eye learns one format once: GOALS (Sales $ / Margin % / Margin $), then BOOKED (same three), then
+// PERFORMED (same three), then Delta $ and % to Goal. Same header pattern, same order, every altitude.
+// The vertical rules mark the four blocks.
 function GroupedHead({ firstCol }: { firstCol: string }) {
   return (
     <TableHeader>
       <TableRow>
         <TableHead rowSpan={2}>{firstCol}</TableHead>
-        <TableHead colSpan={3} className="border-l text-center text-[11px] uppercase tracking-wide text-muted-foreground">Goals</TableHead>
-        <TableHead colSpan={3} className="border-l text-center text-[11px] uppercase tracking-wide text-muted-foreground">Booked</TableHead>
-        <TableHead rowSpan={2} className="border-l text-right">Delta $</TableHead>
-        <TableHead rowSpan={2} className="text-right">% to Goal</TableHead>
+        <TableHead colSpan={3} className={GROUP_HEAD}>Goals</TableHead>
+        <TableHead colSpan={3} className={GROUP_HEAD}>Booked</TableHead>
+        <TableHead colSpan={3} className={GROUP_HEAD} title="Recognized money: invoiced, paid, or completed jobs only. Margin appears only where the job's actual cost data is complete.">Performed</TableHead>
+        <TableHead rowSpan={2} className={cn(NUM_HEAD, "border-l")} title="Booked sales minus goal sales — selling performance">Delta $</TableHead>
+        <TableHead rowSpan={2} className={NUM_HEAD} title="Booked sales as a percent of goal sales — selling performance">% to Goal</TableHead>
       </TableRow>
       <TableRow>
-        <TableHead className="border-l text-right">Sales $</TableHead>
-        <TableHead className="text-right">Margin %</TableHead>
-        <TableHead className="text-right">Margin $</TableHead>
-        <TableHead className="border-l text-right">Sales $</TableHead>
-        <TableHead className="text-right">Margin %</TableHead>
-        <TableHead className="text-right">Margin $</TableHead>
+        <TableHead className={cn(NUM_HEAD, "border-l")}>Sales $</TableHead>
+        <TableHead className={NUM_HEAD}>Margin %</TableHead>
+        <TableHead className={NUM_HEAD}>Margin $</TableHead>
+        <TableHead className={cn(NUM_HEAD, "border-l")}>Sales $</TableHead>
+        <TableHead className={NUM_HEAD}>Margin %</TableHead>
+        <TableHead className={NUM_HEAD}>Margin $</TableHead>
+        <TableHead className={cn(NUM_HEAD, "border-l")}>Sales $</TableHead>
+        <TableHead className={NUM_HEAD}>Margin %</TableHead>
+        <TableHead className={NUM_HEAD}>Margin $</TableHead>
       </TableRow>
     </TableHeader>
   );
 }
 
-// The eight data cells of the shared shape for one ScorecardCell. Goal side dashes when no goal exists
-// (never 0%, never an error); the Booked side is always a real number.
+// The eleven data cells of the shared shape for one ScorecardCell.
+//   GOALS     — dashes when the boss set no goal for this cell (never 0%, never an error).
+//   BOOKED    — always a real number; a won bid is a fact the moment it is accepted.
+//   PERFORMED — dashes wherever the math handed back null, and those dashes MEAN something specific:
+//               sales dashed = nothing recognized yet (an accepted-but-uninvoiced job shows under BOOKED
+//               with PERFORMED blank); margin dashed with sales shown = recognized, but the job's actual
+//               cost data is incomplete. Never a zero, never an estimate standing in for a fact.
+//   DELTA / % — anchored to BOOKED vs GOALS, unchanged. Selling performance.
 function CellCols({ c }: { c: ScorecardCell }) {
+  const p = c.performed;
+  // A cell can hold several recognized jobs where only some are fully costed. The margin is real but
+  // covers only part of the cell — say so on hover rather than letting a partial margin read as a whole
+  // one. No extra column: the coverage note costs zero width.
+  const partial = p.jobCount > 0 && p.costedJobCount > 0 && p.costedJobCount < p.jobCount;
+  const marginNote = partial
+    ? `Margin covers ${p.costedJobCount} of ${p.jobCount} recognized jobs (${money(p.costedSalesDollars)} of ${money(p.salesDollars ?? 0)}) — the rest have incomplete cost data.`
+    : p.jobCount > 0 && p.costedJobCount === 0
+      ? "Recognized, but no job here has complete cost data yet — margin cannot be stated."
+      : undefined;
   return (
     <>
-      <TableCell className="border-l text-right tabular-nums">{money0(c.goal?.salesDollars ?? null)}</TableCell>
-      <TableCell className="text-right tabular-nums">{pct1(c.goal?.marginPct ?? null)}</TableCell>
-      <TableCell className="text-right tabular-nums">{money0(c.goal?.marginDollars ?? null)}</TableCell>
-      <TableCell className="border-l text-right tabular-nums">{money(c.actual.salesDollars)}</TableCell>
-      <TableCell className="text-right tabular-nums">{pct1(c.actual.marginPct)}</TableCell>
-      <TableCell className="text-right tabular-nums">{money(c.actual.gpDollars)}</TableCell>
-      <TableCell className={cn("border-l text-right tabular-nums", deltaClass(c.salesDeltaDollars))}>{delta(c.salesDeltaDollars)}</TableCell>
-      <TableCell className="text-right tabular-nums font-semibold">{pct1(c.salesPercentToGoal)}</TableCell>
+      <TableCell className={cn(NUM, "border-l")}>{money0(c.goal?.salesDollars ?? null)}</TableCell>
+      <TableCell className={NUM}>{pct1(c.goal?.marginPct ?? null)}</TableCell>
+      <TableCell className={NUM}>{money0(c.goal?.marginDollars ?? null)}</TableCell>
+      <TableCell className={cn(NUM, "border-l")}>{money(c.actual.salesDollars)}</TableCell>
+      <TableCell className={NUM}>{pct1(c.actual.marginPct)}</TableCell>
+      <TableCell className={NUM}>{money(c.actual.gpDollars)}</TableCell>
+      <TableCell className={cn(NUM, "border-l")}>{money0(p.salesDollars)}</TableCell>
+      <TableCell className={NUM} title={marginNote}>{pct1(p.marginPct)}</TableCell>
+      <TableCell className={NUM} title={marginNote}>{money0(p.gpDollars)}</TableCell>
+      <TableCell className={cn(NUM, "border-l", deltaClass(c.salesDeltaDollars))}>{delta(c.salesDeltaDollars)}</TableCell>
+      <TableCell className={cn(NUM, "font-semibold")}>{pct1(c.salesPercentToGoal)}</TableCell>
     </>
   );
 }
@@ -127,7 +165,7 @@ export function ScorecardView({ rows, people }: { rows: TrackerRow[]; people: Pe
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold">Scorecard — {year}</h2>
-            <p className="text-sm text-muted-foreground">Goals vs booked wins. Set at bid, GP frozen.</p>
+            <p className="text-sm text-muted-foreground">Goals vs booked wins vs performed work.</p>
           </div>
           {YearPicker}
         </div>
@@ -152,7 +190,8 @@ export function ScorecardView({ rows, people }: { rows: TrackerRow[]; people: Pe
         <div>
           <h2 className="text-xl font-semibold">Scorecard — {year}</h2>
           <p className="text-sm text-muted-foreground">
-            Goals vs booked wins (what was sold, GP frozen at bid). Each salesperson scored against their own goals.
+            Goals, booked wins (what was sold, GP frozen at bid), and performed work (what was recognized:
+            invoiced, paid, or completed). Each salesperson scored against their own goals.
           </p>
         </div>
         {YearPicker}
@@ -162,8 +201,11 @@ export function ScorecardView({ rows, people }: { rows: TrackerRow[]; people: Pe
           to the bolded company Totals row. */}
       <Card className="card">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Company — Goals vs Booked</CardTitle>
-          <CardDescription>Each work type&rsquo;s goals beside what was booked, rolled up to the company total.</CardDescription>
+          <CardTitle className="text-base">Company — Goals vs Booked vs Performed</CardTitle>
+          <CardDescription>
+            Each work type&rsquo;s goals beside what was booked and what has actually been performed, rolled up
+            to the company total. A dash under Performed means not yet recognized — never a zero.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -206,6 +248,7 @@ export function ScorecardView({ rows, people }: { rows: TrackerRow[]; people: Pe
                   <span className="min-w-0 flex-1 truncate font-medium">{row.salesperson}</span>
                   <span className="hidden sm:block text-xs text-muted-foreground">Goal {money0(t.goal?.salesDollars ?? null)}</span>
                   <span className="text-sm tabular-nums">Booked {money(t.actual.salesDollars)}</span>
+                  <span className="hidden md:block text-xs text-muted-foreground tabular-nums">Performed {money0(t.performed.salesDollars)}</span>
                   <span className="w-20 text-right text-sm font-semibold tabular-nums">{pct1(t.salesPercentToGoal)}</span>
                 </button>
 
