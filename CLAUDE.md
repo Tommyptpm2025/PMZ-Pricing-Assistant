@@ -32,6 +32,15 @@ When unsure which tier a change is, treat it as the second tier and stop.
 - **Flag scope expansion.** If a change turns out to reach further than stated — a shared store, another component, more files than expected — stop and flag it before proceeding.
 - **Plan first for anything structural.** Use Plan Mode; show the diff before applying.
 
+## Session start ritual — check the dev server FIRST
+
+- **At the start of every session, check whether the dev server is serving on `http://localhost:3007`.** Do this before anything else — Tom should never be the one to discover the server is down.
+- **If it is not serving:** start it in the background with `npm run dev` from the `pmz` folder, confirm it returns **200** on `:3007`, and say so in **one line**. No ceremony.
+- **Port 3007 ONLY — never another port, never a `-p` flag** (Law 45, the One-Address Rule). The `dev` script already targets 3007; adding a flag is how split-brain localStorage starts.
+- **If 3007 is blocked by a stale process:** kill that process and start clean.
+- **If the `.next` cache is corrupted:** delete `.next` and restart. It is disposable — never hand-edit it, never work around it.
+- **Never treat webpack-vs-turbopack cache mixing as a code fault.** A production build (`npm run build`) populates `.next` in a form `next dev` chokes on. The symptom looks like broken code; it is not. The cure is always the same: delete `.next`, restart dev. Do not go hunting through `page.tsx` for a bug that isn't there.
+
 ## Local environment — ONE ADDRESS, ONE CABINET
 
 - **The single address is `http://localhost:3007`.** Dev work, verification, and Tom's browser walks all happen there — one origin, one localStorage cabinet.
