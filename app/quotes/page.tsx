@@ -53,6 +53,7 @@ import GatePanel from "@/components/GatePanel";
 import { useRateStore } from "@/lib/rate-store";
 import { buildLineLemDetail, buildLineRecipeSections, buildLineGateFailures, classifyGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
 import { createJobFromQuote, backfillRowCostBasis, loadJobs, saveJobs, computeOwnerVariance, type Job } from "@/lib/jobs";
+import { planWorkOrderSweep, recipeLinesFromQuote, workOrderInputFromQuote } from "@/lib/work-order-sweep";
 import {
   getAllQuotes,
   deleteQuote,
@@ -299,6 +300,44 @@ export default function QuotesPage() {
       if (rawC) setCustomers(JSON.parse(rawC));
     } catch {}
   }, []);
+
+  // ── SELF-HEALING WORK-ORDER SWEEP (lib/work-order-sweep.ts) ────────────────────────────────────
+  // Repairs quotes that reached Accepted-or-beyond without a job record — imported quotes, super-user
+  // jumps past Approved, and anything accepted before work-order creation existed. Create-at-accept is
+  // still the birth path; every job made here comes out of the SAME createJobFromQuote + mapping the
+  // accept path uses. Idempotent with no flag: absence of the job IS the condition, so a second run
+  // finds nothing. Never touches an existing job and never writes to the quote store.
+  //
+  // DEFERS while the rate catalogs are empty. buildLineRecipeSections falls back to the live catalogs
+  // for any row without a stored `rate`, so sweeping before the rate store has loaded would freeze a
+  // ZERO rowCostBasis onto the new job — and backfillRowCostBasis only fills a MISSING basis, never
+  // overwrites a present one, so that zero would be permanent. Same reasoning as the work-type
+  // backfill deferring while its store is empty. Ref-guarded so it runs once per mount, not per render.
+  const sweepRanRef = React.useRef(false);
+  const ratesLoaded =
+    laborRates.length + equipmentRates.length + materialRates.length + miscRates.length > 0;
+  React.useEffect(() => {
+    if (sweepRanRef.current || !ratesLoaded) return;
+    sweepRanRef.current = true;
+    try {
+      const plan = planWorkOrderSweep(readRawQuotes(), loadJobs(), (it) =>
+        buildLineRecipeSections(it, lemCats)
+      );
+      if (plan.createdCount === 0) return;
+      saveJobs(plan.jobs);
+      setWorkOrderQuoteIds((prev) => {
+        const next = new Set(prev);
+        for (const j of plan.created) if (j.quoteId) next.add(j.quoteId);
+        return next;
+      });
+      console.log(
+        `[work-order-sweep] Created ${plan.createdCount} missing work order${plan.createdCount === 1 ? "" : "s"} for accepted-or-later quotes.`
+      );
+    } catch {
+      // A sweep failure must never break the Quotes page — the repair simply retries next load.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ratesLoaded]);
 
   function refresh() {
     setAllQuotes(getAllQuotes());
@@ -738,11 +777,7 @@ export default function QuotesPage() {
     // Recipe grouped per bid line + per crew. buildLineRecipeSections carries a per-row bid-time
     // unitCost that createJobFromQuote peels into the owner-only rowCostBasis; the persisted foreman
     // rows stay cost-stripped (zero-dollars law). Computed once — used to create OR to backfill.
-    const recipeLines = items.map((it) => ({
-      lineId: it.id,
-      description: it.description,
-      sections: buildLineRecipeSections(it, lemCats),
-    }));
+    const recipeLines = recipeLinesFromQuote(quote, (it) => buildLineRecipeSections(it, lemCats));
 
     // Already has a work order? Don't create a second — but DO backfill a MISSING cost basis so a
     // job created before rowCostBasis existed can be re-accepted to enable Estimate vs. Actual.
@@ -758,23 +793,9 @@ export default function QuotesPage() {
       return false;
     }
 
-    const job = createJobFromQuote({
-      quoteId: quote.id,
-      jobName: quote.jobName,
-      customerName: quote.customerName || quote.customer || undefined,
-      workTypeName: quote.workType || "",
-      salesperson: quote.salesperson || "",
-      contractValue: quote.grandTotal ?? quote.totalRevenue ?? 0,
-      bidItems: items.map((it) => ({
-        id: it.id,
-        description: it.description,
-        quantity: it.quantity,
-        unit: it.unit,
-        unitPrice: it.unitPrice,
-      })),
-      recipeLines,
-      quoteJobSiteAddress: quote.jobSiteAddress || quote.customerDetails?.jobSiteAddress,
-    });
+    // workOrderInputFromQuote is the ONE quote→job mapping, shared with the load-time repair sweep
+    // (lib/work-order-sweep.ts) so a repaired job is identical to one born here.
+    const job = createJobFromQuote(workOrderInputFromQuote(quote, recipeLines));
     saveJobs([...loadJobs(), job]);
     setWorkOrderQuoteIds((prev) => new Set(prev).add(quote.id));
     return true;
