@@ -82,9 +82,11 @@ export interface Job {
   // Quote snapshot (what was sold / bid)
   jobName: string;
   customerName?: string; // snapshotted for the foreman work order header
-  // Customer-registry id. NOT written at creation (createJobFromQuote snapshots the name only) — it
-  // exists so the one-shot customer backfill (lib/customer-attribution.ts) can claim historic jobs by
-  // name. Absent on every job the birth path makes; nothing reads it yet.
+  // Customer-registry id, stamped at birth from the accepted quote. The job is a SNAPSHOT taken at
+  // accept, and the customer's id belongs in it — a name string alone can only be re-matched by
+  // guessing later. Absent when the quote itself had no id (a free-text customer never in the
+  // registry) and on jobs made before this existed; the one-shot backfill
+  // (lib/customer-attribution.ts) claims those historic ones by name.
   customerId?: string;
   workTypeName: string;
   salesperson: string;
@@ -206,6 +208,7 @@ export interface CreateJobInput {
   quoteId?: string;
   jobName: string;
   customerName?: string;
+  customerId?: string;
   workTypeName: string;
   salesperson: string;
   contractValue: number;
@@ -269,6 +272,8 @@ export function createJobFromQuote(input: CreateJobInput): Job {
     quoteId: input.quoteId,
     jobName: input.jobName.trim() || "Untitled Job",
     customerName: input.customerName?.trim() || undefined,
+    customerId: input.customerId?.trim() || undefined, // the snapshot carries WHO, by id — not just the name
+
     workTypeName: input.workTypeName,
     salesperson: input.salesperson,
     contractValue: Math.max(0, input.contractValue),

@@ -23,6 +23,8 @@ import assert from "node:assert/strict";
 import { resolveSalespersonFromHandoff, showsLegacySalespersonHint } from "../lib/people.ts";
 import { resolveCustomerFromHandoff } from "../lib/customer-resolve.ts";
 import { backfillCustomerIds, planCustomerBackfill } from "../lib/customer-attribution.ts";
+import { createJobFromQuote } from "../lib/jobs.ts";
+import { workOrderInputFromQuote } from "../lib/work-order-sweep.ts";
 
 // ── 1 — SALESPERSON: THE ID MUST SURVIVE THE HANDOFF ──────────────────────────────────────────────
 // Roster: Scott is active and sells. Dana is on the roster but INACTIVE. Two Morgans share a name.
@@ -150,3 +152,31 @@ assert.equal(plan.jobs[0].customerId, "c_sbi", "…and the orphan job");
 assert.equal(planCustomerBackfill('{"matched":3}', quotesIn, jobsIn, REGISTRY), null, "a present flag → the backfill NEVER runs again");
 assert.equal(planCustomerBackfill("", quotesIn, jobsIn, REGISTRY), null, "even an empty-string flag value blocks a re-run — presence is the guard");
 console.log("PASS: customer backfill plan — per-store and combined counts; runs-once guard honored (any flag value blocks a re-run)");
+
+// ── 4 — THE JOB STAMPS customerId AT BIRTH ────────────────────────────────────────────────────────
+// Ruling: the job is a SNAPSHOT taken at accept, and the customer's id belongs in it. A name string
+// alone can only ever be re-matched by guessing later — which is what the backfill above exists to
+// clean up, and what a birth-path stamp stops needing. Tested through workOrderInputFromQuote, the
+// ONE quote→job mapping both the accept path and the repair sweep feed createJobFromQuote from, so
+// this proves the stamp for BOTH doors at once.
+const acceptedQuote = {
+  id: "q_born", quoteType: "EPP", status: "Approved",
+  jobName: "Downtown Plaza", customer: "SBI CONSTRUCTION", customerId: "c_sbi",
+  workType: "Paving", salesperson: "Scott Sinnott", grandTotal: 41000,
+  eppLineItems: [{ id: "l1", description: "Mill and overlay", quantity: 10, unit: "TON", unitPrice: 400 }],
+};
+const bornWithId = createJobFromQuote(workOrderInputFromQuote(acceptedQuote, []));
+assert.equal(bornWithId.customerId, "c_sbi", "a job created from a quote WITH a customerId carries that id — the snapshot is complete");
+assert.equal(bornWithId.customerName, "SBI CONSTRUCTION", "…alongside the name, which is still snapshotted for the foreman header");
+
+// A free-text customer (never in the registry) has no id to carry — the job must show NONE, not "".
+const { customerId: _dropped, ...freeTextQuote } = acceptedQuote;
+const bornWithout = createJobFromQuote(workOrderInputFromQuote({ ...freeTextQuote, id: "q_free" }, []));
+assert.equal(bornWithout.customerId, undefined, "a job created from a quote WITHOUT a customerId carries none — never an empty string, never invented");
+assert.equal(bornWithout.customerName, "SBI CONSTRUCTION", "…and the name still travels, so the work order still says who it is for");
+assert.equal(
+  createJobFromQuote(workOrderInputFromQuote({ ...acceptedQuote, customerId: "   " }, [])).customerId,
+  undefined,
+  "a whitespace-only id is not an id — it is absent"
+);
+console.log("PASS: job birth — createJobFromQuote stamps the quote's customerId onto the new job through the shared accept/sweep mapping; a quote with no id yields a job with none (never blank, never guessed)");

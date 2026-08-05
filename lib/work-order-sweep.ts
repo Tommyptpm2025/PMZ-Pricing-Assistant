@@ -46,6 +46,7 @@ export interface SweepQuoteInput {
   jobName?: string;
   customerName?: string;
   customer?: string;
+  customerId?: string;
   workType?: string;
   salesperson?: string;
   grandTotal?: number;
@@ -94,6 +95,7 @@ export function workOrderInputFromQuote(
     quoteId: quote.id,
     jobName: quote.jobName || "",
     customerName: quote.customerName || quote.customer || undefined,
+    customerId: quote.customerId || undefined,
     workTypeName: quote.workType || "",
     salesperson: quote.salesperson || "",
     contractValue: quote.grandTotal ?? quote.totalRevenue ?? 0,
