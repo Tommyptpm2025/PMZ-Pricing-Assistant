@@ -76,6 +76,7 @@ import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
 import { usePeople, salespersonGateBlocks, ROSTER_PICKER_ENABLED, listActiveByRole, loadPeople, resolveSalespersonFromHandoff, showsLegacySalespersonHint } from "@/lib/people";
 import { runCustomerBackfillIfNeeded } from "@/lib/customer-attribution";
+import CustomerResolvePanel from "@/components/CustomerResolvePanel";
 import { getAllTerms, type TermsBlock } from "@/lib/terms";
 
 // Stable ID generator (avoids Date.now/Math.random during SSR/hydration for client-only data)
@@ -321,6 +322,10 @@ export default function ProjectPricerPage() {
   const [selectedCustomerId, setSelectedCustomerId] = React.useState<string | null>(null);
   const [selectedCustomerName, setSelectedCustomerName] = React.useState<string | null>(null);
   const [highlightedCustomerIndex, setHighlightedCustomerIndex] = React.useState(-1);
+  // "+ Add new customer" — the picker's escape hatch, so a customer that isn't on the list never has
+  // to be free-typed onto the quote as a bare name.
+  const [showNewCustomer, setShowNewCustomer] = React.useState(false);
+  const [newCustomerDraft, setNewCustomerDraft] = React.useState("");
 
   const filteredCustomers = React.useMemo(() => {
     return customers
@@ -883,6 +888,49 @@ export default function ProjectPricerPage() {
       }
     } catch {}
   }, [selectedCustomerId, selectedCustomerName, hydrated]);
+
+  // THE UNRESOLVED-CUSTOMER CONDITION. A name on the quote with no id behind it. The resolver has
+  // already had its say by the time this is true (it adopts an exact registry name on load), so this
+  // is the honest remainder: a name the registry cannot answer for. Blank customer is NOT this — that
+  // is the save-time validation's business, and two red boxes for one empty field help no one.
+  const customerNeedsResolve =
+    !(estimate.customerId || "").trim() && (estimate.customerName || "").trim() !== "";
+
+  // Mint a registry customer from a company name and select it. The ONE place the Pricer's customer
+  // field creates a record: both the "+ Add new customer" hatch and the resolve panel's Create path
+  // land here, so a customer born on this screen is always born the same way. Company name only —
+  // contacts and addresses belong to the Customers page, which owns the full record.
+  function createAndLinkCustomer(companyName: string): void {
+    const name = (companyName || "").trim();
+    if (!name) return; // a customer is filed under a company; never mint a blank one
+    try {
+      const raw = localStorage.getItem("pmz_customers");
+      const list: Customer[] = raw ? JSON.parse(raw) : [];
+      // Already there under that exact name? Link it instead of minting a duplicate — the panel's
+      // whole point is one customer, one record.
+      const existing = list.find((c) => (c.name || "").trim().toLowerCase() === name.toLowerCase());
+      if (existing) {
+        setSelectedCustomerId(existing.id);
+        setSelectedCustomerName(existing.name);
+        updateEstimate({ customerId: existing.id, customerName: existing.name });
+        setCustomers(list);
+        return;
+      }
+      const nowDate = new Date();
+      const id = `cust_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const next = [...list, { id, name, createdAt: nowDate, updatedAt: nowDate } as Customer];
+      localStorage.setItem("pmz_customers", JSON.stringify(next));
+      setCustomers(next);
+      setSelectedCustomerId(id);
+      setSelectedCustomerName(name);
+      updateEstimate({ customerId: id, customerName: name });
+    } catch (e) {
+      // Never mute (Law 50): a refused write leaves the quote exactly as it was, and says so.
+      console.error("[pricer] Could not create the customer record", e);
+      setSaveMessage("Couldn’t save the new customer to your browser’s storage — nothing was created. This is usually storage being full or blocked by private-browsing mode.");
+      setTimeout(() => setSaveMessage(null), 8000);
+    }
+  }
 
   // Salesperson identity catch-up. usePeople() loads the roster in its OWN mount effect, so the load
   // above can run before the roster exists — exactly the staleness trap the customer resolve already
@@ -2219,18 +2267,83 @@ export default function ProjectPricerPage() {
                   <SelectValue placeholder="Select customer..." />
                 </SelectTrigger>
                 <SelectContent>
+                  {/* EVERY option here is a REGISTRY RECORD, so picking one always yields an id. The
+                      two hard-coded demo names that used to stand in for an empty registry are gone:
+                      they were the last door in the Pricer through which a NEW quote could leave with
+                      a customer NAME and no customerId — the exact shape the resolve panel below has
+                      to clean up afterwards. An empty registry now offers the create flow instead. */}
                   {customers.length > 0 ? (
                     customers.map((c: any) => (
                       <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
                     ))
                   ) : (
-                    <>
-                      <SelectItem value="Downtown Plaza LLC">Downtown Plaza LLC</SelectItem>
-                      <SelectItem value="Acme Construction">Acme Construction</SelectItem>
-                    </>
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
+                      No customers saved yet — use <span className="font-medium">+ Add new customer</span> below,
+                      or build the full record in <Link href="/customers" className="underline">Customers</Link>.
+                    </div>
                   )}
                 </SelectContent>
               </Select>
+              <button
+                type="button"
+                className="mt-1 text-[11px] font-medium underline disabled:opacity-60"
+                style={{ color: "#EB3300" }}
+                disabled={isReadOnly}
+                onClick={() => { setNewCustomerDraft(""); setShowNewCustomer(true); }}
+              >
+                + Add new customer
+              </button>
+              {/* Inline create — the picker's own escape hatch, so "my customer isn't in the list" never
+                  has to become a free-typed name. It mints a REAL registry record and selects it. */}
+              {showNewCustomer && (
+                <div className="mt-1.5 rounded-lg border bg-white p-2.5 text-xs" style={{ borderColor: "#7D1424" }}>
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                    New customer — company name
+                  </div>
+                  <Input
+                    value={newCustomerDraft}
+                    onChange={(e) => setNewCustomerDraft(e.target.value)}
+                    className="mt-1 h-8 text-sm"
+                    placeholder="Company name"
+                    autoFocus
+                  />
+                  <div className="mt-2 flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 px-2 text-xs font-semibold text-white"
+                      style={{ backgroundColor: "#EB3300" }}
+                      disabled={newCustomerDraft.trim() === ""}
+                      onClick={() => { createAndLinkCustomer(newCustomerDraft); setShowNewCustomer(false); }}
+                    >
+                      Create &amp; select
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-6 px-1 text-xs" onClick={() => setShowNewCustomer(false)}>
+                      Cancel
+                    </Button>
+                    <span className="text-[11px] text-muted-foreground">
+                      Company only here — add contacts and addresses in Customers.
+                    </span>
+                  </div>
+                </div>
+              )}
+              {/* THE RESOLVE PANEL. A loaded quote carrying a name with no id announces itself and
+                  offers both paths — match or create. Suggestions are ranked options, never applied
+                  on their own (Law 82); the announcement itself is Law 50. */}
+              {customerNeedsResolve && (
+                <CustomerResolvePanel
+                  name={estimate.customerName || ""}
+                  customers={customers as any}
+                  disabled={isReadOnly}
+                  onLink={(c) => {
+                    // The human picked. Link the id; the quote's original name string is NOT edited by
+                    // the panel — the picker now shows the registry's canonical name for that record.
+                    setSelectedCustomerId(c.id);
+                    setSelectedCustomerName(c.name);
+                    updateEstimate({ customerId: c.id, customerName: c.name });
+                  }}
+                  onCreate={(companyName) => createAndLinkCustomer(companyName)}
+                />
+              )}
               {saveAttempted && validationErrors.customer && (
                 <p className="mt-1 text-xs text-red-600">{validationErrors.customer}</p>
               )}

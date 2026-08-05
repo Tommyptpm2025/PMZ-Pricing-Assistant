@@ -25,6 +25,7 @@ import { resolveCustomerFromHandoff } from "../lib/customer-resolve.ts";
 import { backfillCustomerIds, planCustomerBackfill } from "../lib/customer-attribution.ts";
 import { createJobFromQuote } from "../lib/jobs.ts";
 import { workOrderInputFromQuote } from "../lib/work-order-sweep.ts";
+import { suggestCustomerMatches, significantWords } from "../lib/customer-suggest.ts";
 
 // ── 1 — SALESPERSON: THE ID MUST SURVIVE THE HANDOFF ──────────────────────────────────────────────
 // Roster: Scott is active and sells. Dana is on the roster but INACTIVE. Two Morgans share a name.
@@ -180,3 +181,61 @@ assert.equal(
   "a whitespace-only id is not an id — it is absent"
 );
 console.log("PASS: job birth — createJobFromQuote stamps the quote's customerId onto the new job through the shared accept/sweep mapping; a quote with no id yields a job with none (never blank, never guessed)");
+
+// ── 5 — NEAR-MATCH SUGGESTIONS: RANKED OPTIONS, NEVER A GUESS ─────────────────────────────────────
+// Law 82 in a pure function. The resolve panel may OFFER; only a human may CHOOSE. These cases pin
+// both halves: the ranking is real and explainable, and nothing in the result says "this one".
+const SUGGEST_BOOK = [
+  { id: "c_sbi_llc", name: "SBI Construction LLC" },   // shares BOTH significant words
+  { id: "c_sbi_paving", name: "SBI Paving" },          // shares SBI
+  { id: "c_generic", name: "Riverside Construction" }, // shares CONSTRUCTION
+  { id: "c_none", name: "Zenith Holdings" },           // shares nothing significant
+  { id: "c_llc_only", name: "Marlow LLC" },            // shares ONLY "LLC" — which means nothing
+];
+
+// Word splitting: legal forms and filler carry no identity and must never earn a rank.
+assert.deepEqual(significantWords("SBI Construction LLC"), ["sbi", "construction"], "legal forms (LLC) are not significant words");
+assert.deepEqual(significantWords("The A. B. Company & Co"), ["b"], "filler, initials-of-one-letter aside, and legal forms drop out");
+assert.deepEqual(significantWords("Acme  acme ACME"), ["acme"], "repeated words count once");
+assert.deepEqual(significantWords("   "), [], "a blank name has no words");
+
+const ranked = suggestCustomerMatches("SBI CONSTRUCTION", SUGGEST_BOOK);
+assert.deepEqual(
+  ranked.map((s) => s.id),
+  ["c_sbi_llc", "c_generic", "c_sbi_paving"],
+  "EXACT-WORD OVERLAP RANKS FIRST: two shared words beat one; the one-word matches follow, tie-broken by NAME (deterministic — the same input always renders the same list, and no invisible 'this word is rarer' judgement decides the order)"
+);
+assert.deepEqual(ranked[0].sharedWords, ["sbi", "construction"], "the shared words are returned so the panel can SHOW why a suggestion is offered");
+assert.deepEqual(ranked[1].sharedWords, ["construction"], "a one-word match reports the one word it shares");
+assert.deepEqual(ranked[2].sharedWords, ["sbi"], "…and so does the next");
+assert.ok(!ranked.some((s) => s.id === "c_none"), "a customer sharing NO significant word is not a suggestion at all");
+assert.ok(!ranked.some((s) => s.id === "c_llc_only"), "sharing only a legal form (LLC) is not a match — it would rank every company in the book");
+
+// NO MATCH RETURNS EMPTY — never the alphabetical top of the registry dressed up as a suggestion.
+assert.deepEqual(suggestCustomerMatches("Nordic Wharf", SUGGEST_BOOK), [], "a name sharing nothing returns an EMPTY list");
+assert.deepEqual(suggestCustomerMatches("", SUGGEST_BOOK), [], "a blank name suggests nothing");
+assert.deepEqual(suggestCustomerMatches("LLC", SUGGEST_BOOK), [], "a name made only of legal forms suggests nothing");
+assert.deepEqual(suggestCustomerMatches("SBI", []), [], "an empty registry suggests nothing (and never throws)");
+assert.equal(suggestCustomerMatches("SBI CONSTRUCTION", SUGGEST_BOOK, 1).length, 1, "the limit caps the list");
+
+// MUTATION TARGET — Law 82. The result is a list of OPTIONS. Nothing in it may mark one as chosen,
+// applied, or best: make suggestCustomerMatches auto-select its top suggestion (stamp autoApply /
+// selected / isBestMatch on it, or return {best}) and THESE assertions fail by name.
+assert.ok(Array.isArray(ranked), "suggestions are a plain ranked LIST — never an object wrapping a chosen one");
+const OFFERED_KEYS = ["id", "name", "sharedWords"];
+for (const s of ranked) {
+  assert.deepEqual(
+    Object.keys(s).sort(),
+    OFFERED_KEYS.slice().sort(),
+    "a suggestion carries ONLY id/name/sharedWords — no autoApply, no selected, no isBestMatch: the system never guesses which customer a name means (Law 82)"
+  );
+}
+// Even when exactly ONE customer matches — the most tempting case to auto-apply — it stays an option.
+const soleMatch = suggestCustomerMatches("Riverside", SUGGEST_BOOK);
+assert.equal(soleMatch.length, 1, "one customer shares a word with 'Riverside'");
+assert.deepEqual(
+  Object.keys(soleMatch[0]).sort(),
+  OFFERED_KEYS.slice().sort(),
+  "a SOLE suggestion is still just an option — a single candidate is not permission to choose it"
+);
+console.log("PASS: customer near-match suggestions — exact-word overlap ranks first with the shared words shown; legal forms never earn a rank; no match returns EMPTY; the result is always ranked options with no auto-apply/best-match flag, even when only one candidate exists");
