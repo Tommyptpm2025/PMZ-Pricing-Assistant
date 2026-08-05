@@ -82,6 +82,10 @@ export interface Job {
   // Quote snapshot (what was sold / bid)
   jobName: string;
   customerName?: string; // snapshotted for the foreman work order header
+  // Customer-registry id. NOT written at creation (createJobFromQuote snapshots the name only) — it
+  // exists so the one-shot customer backfill (lib/customer-attribution.ts) can claim historic jobs by
+  // name. Absent on every job the birth path makes; nothing reads it yet.
+  customerId?: string;
   workTypeName: string;
   salesperson: string;
   contractValue: number; // the revenue bid / grand total accepted

@@ -74,7 +74,8 @@ import { customerIsBlank } from "@/lib/customer-present";
 import { resolveTargetMargin, resolveTargetTier, profitTargetAndCeiling } from "@/lib/target-guidance";
 import { parseNumericEntry } from "@/lib/numeric-entry";
 import { useRateStore } from "@/lib/rate-store";
-import { usePeople, salespersonGateBlocks, ROSTER_PICKER_ENABLED, listActiveByRole } from "@/lib/people";
+import { usePeople, salespersonGateBlocks, ROSTER_PICKER_ENABLED, listActiveByRole, loadPeople, resolveSalespersonFromHandoff, showsLegacySalespersonHint } from "@/lib/people";
+import { runCustomerBackfillIfNeeded } from "@/lib/customer-attribution";
 import { getAllTerms, type TermsBlock } from "@/lib/terms";
 
 // Stable ID generator (avoids Date.now/Math.random during SSR/hydration for client-only data)
@@ -582,6 +583,11 @@ export default function ProjectPricerPage() {
       const raw = localStorage.getItem("pmz_customers");
       if (raw) {
         const parsed: any[] = JSON.parse(raw);
+        // CLAIM THE HISTORY, customer edition — BEFORE the handoff resolves below. One-shot and
+        // flag-guarded (lib/customer-attribution.ts): a quote carrying only a customer NAME gets the
+        // registry id stamped on, which is what lets the Customer picker preselect instead of sitting
+        // empty. Runs first so this very load sees the repaired record.
+        runCustomerBackfillIfNeeded(parsed);
         const loaded = parsed.map((c: any) => ({
           ...c,
           createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
@@ -604,11 +610,17 @@ export default function ProjectPricerPage() {
           let freshCustomers: any[] = [];
           try { const rawC = localStorage.getItem("pmz_customers"); if (rawC) freshCustomers = JSON.parse(rawC); } catch {}
           const resolvedCustomer = resolveCustomerFromHandoff(saved, freshCustomers);
+          // Same freshness rule for the roster: `people` from usePeople() is still empty this early in
+          // mount (it loads in its own effect), so read it straight from storage. resolveSalesperson-
+          // FromHandoff keeps a stored id, adopts the id of an exact roster name when there is none,
+          // and only then leaves a bare legacy string behind. (A late roster is caught by the adopt
+          // effect below — this read just avoids a hint flashing on the first paint.)
+          const resolvedSalesperson = resolveSalespersonFromHandoff(saved, loadPeople());
           setEstimate({
             jobName: saved.jobName || "",
             workTypeName: saved.workTypeName || saved.workType || saved.workTypeId || "",
-            salesperson: saved.salesperson || "",
-            salespersonId: saved.salespersonId || "",
+            salesperson: resolvedSalesperson.salesperson,
+            salespersonId: resolvedSalesperson.salespersonId,
             estimator: saved.estimator || "",
             estimatedRevenue: saved.estimatedRevenue || saved.totalRevenue || 20000,
             bidItems: saved.bidItems || saved.eppLineItems || [],
@@ -871,6 +883,20 @@ export default function ProjectPricerPage() {
       }
     } catch {}
   }, [selectedCustomerId, selectedCustomerName, hydrated]);
+
+  // Salesperson identity catch-up. usePeople() loads the roster in its OWN mount effect, so the load
+  // above can run before the roster exists — exactly the staleness trap the customer resolve already
+  // learned. When the roster arrives, resolve once more through the SAME pure rule. Idempotent by
+  // construction: it returns `prev` unless the resolution actually differs, and the rule never drops a
+  // stored id, so this can neither loop nor re-attribute a quote.
+  React.useEffect(() => {
+    if (!hydrated || people.length === 0) return;
+    setEstimate((prev) => {
+      const r = resolveSalespersonFromHandoff(prev, people);
+      if (r.salespersonId === (prev.salespersonId || "") && r.salesperson === (prev.salesperson || "")) return prev;
+      return { ...prev, salespersonId: r.salespersonId, salesperson: r.salesperson };
+    });
+  }, [people, hydrated]);
 
   // Persist BID ITEMS collapsed state
   React.useEffect(() => {
@@ -2288,8 +2314,11 @@ export default function ProjectPricerPage() {
                   ))}
                 </SelectContent>
               </Select>
-              {/* Legacy quotes carry only a name string (no roster id) — show it read-only until reselected. */}
-              {!estimate.salespersonId && estimate.salesperson && (
+              {/* Legacy quotes carry only a name string (no roster id) — show it read-only until reselected.
+                  The condition is the lib's predicate, so the hint appears ONLY when the record truly has
+                  no id AND no exact-match roster name: an id that arrived on the handoff, or a name the
+                  roster could claim, has already been resolved into the picker by the time this renders. */}
+              {showsLegacySalespersonHint(estimate) && (
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   On file: <span className="font-medium text-foreground">{estimate.salesperson}</span> (legacy name — reselect from the roster to attribute by id)
                 </p>

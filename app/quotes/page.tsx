@@ -63,6 +63,7 @@ import {
 import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
 import { canTransition, applyStatusChange as libApplyStatusChange, sendBlockingFailures } from "@/lib/quote-lifecycle";
 import { resolveCustomerName } from "@/lib/customer-resolve";
+import { runCustomerBackfillIfNeeded } from "@/lib/customer-attribution";
 
 // Status filter chips — the full lifecycle in canonical order (Declined sits right after
 // Accepted, not at the end). Shared single source of truth with the jump menu below.
@@ -291,16 +292,23 @@ export default function QuotesPage() {
   }
 
   React.useEffect(() => {
+    // CLAIM THE HISTORY, customer edition — FIRST, before anything reads the quote or job stores.
+    // One-shot and flag-guarded (lib/customer-attribution.ts); it may rewrite pmz_saved_quotes and
+    // pmz_jobs_v1, so reading them before it ran would hand this page the pre-repair copy.
+    let registry: any[] = [];
+    try {
+      const rawC = localStorage.getItem("pmz_customers");
+      const parsed = rawC ? JSON.parse(rawC) : [];
+      registry = Array.isArray(parsed) ? parsed : [];
+      runCustomerBackfillIfNeeded(registry);
+    } catch {}
     setAllQuotes(getAllQuotes());
     setRawQuotes(readRawQuotes());
     try {
       const ids = loadJobs().map((j) => j.quoteId).filter((id): id is string => !!id);
       setWorkOrderQuoteIds(new Set(ids));
     } catch {}
-    try {
-      const rawC = localStorage.getItem("pmz_customers");
-      if (rawC) setCustomers(JSON.parse(rawC));
-    } catch {}
+    setCustomers(registry);
   }, []);
 
   // ── SELF-HEALING WORK-ORDER SWEEP (lib/work-order-sweep.ts) ────────────────────────────────────
@@ -507,6 +515,12 @@ export default function QuotesPage() {
         jobName: quote.jobName || "",
         workTypeName: quote.workType || "",
         salesperson: quote.salesperson || "",
+        // THE IDENTITY DROP (fixed): this handoff carried the salesperson NAME and left the roster ID
+        // behind, so an attributed quote arrived in the Pricer looking legacy — empty picker, "reselect
+        // from the roster" hint — and a re-save could re-attribute it. The id travels now. `estimator`
+        // rides along for the same reason: it was dropped here and re-saved blank.
+        salespersonId: quote.salespersonId || "",
+        estimator: quote.estimator || "",
         estimatedRevenue: quote.totalRevenue || 0,
         bidItems: (quote.eppLineItems || []).map((it: any) => ({ ...it })),
         customer: quote.customer || "",

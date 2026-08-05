@@ -291,6 +291,65 @@ export function planAttributionBackfill(
   };
 }
 
+// ── LOAD-TIME IDENTITY RESOLUTION (the handoff into the Pricer) ──────────────────────────────────
+//
+// The salesperson twin of resolveCustomerFromHandoff (lib/customer-resolve.ts). A saved quote carries
+// BOTH an id and a name string; the Pricer's picker is keyed by ID. This decides which one the picker
+// should show — PURE, so the fence tests the real rule and not a model of it.
+//
+// WHY IT EXISTS AND WHY IT IS NOT THE BACKFILL: the one-shot backfill above burns its flag on its
+// first run. A book whose roster was still empty that day keeps its name-only quotes forever, and no
+// second run is coming. Resolving live at LOAD means an exact roster name is adopted whenever the
+// roster can answer — flag or no flag.
+//
+// The rules:
+//   • A STORED ID IS NEVER DROPPED. Attribution already recorded stays recorded, even when that person
+//     has since gone inactive or off the roster — dropping it would silently re-attribute the quote on
+//     the next save. When the id is still findable, the roster's CANONICAL name is what we display
+//     (same live-canonical-by-id rule the customer resolver holds).
+//   • No id → adopt the id of the EXACTLY ONE PICKABLE person of that name (trimmed, case-insensitive).
+//     "Pickable" is the picker's own list — active people in the salesperson role — so an id adopted
+//     here always renders as a real selection instead of a blank box. Two matches, or none, adopt
+//     nothing: a skip never guesses.
+//   • Otherwise the name stays as a legacy string with NO id — and that is the only state in which the
+//     "reselect from the roster" hint may appear.
+
+export interface SalespersonHandoffFields {
+  salesperson?: string;
+  salespersonId?: string;
+}
+export interface ResolvedSalesperson {
+  salespersonId: string;
+  salesperson: string;
+}
+
+export function resolveSalespersonFromHandoff(
+  saved: SalespersonHandoffFields,
+  people: Person[]
+): ResolvedSalesperson {
+  const storedId = (saved.salespersonId ?? '').trim();
+  const storedName = (saved.salesperson ?? '').trim();
+  if (storedId !== '') {
+    // Never dropped. The name is the roster's when we can find the person, the stored one otherwise.
+    const byId = (people || []).find((p) => p.id === storedId);
+    return { salespersonId: storedId, salesperson: byId?.name || storedName };
+  }
+  if (storedName === '') return { salespersonId: '', salesperson: '' };
+  const key = storedName.toLowerCase();
+  const matches = listActiveByRole(people || [], 'salesperson').filter(
+    (p) => (p.name || '').trim().toLowerCase() === key
+  );
+  if (matches.length === 1) return { salespersonId: matches[0].id, salesperson: matches[0].name };
+  return { salespersonId: '', salesperson: storedName }; // ambiguous or unknown → legacy string, no id
+}
+
+// The rendered condition for the "legacy name — reselect from the roster" hint, exported so the fence
+// tests the SAME predicate the Pricer renders. True ONLY when there is a name and no id survived
+// resolution — i.e. the record truly has no id and no exact-match roster name.
+export function showsLegacySalespersonHint(resolved: SalespersonHandoffFields): boolean {
+  return (resolved.salespersonId ?? '').trim() === '' && (resolved.salesperson ?? '').trim() !== '';
+}
+
 // ── ATTRIBUTION GATE (Law 50 spirit) ─────────────────────────────────────────────────────────────
 
 // Enforcement switch. The roster picker is wired (step 2), so the attribution gate is now LIVE: with an
