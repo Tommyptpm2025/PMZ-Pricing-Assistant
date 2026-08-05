@@ -14,6 +14,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { DEFAULT_CHANGE_ORDER_CEILING } from './change-orders';
 
 export interface CompanySettings {
   company: {
@@ -47,6 +48,12 @@ export interface CompanySettings {
   process: {
     cure_avoid_hours: string;
   };
+  // Owner-set limits. `change_order_ceiling_dollars` is the per-change-order amount at or under which
+  // a foreman may quote on the spot (COMPANY-ROSTER-AND-ROLES.md § Foreman On-the-Spot Change Orders).
+  // Blank means "use the default" — see changeOrderCeiling() below; it is never silently 0.
+  limits: {
+    change_order_ceiling_dollars: string;
+  };
 }
 
 const COMPANY_SETTINGS_KEY = 'pmz_company_settings';
@@ -76,6 +83,7 @@ export const EMPTY_COMPANY_SETTINGS: CompanySettings = {
   lien: { state: '', state_notice_text: '', withhold_days: '' },
   legal: { utility_locator: '' },
   process: { cure_avoid_hours: '' },
+  limits: { change_order_ceiling_dollars: '' },
 };
 
 /**
@@ -114,6 +122,22 @@ export function computeAnnualInterest(monthlyPct: string | number | undefined | 
   const annual = n * 12;
   // Trim a trailing .0 / .00 so "1.5" → "18", "1.25" → "15"
   return Number(annual.toFixed(2)).toString();
+}
+
+/**
+ * The per-change-order ceiling in dollars — the amount at or under which a foreman may quote on the
+ * spot. Owner-settable; falls back to the ruling's $1,500 whenever the stored value is blank,
+ * non-numeric or negative. It is PARSED HERE, once, so no surface has to guess what an empty string
+ * means: an unset ceiling is the default, NEVER zero (a zero ceiling would hold every change order
+ * ever entered, which is a silent policy change nobody asked for).
+ */
+export function changeOrderCeiling(
+  settings: CompanySettings | null | undefined,
+  fallback: number = DEFAULT_CHANGE_ORDER_CEILING
+): number {
+  const raw = settings?.limits?.change_order_ceiling_dollars;
+  const n = parseFloat(String(raw ?? '').trim());
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
 // Deep-merge a loaded (possibly partial / legacy) object onto the empty shape so missing
