@@ -448,7 +448,21 @@ export default function ProjectPricerPage() {
   const [showSendDialog, setShowSendDialog] = React.useState(false);
   // Send gate (Law 50): the blocking failures that refuse this send, surfaced in the dialog as the
   // SAME panel with the SAME words as the Quotes page. Cleared when the dialog opens/closes.
-  const [sendBlock, setSendBlock] = React.useState<{ failures: LemGateLineFailure[]; customerMissing?: boolean; flatLines?: LemGateLineFailure[]; confirmFlat?: boolean } | null>(null);
+  // `notice` is the SAME megaphone carrying a plain-language refusal that has no LEM failures behind it
+  // (a roster gate, a storage fault, an already-sent quote, a blocked popup). One mechanism, one place
+  // in the dialog: a refusal that cannot render as a GatePanel still announces here rather than
+  // returning mute. tone "block" = nothing happened; tone "warn" = the send DID complete, one step
+  // after it did not. Every early return past step 0 sets one of these.
+  const [sendBlock, setSendBlock] = React.useState<{
+    failures: LemGateLineFailure[];
+    customerMissing?: boolean;
+    flatLines?: LemGateLineFailure[];
+    confirmFlat?: boolean;
+    notice?: { tone: "block" | "warn"; title: string; detail?: string };
+  } | null>(null);
+  // Why the last saveQuote() returned null. saveQuote is shared by the Save and Send paths, so it
+  // records the reason and each caller announces it in its own surface — the reason is never lost.
+  const saveFailureRef = React.useRef<string | null>(null);
   const [sendQuoteType, setSendQuoteType] = React.useState<"EPP" | "Full">("EPP");
   const [sendName, setSendName] = React.useState("");
   const [sendEmail, setSendEmail] = React.useState("");
@@ -1426,6 +1440,7 @@ export default function ProjectPricerPage() {
   // Unified save to pmz_saved_quotes per spec. Captures snapshot of active rates at save time.
   // Uses PMZ types from lib/pmz-types.ts for SavedQuote, LineItem, LemItem, Bucket.
   function saveQuote(quoteType: "EPP" | "Full"): PMZSavedQuote | null {
+    saveFailureRef.current = null;
     try {
       const key = "pmz_saved_quotes";
       const raw = localStorage.getItem(key);
@@ -1436,6 +1451,8 @@ export default function ProjectPricerPage() {
       // a blank salespersonId blocks (even on Proceed Anyway). The first-click highlight for this lives
       // in validationErrors.salesperson; this is the hard save-time gate. Gated on ROSTER_PICKER_ENABLED.
       if (ROSTER_PICKER_ENABLED && salespersonGateBlocks(people, estimate.salespersonId)) {
+        saveFailureRef.current =
+          "No salesperson on this quote. Choose who sold it before saving or sending — every quote is attributed to a person on the roster.";
         return null;
       }
 
@@ -1589,8 +1606,13 @@ export default function ProjectPricerPage() {
       setCurrentQuoteId(quoteId);
       setCurrentQuoteStatus((newQuote.status as QuoteStatus) || "Draft");
       return newQuote;
-    } catch {
-      // fail silently (storage issues)
+    } catch (e) {
+      // Was "fail silently (storage issues)" — it now names itself. The reason travels back to the
+      // caller through saveFailureRef so the Save surface and the Send dialog can each say it, and
+      // the fault is logged so a real storage error is visible in the console instead of invisible.
+      console.error("[pricer] Could not save the quote to browser storage", e);
+      saveFailureRef.current =
+        "Couldn’t save this quote to your browser’s storage. Nothing was saved and nothing was sent. This is usually storage being full or blocked by private-browsing mode — free up space or try a normal window, then save again.";
       return null;
     }
   }
@@ -1598,8 +1620,13 @@ export default function ProjectPricerPage() {
   // Actual EPP save + success cue. `asDraft` tailors the toast when saving via "Proceed Anyway".
   function doSaveEPP(asDraft: boolean) {
     setIsSavingEPP(true);
-    saveQuote("EPP");
-    setSaveMessage(asDraft ? "Incomplete draft saved" : "Quote saved successfully");
+    const saved = saveQuote("EPP");
+    // A refused save may never report success. The reason saveQuote recorded is what the user reads.
+    setSaveMessage(
+      saved
+        ? (asDraft ? "Incomplete draft saved" : "Quote saved successfully")
+        : (saveFailureRef.current || "Couldn’t save this quote.")
+    );
     // brief disable cue
     setTimeout(() => setIsSavingEPP(false), 1500);
     // auto dismiss message
@@ -1621,8 +1648,8 @@ export default function ProjectPricerPage() {
     setProSaveAttempted(true);
     if (!proHasItems) return;
     setIsSavingFull(true);
-    saveQuote("Full");
-    setSaveMessage("Full Quote saved successfully");
+    const savedFull = saveQuote("Full");
+    setSaveMessage(savedFull ? "Full Quote saved successfully" : (saveFailureRef.current || "Couldn’t save this quote."));
     // brief disable cue
     setTimeout(() => setIsSavingFull(false), 1500);
     // auto dismiss message
@@ -1649,7 +1676,13 @@ export default function ProjectPricerPage() {
 
   // Persist the entered recipient back to the customer record (create or update)
   // so it isn't re-entered next time. Returns the customer id.
-  function saveRecipientToCustomer(): string | null {
+  // Result, not a bare id: a `null` id was indistinguishable from a refusal, so the caller threw the
+  // refusal away. Now a block and a storage fault are separate, named outcomes the Send dialog can say.
+  type RecipientWriteResult =
+    | { ok: true; id: string | null }
+    | { ok: false; reason: "no-company" | "storage" };
+
+  function saveRecipientToCustomer(): RecipientWriteResult {
     try {
       const raw = localStorage.getItem("pmz_customers");
       const list: Customer[] = raw ? JSON.parse(raw) : [];
@@ -1661,7 +1694,7 @@ export default function ProjectPricerPage() {
       // block a company-less new customer (Law 50). See lib/customer-recipient.
       const company = selectedCustomerName || estimate.customerName || "";
       const write = recipientCustomerWrite(idx >= 0 ? list[idx] : null, company, { name: sendName, email: sendEmail, phone: sendPhone });
-      if (write.action === "block") return null; // no company name → never mint a person-named record
+      if (write.action === "block") return { ok: false, reason: "no-company" }; // never mint a person-named record
       if (write.action === "update") {
         list[idx] = { ...list[idx], ...write.patch, updatedAt: nowDate };
       } else {
@@ -1672,9 +1705,10 @@ export default function ProjectPricerPage() {
       setCustomers(list);
       // Persist the resolved id only — NOT the recipient as the company name (that was the Cause-1 leak).
       if (id) setSelectedCustomerId(id);
-      return id || null;
-    } catch {
-      return null;
+      return { ok: true, id: id || null };
+    } catch (e) {
+      console.error("[pricer] Could not save the recipient to the customer record", e);
+      return { ok: false, reason: "storage" };
     }
   }
 
@@ -1703,27 +1737,100 @@ export default function ProjectPricerPage() {
       setSendBlock({ failures: [], flatLines, confirmFlat: true }); // confirm-and-carry: name the flat lines, then Send again
       return;
     }
-    // 1) Save the recipient back to the customer record (create/update).
-    saveRecipientToCustomer();
-    // 2) Save first — create the SavedQuote (or update the existing Draft), getting its id.
+    // 0d) SALESPERSON GATE (Law 50, Company Roster) — pre-checked HERE, on the path users actually
+    //     hit. saveQuote enforces the same rule at step 2 as the defensive net, but a refusal down
+    //     there could only return null; checked here it announces through the send-block mechanism
+    //     AND raises saveAttempted, which is the inline red hint on the Salesperson field that the
+    //     gate's own comment has always promised. Same rule, same helper — only the voice is new.
+    if (ROSTER_PICKER_ENABLED && salespersonGateBlocks(people, estimate.salespersonId)) {
+      setSaveAttempted(true);
+      setSendBlock({
+        failures: [],
+        notice: {
+          tone: "block",
+          title: "No salesperson on this quote.",
+          detail: "Choose who sold it in the Salesperson field above, then send. Every quote is attributed to a person on the roster — nothing was sent.",
+        },
+      });
+      return;
+    }
+    // 1) Save the recipient back to the customer record (create/update). A refusal here used to be
+    //    discarded; it now stops the send and says which refusal it was.
+    const recipient = saveRecipientToCustomer();
+    if (!recipient.ok) {
+      setSendBlock({
+        failures: [],
+        notice: recipient.reason === "no-company"
+          ? {
+              tone: "block",
+              title: "No company on this quote — only a contact name.",
+              detail: "A customer record is filed under the COMPANY, never the person. Enter the company in the Customer field, then send. Nothing was sent.",
+            }
+          : {
+              tone: "block",
+              title: "Couldn’t save the recipient to the customer record.",
+              detail: "Your browser’s storage refused the write, so the contact was not filed. Nothing was sent. This is usually storage being full or blocked by private-browsing mode.",
+            },
+      });
+      return;
+    }
+    // 2) Save first — create the SavedQuote (or update the existing Draft), getting its id. A null
+    //    return carries its reason in saveFailureRef; announce it instead of returning mute.
     const saved = saveQuote(sendQuoteType);
-    if (!saved) return;
+    if (!saved) {
+      setSendBlock({
+        failures: [],
+        notice: {
+          tone: "block",
+          title: "This quote wasn’t saved, so it wasn’t sent.",
+          detail: saveFailureRef.current || "The save was refused. Nothing was sent.",
+        },
+      });
+      return;
+    }
     // 3) Run the shared send path: Draft -> Ready for Approval. The lib transition ENFORCES the same
-    //    gate; a refusal here is the defensive net (we pre-checked at step 0). null = not a Draft.
+    //    gate; a refusal here is the defensive net (we pre-checked at step 0). A NULL return means no
+    //    transition happened (the quote was not a Draft) — that is a FAILURE, not a quiet success. It
+    //    previously fell through to the confirmation toast and reported a send that never occurred.
     const result = sendQuoteForAcceptance(saved);
     if (result && !result.ok) { setSendBlock({ failures: result.blocking }); return; }
-    const sent = result ? result.quote : saved;
+    if (!result) {
+      setSendBlock({
+        failures: [],
+        notice: {
+          tone: "block",
+          title: "This quote has already been sent — its status did not change.",
+          detail: "Only a Draft can be sent for acceptance. To send a revised price, revise the quote back to Draft first. To re-open the customer PDF for a quote that is already out, use Preview / Export instead.",
+        },
+      });
+      return;
+    }
+    const sent = result.quote;
     updateQuote(sent);
     setCurrentQuoteStatus("Ready for Approval");
-    // 4) Confirm; the quote now shows in the Quotes tab as "Sent for Acceptance".
-    setShowSendDialog(false);
+    // 4) The status write is now a fact — the confirmation may be spoken.
     setSentMessage(`Quote sent to ${sendEmail.trim()} — status is now Sent for Acceptance.`);
     setTimeout(() => setSentMessage(null), 6000);
-    // 5) Hand off to the existing Print / Export PDF view for manual delivery.
-    handleExportNext();
+    // 5) Hand off to the existing Print / Export PDF view for manual delivery. If the browser blocked
+    //    the tab, the send/status half of this operation still HAPPENED — say exactly that, keep the
+    //    dialog open so the message is read, and tell the user how to allow the tab.
+    if (!handleExportNext()) {
+      setSendBlock({
+        failures: [],
+        notice: {
+          tone: "warn",
+          title: "Sent — but your browser blocked the PDF tab.",
+          detail: "The quote WAS sent and its status IS now Sent for Acceptance. Only the print/PDF tab did not open. Allow pop-ups for this site (the blocked-popup icon at the right of the address bar), then use Preview / Export to open the PDF.",
+        },
+      });
+      return;
+    }
+    setShowSendDialog(false);
   }
 
-  function handleExportNext() {
+  // Returns TRUE only when the print/PDF tab actually opened. window.open returns null when a popup
+  // blocker refuses it — previously that result was discarded and the block was invisible.
+  function handleExportNext(): boolean {
     const options = {
       exportType,
       showQuantities,
@@ -1774,7 +1881,12 @@ export default function ProjectPricerPage() {
       console.warn('Could not stash quote data for print tab', e);
     }
     const printUrl = `${window.location.origin}${window.location.pathname}?print=quote`;
-    window.open(printUrl, '_blank');
+    const tab = window.open(printUrl, '_blank');
+    if (!tab) {
+      console.warn('[pricer] The print/PDF tab was blocked by the browser’s popup blocker');
+      return false;
+    }
+    return true;
   }
 
   function toggleBidItemsCollapsed() {
@@ -3642,7 +3754,26 @@ export default function ProjectPricerPage() {
             {/* Send gate refusal — the SAME panel and SAME words as the Quotes page (Law 50), rendered
                 from the shared GatePanel component. Send variant, NO footer ("Edit in Pricer" is not a
                 control inside the Pricer). The rule is the lib's; this only renders what it refused. */}
-            {sendBlock && (sendBlock.customerMissing ? (
+            {/* A plain-language refusal with no LEM failures behind it — the roster gate, a storage
+                fault, an already-sent quote, a blocked popup. Same slot, same red box as the
+                customer gate; "warn" is amber because the send DID happen and only a later step
+                did not. This is the one place a mute early-return now speaks. */}
+            {sendBlock?.notice && (
+              <div
+                className="rounded-lg border p-3 text-left text-xs"
+                style={
+                  sendBlock.notice.tone === "warn"
+                    ? { borderColor: "#B45309", color: "#78350F", backgroundColor: "#FFFBEB" }
+                    : { borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }
+                }
+              >
+                <div className="font-medium" style={{ color: sendBlock.notice.tone === "warn" ? "#B45309" : "#EB3300" }}>
+                  {sendBlock.notice.title}
+                </div>
+                {sendBlock.notice.detail && <div className="mt-1">{sendBlock.notice.detail}</div>}
+              </div>
+            )}
+            {sendBlock && !sendBlock.notice && (sendBlock.customerMissing ? (
               <div
                 className="rounded-lg border p-3 text-left text-xs"
                 style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
@@ -3673,7 +3804,15 @@ export default function ProjectPricerPage() {
       <UpdateExportDialog
         open={showUpdateExport}
         onOpenChange={setShowUpdateExport}
-        onNext={handleExportNext}
+        onNext={() => {
+          // Honor the blocked-popup result, same as the send path. handleExportNext closes this
+          // dialog before it opens the tab, so a refused popup left the user staring at a screen
+          // where nothing happened and nothing was said. The banner is visible by then.
+          if (!handleExportNext()) {
+            setSaveMessage("Your browser blocked the PDF tab — nothing opened. Allow pop-ups for this site (the blocked-popup icon at the right of the address bar), then use Preview / Export again.");
+            setTimeout(() => setSaveMessage(null), 8000);
+          }
+        }}
         exportType={exportType}
         setExportType={setExportType}
         selectedTermsId={selectedTermsId}

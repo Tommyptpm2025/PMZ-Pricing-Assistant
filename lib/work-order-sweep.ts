@@ -1,4 +1,5 @@
 import { createJobFromQuote, type CreateJobInput, type Job } from "./jobs";
+import { statusBucket } from "./sales-tracker";
 import type { QuoteStatus } from "./pmz-types";
 
 /**
@@ -24,23 +25,17 @@ import type { QuoteStatus } from "./pmz-types";
  * and returns only jobs).
  */
 
-// Statuses at which a work order legitimately SHOULD exist: Accepted and everything after it, plus
-// the retired legacy "Completed" (a won, finished job — it is realized work and wants its record).
+// A quote SHOULD have a work order exactly when the tracker's status→bucket map puts it in the
+// ACCEPTED bucket. DERIVED, never hand-listed: lib/sales-tracker.ts owns status semantics ("won is
+// won, whatever stage the job is at now"), and a hand-copied set here could silently drift out of
+// step with it — which is exactly how a status gets left out and the repair door never opens.
 //
-// Deliberately NOT the same list as WORK_ORDER_STATUSES in app/quotes/page.tsx. That one answers a
-// display question — "may we show the work-order indicator for this quote" — and excludes the legacy
-// Completed status. This one answers "should this quote HAVE a work order," which includes it. Two
-// different questions; keeping them separate stops a display tweak from silently changing what the
-// sweep creates.
-export const WORK_ORDER_ELIGIBLE_STATUSES: ReadonlySet<QuoteStatus> = new Set<QuoteStatus>([
-  "Approved",         // label "Accepted" — the birth point of the accept path
-  "Scheduled",
-  "In Progress",
-  "Ready to Invoice",
-  "Invoiced",
-  "Paid",
-  "Completed",        // legacy/terminal — a won, finished job
-]);
+// Note for anyone reading a bug report: the STORED values are the QuoteStatus union ("Approved",
+// "In Progress"); the words on screen are the STATUS_LABELS display names ("Accepted", "Work Order
+// Active"). Never test a status against what the UI shows. The fence pins both sides of that map.
+export function isSweepEligibleStatus(status: QuoteStatus): boolean {
+  return statusBucket(status) === "ACCEPTED";
+}
 
 // The quote fields the sweep reads. SavedQuote is assignable to this (extra fields ignored). Every
 // field is exactly the one the accept path reads for the same purpose — see workOrderInputFromQuote.
@@ -122,13 +117,24 @@ export function workOrderInputFromQuote(
  */
 export function isWorkOrderEligible(quote: SweepQuoteInput): boolean {
   if (quote.quoteType !== "EPP") return false;
-  return WORK_ORDER_ELIGIBLE_STATUSES.has(quote.status);
+  return isSweepEligibleStatus(quote.status);
+}
+
+// Why a sweep created nothing. A repair that no-ops must be able to SAY why — the first version
+// logged only on success, so "created nothing" and "never ran" looked identical from the console.
+export interface WorkOrderSweepCounts {
+  examined: number;      // quotes handed to the sweep
+  eligible: number;      // …that are EPP and in the ACCEPTED bucket
+  alreadyServed: number; // …that already own a job record (the healthy steady state)
+  skippedNotEpp: number; // …refused for being Full/untyped
+  skippedStatus: number; // …refused for not being Accepted-or-beyond
 }
 
 export interface WorkOrderSweepPlan {
   jobs: Job[];        // existing jobs (BY IDENTITY, untouched) followed by any newly created ones
   created: Job[];     // only the new records — empty when there was nothing to repair
   createdCount: number;
+  counts: WorkOrderSweepCounts;
 }
 
 /**
@@ -148,13 +154,24 @@ export function planWorkOrderSweep(
   for (const j of existing) if (j.quoteId) claimed.add(j.quoteId);
 
   const created: Job[] = [];
+  const counts: WorkOrderSweepCounts = {
+    examined: 0, eligible: 0, alreadyServed: 0, skippedNotEpp: 0, skippedStatus: 0,
+  };
   for (const q of quotes || []) {
-    if (!isWorkOrderEligible(q)) continue;
-    if (claimed.has(q.id)) continue;          // already has one — absence of the job IS the condition
+    counts.examined++;
+    if (q.quoteType !== "EPP") { counts.skippedNotEpp++; continue; }
+    if (!isSweepEligibleStatus(q.status)) { counts.skippedStatus++; continue; }
+    counts.eligible++;
+    if (claimed.has(q.id)) { counts.alreadyServed++; continue; } // absence of the job IS the condition
     const recipeLines = recipeLinesFromQuote(q, buildSections);
     created.push(createJobFromQuote(workOrderInputFromQuote(q, recipeLines)));
     claimed.add(q.id);                        // guard duplicate quote ids within a single sweep
   }
 
-  return { jobs: created.length > 0 ? [...existing, ...created] : existing, created, createdCount: created.length };
+  return {
+    jobs: created.length > 0 ? [...existing, ...created] : existing,
+    created,
+    createdCount: created.length,
+    counts,
+  };
 }

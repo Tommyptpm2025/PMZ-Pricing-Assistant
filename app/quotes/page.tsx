@@ -185,7 +185,9 @@ export default function QuotesPage() {
   // LEM Gate confirm-and-carry (Law 50, amended): zero-only lines don't block — they prompt this
   // confirmation, which names the zero fields and carries on when the owner means it. `proceed`
   // re-invokes the originating accept path with zeros confirmed.
-  const [lemGateConfirm, setLemGateConfirm] = React.useState<{ quoteId: string; zeros: LemGateLineFailure[]; proceed: () => void } | null>(null);
+  // `navError` carries the reason "Go back and fix" could not take the user to the Pricer, so that
+  // button announces instead of sitting mute when navigation is impossible.
+  const [lemGateConfirm, setLemGateConfirm] = React.useState<{ quoteId: string; zeros: LemGateLineFailure[]; proceed: () => void; navError?: string } | null>(null);
   // A SEND-for-Acceptance block, distinct from the accept-path lemGateBlock so the panel names the
   // transition being attempted and the two never bleed together (Law 50 gate on Send).
   const [sendGateBlock, setSendGateBlock] = React.useState<{ quoteId: string; failures: LemGateLineFailure[] } | null>(null);
@@ -308,36 +310,55 @@ export default function QuotesPage() {
   // accept path uses. Idempotent with no flag: absence of the job IS the condition, so a second run
   // finds nothing. Never touches an existing job and never writes to the quote store.
   //
-  // DEFERS while the rate catalogs are empty. buildLineRecipeSections falls back to the live catalogs
-  // for any row without a stored `rate`, so sweeping before the rate store has loaded would freeze a
-  // ZERO rowCostBasis onto the new job — and backfillRowCostBasis only fills a MISSING basis, never
-  // overwrites a present one, so that zero would be permanent. Same reasoning as the work-type
-  // backfill deferring while its store is empty. Ref-guarded so it runs once per mount, not per render.
+  // WAITS ONE EFFECT PASS for the rate catalogs, then runs REGARDLESS. useRateStore loads in its own
+  // mount effect, so on the first pass this closure still holds its initial empty arrays; a row
+  // WITHOUT a stored `rate` would then take a 0 cost basis, and backfillRowCostBasis only fills a
+  // MISSING basis, never overwrites — so that zero would be permanent. Hence the one-pass wait.
+  // It is NOT a "rates must be non-empty" gate: that was the original defect — a contractor whose
+  // four catalogs are empty waited forever and the repair door never opened at all. Saved LEM
+  // entries carry their own bid-time `rate` (serializeEppLine persists it) and
+  // buildLineRecipeSections prefers it over the catalogs, so the catalogs are a fallback, never the
+  // precondition. Ref-guarded so the body runs once per mount.
   const sweepRanRef = React.useRef(false);
-  const ratesLoaded =
-    laborRates.length + equipmentRates.length + materialRates.length + miscRates.length > 0;
+  const sweepPassRef = React.useRef(0);
   React.useEffect(() => {
-    if (sweepRanRef.current || !ratesLoaded) return;
+    if (sweepRanRef.current) return;
+    sweepPassRef.current += 1;
+    const ratesLoaded =
+      laborRates.length + equipmentRates.length + materialRates.length + miscRates.length > 0;
+    // One pass of grace for the rate store to commit — then proceed whatever it holds.
+    if (!ratesLoaded && sweepPassRef.current < 2) return;
     sweepRanRef.current = true;
     try {
       const plan = planWorkOrderSweep(readRawQuotes(), loadJobs(), (it) =>
         buildLineRecipeSections(it, lemCats)
       );
-      if (plan.createdCount === 0) return;
-      saveJobs(plan.jobs);
-      setWorkOrderQuoteIds((prev) => {
-        const next = new Set(prev);
-        for (const j of plan.created) if (j.quoteId) next.add(j.quoteId);
-        return next;
-      });
-      console.log(
-        `[work-order-sweep] Created ${plan.createdCount} missing work order${plan.createdCount === 1 ? "" : "s"} for accepted-or-later quotes.`
-      );
-    } catch {
-      // A sweep failure must never break the Quotes page — the repair simply retries next load.
+      if (plan.createdCount > 0) {
+        saveJobs(plan.jobs);
+        setWorkOrderQuoteIds((prev) => {
+          const next = new Set(prev);
+          for (const j of plan.created) if (j.quoteId) next.add(j.quoteId);
+          return next;
+        });
+        console.log(
+          `[work-order-sweep] Created ${plan.createdCount} missing work order${plan.createdCount === 1 ? "" : "s"} for accepted-or-later quotes.`
+        );
+      } else {
+        // A repair that does nothing must SAY nothing-was-needed, and why. Logging only on success
+        // is what made this defect invisible: "created nothing" read exactly like "never ran".
+        const c = plan.counts;
+        console.log(
+          `[work-order-sweep] No work orders needed — examined ${c.examined} quote(s): ${c.eligible} accepted-or-later ` +
+            `(${c.alreadyServed} already have one), ${c.skippedNotEpp} not EPP, ${c.skippedStatus} not yet accepted.`
+        );
+      }
+    } catch (e) {
+      // A sweep failure must never break the Quotes page — but it must never be mute either. The
+      // original bare `catch {}` could swallow the entire repair with no trace anywhere.
+      console.error("[work-order-sweep] Sweep failed — no work orders were created", e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ratesLoaded]);
+  }, [laborRates, equipmentRates, materialRates, miscRates]);
 
   function refresh() {
     setAllQuotes(getAllQuotes());
@@ -1886,8 +1907,46 @@ export default function QuotesPage() {
               ))}
             </div>
           )}
+          {lemGateConfirm?.navError && (
+            <div
+              className="rounded-lg border p-3 text-left text-xs"
+              style={{ borderColor: "#EB3300", color: "#9F1239", backgroundColor: "#FFF5F3" }}
+            >
+              <div className="font-medium" style={{ color: "#EB3300" }}>Can’t open this quote in the Pricer.</div>
+              <div className="mt-1">{lemGateConfirm.navError}</div>
+            </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setLemGateConfirm(null)}>Go back and fix</Button>
+            {/* "Go back and fix" now HAS a mechanism. It used to close the dialog and leave the user on
+                a read-only preview where the zeros it had just listed could not be touched. It now
+                takes the SAME edit-in-Pricer path the gate-block panel uses — openQuote with focus
+                targets built from the zeros, so the Pricer expands each line, highlights each zero
+                field and scrolls to the first. When the quote can't be resolved, it says so instead
+                of dismissing itself. */}
+            <Button
+              variant="outline"
+              onClick={() => {
+                const c = lemGateConfirm;
+                if (!c) return;
+                const q = allQuotes.find((x) => x.id === c.quoteId);
+                if (!q) {
+                  setLemGateConfirm({ ...c, navError: "This quote is no longer in the saved list — it may have been deleted in another tab. Close this and reopen it from the Quotes list." });
+                  return;
+                }
+                const targets = {
+                  lineIds: Array.from(new Set(c.zeros.map((f) => f.lineId).filter(Boolean))),
+                  fields: c.zeros.flatMap((f) => f.issues.map((is) => ({ lineId: f.lineId, category: is.catKey, idx: is.idx }))),
+                  scrollTo: c.zeros[0]?.lineId,
+                };
+                setLemGateConfirm(null);
+                setPreviewTarget(null);
+                setLemGateBlock(null);
+                setSendGateBlock(null);
+                openQuote(q, targets);
+              }}
+            >
+              Go back and fix
+            </Button>
             <Button onClick={() => { const go = lemGateConfirm?.proceed; setLemGateConfirm(null); go?.(); }}>Accept with zeros</Button>
           </DialogFooter>
         </DialogContent>

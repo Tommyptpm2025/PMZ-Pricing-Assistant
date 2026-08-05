@@ -17,11 +17,13 @@ import assert from "node:assert/strict";
 import {
   planWorkOrderSweep,
   isWorkOrderEligible,
+  isSweepEligibleStatus,
   workOrderInputFromQuote,
   recipeLinesFromQuote,
-  WORK_ORDER_ELIGIBLE_STATUSES,
 } from "../lib/work-order-sweep.ts";
 import { createJobFromQuote, jobActualCost } from "../lib/jobs.ts";
+import { statusBucket } from "../lib/sales-tracker.ts";
+import { STATUS_LABELS } from "../lib/pmz-types.ts";
 
 // Stand-in for buildLineRecipeSections(item, lemCats) — the injected cost-BEARING builder. Emits one
 // labor row per bid line so every created job has a real recipe and a real cost basis to assert on.
@@ -54,18 +56,50 @@ const quote = (id, status, extra = {}) => ({
   ...extra,
 });
 
-// ── 1 — ELIGIBILITY ───────────────────────────────────────────────────────────────────────────────
-// The eligible set is Accepted-or-beyond. Every OTHER stored status must be refused.
-assert.deepEqual(
-  Array.from(WORK_ORDER_ELIGIBLE_STATUSES).sort(),
-  ["Approved", "Completed", "In Progress", "Invoiced", "Paid", "Ready to Invoice", "Scheduled"],
-  "eligible = Accepted through Paid, plus legacy Completed"
-);
-for (const s of ["Approved", "Scheduled", "In Progress", "Ready to Invoice", "Invoiced", "Paid", "Completed"]) {
-  assert.equal(isWorkOrderEligible(quote("q", s)), true, `${s} is Accepted-or-beyond → should have a work order`);
+// ── 1 — ELIGIBILITY, BY THE EXACT STRINGS THE APP STORES ──────────────────────────────────────────
+// REGRESSION OF RECORD (the sweep created nothing on a real book): a quote showing "Accepted" is
+// STORED as "Approved", and one showing "Work Order Active" is STORED as "In Progress". Testing a
+// status against the words on screen finds nothing. Each row below pins the STORED value, the LABEL
+// the owner reads, and whether the sweep must repair it — so the two can never be confused again.
+const STATUS_MATRIX = [
+  { stored: "Approved",           label: "Accepted",             eligible: true },
+  { stored: "Scheduled",          label: "Scheduled",            eligible: true },
+  { stored: "In Progress",        label: "Work Order Active",    eligible: true },
+  { stored: "Ready to Invoice",   label: "Ready to Invoice",     eligible: true },
+  { stored: "Invoiced",           label: "Invoiced",             eligible: true },
+  { stored: "Paid",               label: "Paid",                 eligible: true },
+  { stored: "Completed",          label: "Completed",            eligible: true },  // legacy, still won work
+  { stored: "Draft",              label: "Draft",                eligible: false },
+  { stored: "Ready for Approval", label: "Sent for Acceptance",  eligible: false },
+  { stored: "Declined",           label: "Declined",             eligible: false },
+  { stored: "Lost",               label: "Lost",                 eligible: false },
+];
+for (const row of STATUS_MATRIX) {
+  assert.equal(
+    STATUS_LABELS[row.stored],
+    row.label,
+    `stored "${row.stored}" must display as "${row.label}" — the sweep tests the STORED value, never this label`
+  );
+  assert.equal(
+    isSweepEligibleStatus(row.stored),
+    row.eligible,
+    `stored "${row.stored}" (shown as "${row.label}") must ${row.eligible ? "BE" : "NOT be"} sweep-eligible`
+  );
+  assert.equal(
+    isWorkOrderEligible(quote("q", row.stored)),
+    row.eligible,
+    `an EPP quote stored as "${row.stored}" (shown as "${row.label}") must ${row.eligible ? "get" : "NOT get"} a work order`
+  );
 }
-for (const s of ["Draft", "Ready for Approval", "Declined", "Lost"]) {
-  assert.equal(isWorkOrderEligible(quote("q", s)), false, `${s} has no accepted work → no work order`);
+
+// DERIVED, NOT HAND-LISTED: eligibility IS the tracker's ACCEPTED bucket. A hand-copied status list
+// here is what let a status go missing; this asserts the two can never disagree for any status.
+for (const row of STATUS_MATRIX) {
+  assert.equal(
+    isSweepEligibleStatus(row.stored),
+    statusBucket(row.stored) === "ACCEPTED",
+    `"${row.stored}" — sweep eligibility must be exactly statusBucket()==="ACCEPTED" (one home for status semantics, lib/sales-tracker.ts)`
+  );
 }
 assert.equal(
   isWorkOrderEligible({ ...quote("qf", "Invoiced"), quoteType: "Full" }),
@@ -77,7 +111,23 @@ assert.equal(
   false,
   "an untyped legacy quote is not EPP → refused (never guessed into a work order)"
 );
-console.log("PASS: work-order sweep eligibility — Accepted-through-Paid + legacy Completed only; Draft/Sent/Declined/Lost refused; Full and untyped quotes refused");
+// LIVE REPRO (the reported defect): a book holding exactly these two quotes and NO jobs must produce
+// two work orders. This is the case that silently produced nothing.
+const LIVE_BOOK = [
+  { ...quote("q_front", "Approved"),    jobName: "Front Lot" },   // screen says "Accepted"
+  { ...quote("q_square", "In Progress"), jobName: "The square" }, // screen says "Work Order Active"
+];
+const liveSweep = planWorkOrderSweep(LIVE_BOOK, [], buildSections);
+assert.equal(liveSweep.createdCount, 2, "the live book (Accepted 'Front Lot' + Work Order Active 'The square', no jobs) must produce TWO work orders");
+assert.deepEqual(
+  liveSweep.created.map((j) => j.jobName).sort(),
+  ["Front Lot", "The square"],
+  "…and they are those two jobs by name"
+);
+assert.equal(liveSweep.counts.examined, 2, "counts report what the sweep looked at");
+assert.equal(liveSweep.counts.eligible, 2, "…both eligible");
+assert.equal(liveSweep.counts.skippedStatus, 0, "…neither refused on status — 'In Progress' is NOT a skip");
+console.log("PASS: work-order sweep eligibility — pinned to the STORED status strings with their on-screen labels (Accepted=Approved, Work Order Active=In Progress); derived from the tracker's ACCEPTED bucket, never hand-listed; the live two-quote repro produces two work orders");
 
 // ── 2 — A LATE-STATUS QUOTE WITH NO JOB GETS ONE, VIA THE SHARED CREATION PATH ────────────────────
 const LATE = quote("q_inv", "Invoiced", {
