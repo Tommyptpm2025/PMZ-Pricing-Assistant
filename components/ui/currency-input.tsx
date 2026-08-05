@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { selectOnFocusProps } from "@/lib/select-on-focus";
 
 interface CurrencyInputProps {
   value: number;
@@ -56,9 +57,13 @@ export function CurrencyInput({
     onChange(roundToTwo(parsed));
   };
 
-  const handleFocus = () => {
+  // Select-on-focus: the first keystroke replaces the amount instead of appending to it. Safe to
+  // select synchronously — localValue is seeded with the SAME string the box already displays
+  // (value.toFixed(2)), so the DOM value doesn't change and the selection isn't dropped.
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     setIsFocused(true);
     setLocalValue(blankMode ? "" : value.toFixed(2));
+    selectOnFocusProps.onFocus(e);
   };
 
   const handleBlur = () => {
@@ -91,6 +96,8 @@ export function CurrencyInput({
         inputMode="decimal"
         value={displayValue}
         placeholder={placeholder}
+        onMouseDown={selectOnFocusProps.onMouseDown}
+        onMouseUp={selectOnFocusProps.onMouseUp}
         onFocus={handleFocus}
         onBlur={handleBlur}
         onChange={handleChange}

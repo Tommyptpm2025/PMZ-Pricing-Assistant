@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CurrencyInput } from "@/components/ui/currency-input";
+import { selectOnFocusProps } from "@/lib/select-on-focus";
 import {
   Select,
   SelectContent,
@@ -2462,6 +2463,7 @@ export default function ProjectPricerPage() {
                         <div className="text-right">
                           <Input
                             type="number"
+                            {...selectOnFocusProps}
                             value={item.quantity || ""}
                             onChange={(e) => {
                               const q = Math.max(0, parseFloat(e.target.value) || 0);
@@ -2510,6 +2512,7 @@ export default function ProjectPricerPage() {
                             <input
                               type="text"
                               inputMode="decimal"
+                              {...selectOnFocusProps}
                               value={lineTotalEdits[item.id] !== undefined ? lineTotalEdits[item.id] : (lineTotal === 0 ? '' : lineTotal.toFixed(2))}
                               onChange={(e) => {
                                 // live bidirectional: update edit buffer and immediately recalc Unit Rate = Line Total / Qty
@@ -2672,6 +2675,7 @@ export default function ProjectPricerPage() {
                                                   <div className="flex items-center gap-1">
                                                     <Input
                                                       type="number"
+                                                      {...selectOnFocusProps}
                                                       value={x.e.hours ?? ""}
                                                       style={gateHighlights.has(`${item.id}:labor:${x.i}`) && !(typeof x.e.hours === "number" && x.e.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                                       onChange={(ev) => updateGroupedEntryHours(item, "labor", x.i, parseNumericEntry(ev.target.value))}
@@ -2764,6 +2768,7 @@ export default function ProjectPricerPage() {
                                         <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
+                                          {...selectOnFocusProps}
                                           value={entry.hours ?? ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:labor:${idx}`]: true }))}
                                           style={gateHighlights.has(`${item.id}:labor:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
@@ -2922,6 +2927,7 @@ export default function ProjectPricerPage() {
                                                   <div className="flex items-center gap-1">
                                                     <Input
                                                       type="number"
+                                                      {...selectOnFocusProps}
                                                       value={x.e.hours ?? ""}
                                                       style={gateHighlights.has(`${item.id}:equipment:${x.i}`) && !(typeof x.e.hours === "number" && x.e.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
                                                       onChange={(ev) => updateGroupedEntryHours(item, "equipment", x.i, parseNumericEntry(ev.target.value))}
@@ -3000,6 +3006,7 @@ export default function ProjectPricerPage() {
                                         <div className="flex items-center gap-1">
                                         <Input
                                           type="number"
+                                          {...selectOnFocusProps}
                                           value={entry.hours ?? ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:equipment:${idx}`]: true }))}
                                           style={gateHighlights.has(`${item.id}:equipment:${idx}`) && !(typeof entry.hours === "number" && entry.hours > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
@@ -3176,6 +3183,7 @@ export default function ProjectPricerPage() {
                                         <div className="flex items-center justify-end gap-1">
                                         <Input
                                           type="number"
+                                          {...selectOnFocusProps}
                                           value={entry.quantity ?? ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:material:${idx}`]: true }))}
                                           style={gateHighlights.has(`${item.id}:material:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
@@ -3373,6 +3381,7 @@ export default function ProjectPricerPage() {
                                       <div className="flex items-center justify-end gap-1">
                                         <Input
                                           type="number"
+                                          {...selectOnFocusProps}
                                           value={entry.quantity ?? ""}
                                           onBlur={() => setCostingFieldsTouched((prev) => ({ ...prev, [`${item.id}:misc:${idx}`]: true }))}
                                           style={gateHighlights.has(`${item.id}:misc:${idx}`) && !(typeof entry.quantity === "number" && entry.quantity > 0) ? { boxShadow: "0 0 0 2px #EB3300", borderColor: "#EB3300" } : undefined}
@@ -3901,7 +3910,7 @@ export default function ProjectPricerPage() {
                   ) : <div className="p-2 text-xs text-muted-foreground">No labor profiles saved. <Link href="/labor-rates" className="underline">Go add your rates in the Labor Builder</Link></div>}
                 </SelectContent>
               </Select>
-              <input type="text" inputMode="numeric" value={pendingLaborQtyEdit !== "" ? pendingLaborQtyEdit : (pendingLaborQty === 0 ? '' : pendingLaborQty.toString())} onChange={e => {
+              <input type="text" inputMode="numeric" {...selectOnFocusProps} value={pendingLaborQtyEdit !== "" ? pendingLaborQtyEdit : (pendingLaborQty === 0 ? '' : pendingLaborQty.toString())} onChange={e => {
                 const raw = e.target.value;
                 setPendingLaborQtyEdit(raw);
                 const trimmed = raw.trim();
@@ -3951,7 +3960,7 @@ export default function ProjectPricerPage() {
                   )) : <div className="p-2 text-xs text-muted-foreground">No equipment profiles saved. <Link href="/equipment-rates" className="underline">Go add your rates in the Equipment Builder</Link></div>}
                 </SelectContent>
               </Select>
-              <input type="text" inputMode="numeric" value={pendingEquipQtyEdit !== "" ? pendingEquipQtyEdit : (pendingEquipQty === 0 ? '' : pendingEquipQty.toString())} onChange={e => {
+              <input type="text" inputMode="numeric" {...selectOnFocusProps} value={pendingEquipQtyEdit !== "" ? pendingEquipQtyEdit : (pendingEquipQty === 0 ? '' : pendingEquipQty.toString())} onChange={e => {
                 const raw = e.target.value;
                 setPendingEquipQtyEdit(raw);
                 const trimmed = raw.trim();
@@ -4004,7 +4013,7 @@ export default function ProjectPricerPage() {
                   )) : <div className="p-2 text-xs text-muted-foreground">No material profiles saved. <Link href="/material-rates" className="underline">Go add your rates in the Material Builder</Link></div>}
                 </SelectContent>
               </Select>
-              <input type="text" inputMode="numeric" value={pendingMatQtyEdit !== "" ? pendingMatQtyEdit : (pendingMatQty === 0 ? '' : pendingMatQty.toString())} onChange={e => {
+              <input type="text" inputMode="numeric" {...selectOnFocusProps} value={pendingMatQtyEdit !== "" ? pendingMatQtyEdit : (pendingMatQty === 0 ? '' : pendingMatQty.toString())} onChange={e => {
                 const raw = e.target.value;
                 setPendingMatQtyEdit(raw);
                 const trimmed = raw.trim();
@@ -4066,6 +4075,7 @@ export default function ProjectPricerPage() {
                         <input
                           type="text"
                           inputMode="numeric"
+                          {...selectOnFocusProps}
                           value={qtyEdits[item.id] !== undefined ? qtyEdits[item.id] : (item.quantity === 0 ? '' : item.quantity.toString())}
                           onChange={(e) => {
                             const raw = e.target.value;
@@ -4142,6 +4152,7 @@ export default function ProjectPricerPage() {
                   <input
                     type="text"
                     inputMode="numeric"
+                    {...selectOnFocusProps}
                     value={gpPercentEdit !== "" ? gpPercentEdit : (editableGrossProfitPercent > 0 ? editableGrossProfitPercent.toString() : defaultTargetGP.toString())}
                     onChange={(e) => {
                       const raw = e.target.value;

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { selectOnFocusProps } from "@/lib/select-on-focus";
 
 interface PercentInputProps {
   value: number;
@@ -44,9 +45,11 @@ export function PercentInput({
     onChange(isNaN(parsed) ? 0 : parsed);
   };
 
-  const handleFocus = () => {
+  // Select-on-focus (see CurrencyInput): first keystroke replaces the percent, never appends.
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     setIsFocused(true);
     setLocalValue(blankMode ? "" : value.toString());
+    selectOnFocusProps.onFocus(e);
   };
 
   const handleBlur = () => {
@@ -78,6 +81,8 @@ export function PercentInput({
         inputMode="decimal"
         value={displayValue}
         placeholder={placeholder}
+        onMouseDown={selectOnFocusProps.onMouseDown}
+        onMouseUp={selectOnFocusProps.onMouseUp}
         onFocus={handleFocus}
         onBlur={handleBlur}
         onChange={handleChange}
