@@ -157,40 +157,44 @@ export function changeOrderStatusForCost(totalCost: number, ceiling: number): Ch
 
 // ── THE LAYERED CEILING ───────────────────────────────────────────────────────────────────────────
 //
-// A job may carry its OWN on-the-spot authority, set by leadership on that job's detail. When it does,
-// it OVERRIDES the company default — up or down. The big airport job trusts the foreman with $5,000;
-// the tight little repave trusts him with $500; everything else runs on the company number.
+// AUTHORITY BELONGS TO THE PERSON, NOT THE JOB (owner's ruling, 2026-08-06). A foreman may carry his
+// own on-the-spot limit, set on his roster record; when he does it OVERRIDES the company default — up
+// or down — on every job he runs. Twenty-year Tim is trusted with $2,500 wherever he is standing; the
+// new man runs on the company number until he has earned his own. Trust follows the man.
+//
+// So the limit that applies depends on WHO IS WRITING THE CHANGE ORDER. That is why the acting
+// foreman's limit is the input here, and why the form asks who he is before it can say what he may do.
 //
 // There is exactly ONE reader, and it returns WHICH limit applied along with the amount, because the
-// sentence the foreman reads must name the limit he actually hit. A reader that returned only a number
-// would leave every surface free to guess at the wording — and "over the $1,500 limit" shown to a man
-// working under a $5,000 job limit is a lie told by omission.
+// sentence the foreman reads must name the limit he actually hit and whose it is. A reader that
+// returned only a number would leave every surface free to guess at the wording — and "over the $1,500
+// limit" shown to a man carrying $2,500 of his own authority is a lie told by omission.
 //
-// "Set" means a finite, non-negative number. An EXPLICIT 0 on the job is honored — leadership may hold
-// every change order on this one job on purpose — exactly as an explicit 0 is honored in company
-// settings. Blank, negative, NaN and undefined are all "not set", and fall through to the company.
+// "Set" means a finite, non-negative number. An EXPLICIT 0 is honored — a foreman may be held to
+// calling in every single time, on purpose — exactly as an explicit 0 is honored in company settings.
+// Blank, negative, NaN and undefined are all "not set", and fall through to the company.
 
 export interface AppliedCeiling {
   amount: number;
-  /** 'job' when this job's own authority applied; 'company' when the company default did. */
-  source: 'job' | 'company';
+  /** 'foreman' when the acting foreman's own authority applied; 'company' when the default did. */
+  source: 'foreman' | 'company';
 }
 
 export function appliedChangeOrderCeiling(
-  jobLimitDollars: number | null | undefined,
+  foremanLimitDollars: number | null | undefined,
   companyCeiling: number
 ): AppliedCeiling {
-  const n = typeof jobLimitDollars === 'number' ? jobLimitDollars : NaN;
-  if (Number.isFinite(n) && n >= 0) return { amount: n, source: 'job' };
+  const n = typeof foremanLimitDollars === 'number' ? foremanLimitDollars : NaN;
+  if (Number.isFinite(n) && n >= 0) return { amount: n, source: 'foreman' };
   return { amount: companyCeiling, source: 'company' };
 }
 
 /** The dollar amount of the layered ceiling, for callers that only need the number. */
 export function effectiveChangeOrderCeiling(
-  jobLimitDollars: number | null | undefined,
+  foremanLimitDollars: number | null | undefined,
   companyCeiling: number
 ): number {
-  return appliedChangeOrderCeiling(jobLimitDollars, companyCeiling).amount;
+  return appliedChangeOrderCeiling(foremanLimitDollars, companyCeiling).amount;
 }
 
 // ── CREATION ──────────────────────────────────────────────────────────────────────────────────────
@@ -386,13 +390,23 @@ export function pendingChangeOrders(list: ChangeOrder[], jobId: string): ChangeO
 
 // ── WHO MAY DECIDE ────────────────────────────────────────────────────────────────────────────────
 //
-// The salespeople and bosses on the roster — the two roles the ruling puts over an on-the-spot limit
-// — and THE JOB'S OWN SALESPERSON FIRST, because they are the one who priced the deal this extra
-// rides on and the person the foreman actually calls.
+// YOUR DEAL, YOUR SIGNATURE — OR THE BOSS'S (owner's ruling, 2026-08-06). Exactly two kinds of people
+// may rule on a held change order:
+//   • THE JOB'S OWN SALESPERSON — they priced the deal this extra rides on, they carry its margin, and
+//     they are who the foreman actually calls; and
+//   • ANY BOSS — the seat that sees everything and makes the judgment calls.
+//
+// A PEER SALESPERSON IS NOT AN APPROVER. Holding the salesperson role is not authority over someone
+// else's deal: the man who bid the job is the one who has to live with what the extra does to it, and
+// a colleague signing his margin away — with the best intentions, in a hurry, on a job he has never
+// seen — is exactly the quiet mistake this list exists to prevent. If the salesperson is unreachable,
+// the escalation is a BOSS, not the nearest available peer.
+//
+// Foremen are absent for the same family of reasons — the man who wrote the change order does not sign
+// it — and the accountant reads the money without changing it.
 //
 // Deliberately structural (`{ id, name, roles, active }`) rather than importing the Person type: this
-// module prices and rules on money and has no business depending on the roster's storage. Foremen are
-// absent from this list on purpose — the man who wrote the change order does not sign it.
+// module prices and rules on money and has no business depending on the roster's storage.
 
 export interface ApproverCandidate {
   id: string;
@@ -401,32 +415,36 @@ export interface ApproverCandidate {
   active: boolean;
 }
 
-const APPROVER_ROLES = ['salesperson', 'boss'];
+const hasRole = (p: ApproverCandidate, role: string): boolean =>
+  Array.isArray(p.roles) && p.roles.includes(role);
 
 export function changeOrderApprovers<T extends ApproverCandidate>(
   people: T[],
   jobSalesperson?: { id?: string; name?: string }
 ): T[] {
-  const eligible = (people || []).filter(
-    (p) => p && p.active && Array.isArray(p.roles) && p.roles.some((r) => APPROVER_ROLES.includes(r))
-  );
+  const active = (people || []).filter((p) => p && p.active);
 
-  // WHO IS "the job's own salesperson". By id when the job carries one. Otherwise by exact trimmed,
-  // case-insensitive name — and only when EXACTLY ONE eligible person answers to it. Two people share
-  // the name and nobody is promoted: a skip never guesses (the same rule the attribution backfill
-  // holds). Being un-promoted costs a sort position; being guessed wrong puts the wrong name on money.
+  // WHO IS "the job's own salesperson". By id when the job carries one; otherwise by exact trimmed,
+  // case-insensitive name — and only when EXACTLY ONE active salesperson answers to it. Two people
+  // share the name and nobody is resolved: a skip never guesses (the same rule the attribution
+  // backfill holds), and here a wrong guess would hand someone else's deal to the wrong signature.
+  // Resolution is restricted to people who actually hold the salesperson role, so a stale name that
+  // now belongs to a foreman can never let him approve his own change order.
   const wantedId = (jobSalesperson?.id || '').trim();
   const wantedName = (jobSalesperson?.name || '').trim().toLowerCase();
+  const salespeople = active.filter((p) => hasRole(p, 'salesperson'));
   let ownId = '';
-  if (wantedId && eligible.some((p) => p.id === wantedId)) {
+  if (wantedId && salespeople.some((p) => p.id === wantedId)) {
     ownId = wantedId;
   } else if (wantedName) {
-    const byName = eligible.filter((p) => (p.name || '').trim().toLowerCase() === wantedName);
+    const byName = salespeople.filter((p) => (p.name || '').trim().toLowerCase() === wantedName);
     if (byName.length === 1) ownId = byName[0].id;
   }
 
-  return eligible
-    .slice()
+  // The job's own salesperson, plus every boss. Nobody else — and never anyone twice, for the common
+  // case of an owner who is both the boss and the salesperson on his own bid.
+  return active
+    .filter((p) => p.id === ownId || hasRole(p, 'boss'))
     .sort((a, b) => {
       const ra = a.id === ownId ? 0 : 1;
       const rb = b.id === ownId ? 0 : 1;

@@ -78,18 +78,23 @@ export interface JobChangeOrdersProps {
    * The two — and only two — money facts this screen may know. Costs are resolved in the parent from
    * the catalog rates; the ceiling comparison happens there too, against COST (the gaveled rule).
    */
-  evaluate: (picks: ChangeOrderPick[]) => { price: number; withinCeiling: boolean };
-  /** The on-the-spot ceiling that actually applied, for the over-the-limit sentence. */
-  ceiling: number;
   /**
-   * WHICH limit that was — this job's own authority, or the company default. The sentence names it,
-   * because "over the $1,500 limit" shown to a foreman working under a $5,000 JOB limit is a lie told
-   * by omission. Resolved in the parent by the one layered reader; never re-decided here.
+   * The two money facts, plus the authority that applies to THE FOREMAN WHO IS WRITING THIS ONE.
+   * Costs are resolved in the parent from the catalog rates; the ceiling comparison happens there too,
+   * against COST (the gaveled rule), using the acting foreman's own limit when he carries one.
+   *
+   * `ceilingSource` says WHOSE limit it was — his, or the company's — because "over the $1,500 limit"
+   * shown to a man carrying $2,500 of his own authority is a lie told by omission. Resolved by the one
+   * layered reader in the parent; never re-decided here.
    */
-  ceilingSource: "job" | "company";
+  evaluate: (
+    picks: ChangeOrderPick[],
+    foremanId: string
+  ) => { price: number; withinCeiling: boolean; ceiling: number; ceilingSource: "foreman" | "company" };
   /**
-   * Who may decide a held change order — active salespeople and bosses, the job's own salesperson
-   * first. Already ordered by the parent (changeOrderApprovers); this screen only renders the list.
+   * Who may decide a held change order — THIS JOB'S OWN SALESPERSON (first) and the bosses. Never a
+   * peer salesperson: holding the role is not authority over someone else's deal. Already resolved
+   * and ordered by the parent (changeOrderApprovers); this screen only renders the list.
    */
   approvers: Array<{ id: string; name: string }>;
   onDecide: (
@@ -191,8 +196,6 @@ export default function JobChangeOrders({
   foremen,
   catalog,
   evaluate,
-  ceiling,
-  ceilingSource,
   approvers,
   onDecide,
   canAdd,
@@ -212,8 +215,9 @@ export default function JobChangeOrders({
 
   function openDesk(id: string, action: ChangeOrderDecisionAction) {
     setDesk({ id, action });
-    // The job's own salesperson is first in the list — preselect them, since they are who the foreman
-    // actually calls. Still a real pick: leadership can change it before confirming.
+    // The job's own salesperson is first in the list — preselect them, since it is their deal and they
+    // are who the foreman actually calls. Still a real pick: it can be changed to a boss before
+    // confirming, which is the only other signature this list offers.
     setDecidedBy(approvers[0]?.id || "");
     setDeskText("");
   }
@@ -238,7 +242,9 @@ export default function JobChangeOrders({
   const picks: ChangeOrderPick[] = rows
     .filter((r) => r.id && num(r.qty) > 0)
     .map((r) => ({ kind: r.kind, id: r.id, qty: num(r.qty) }));
-  const { price, withinCeiling } = evaluate(picks);
+  // WHO is asked before WHAT HE MAY DO can be answered: the authority rides on the foreman, so until
+  // one is picked there is no limit to state and none is claimed.
+  const { price, withinCeiling, ceiling, ceilingSource } = evaluate(picks, foremanId);
   const canSave = !!foremanId && picks.length > 0;
   // A category the office has never filled in is the commonest way a foreman hits the catalog wall.
   const emptyKinds = KIND_LABELS.filter(({ kind }) => (catalog[kind] || []).length === 0).map((k) => k.label);
@@ -259,24 +265,40 @@ export default function JobChangeOrders({
     setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...next } : r)));
   }
 
+  // ── NOTHING UNTIL IT IS NEEDED ──────────────────────────────────────────────────────────────────
+  // A job with no change orders on it shows ONE thing: the button that starts one. No heading, no
+  // policy notes, no empty section. Most jobs never take a change order, and a foreman checking his
+  // recipe should not have to scroll past the office's rules about a thing that hasn't happened.
+  //
+  // Everything else — the heading, the "why not" notes, the list and its approval actions — appears
+  // only when there is something real to say: a change order exists, or he is writing one right now.
+  const hasAny = changeOrders.length > 0;
+  const showAddButton = !open && !locked && canAdd;
+  const addButton = (
+    <Button size="sm" variant="outline" className="px-2 text-xs" onClick={() => setOpen(true)}>
+      <Plus className="mr-1 h-3.5 w-3.5" /> Add Change Order
+    </Button>
+  );
+
   return (
     <div className="mt-6 wo-noprint">
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="text-xs font-medium tracking-wider text-muted-foreground">CHANGE ORDERS</div>
-        {!open && !locked && canAdd && (
-          <Button size="sm" variant="outline" className="px-2 text-xs" onClick={() => setOpen(true)}>
-            <Plus className="mr-1 h-3.5 w-3.5" /> Add Change Order
-          </Button>
-        )}
-      </div>
+      {hasAny || open ? (
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="text-xs font-medium tracking-wider text-muted-foreground">CHANGE ORDERS</div>
+          {showAddButton && addButton}
+        </div>
+      ) : (
+        showAddButton && addButton
+      )}
 
-      {/* A job that cannot price a change order says so plainly rather than offering a dead button. */}
-      {!canAdd && !locked && (
+      {/* The "why not" notes belong to the section, so they appear only when the section does. With no
+          change orders on the job there is nothing to explain — there is simply no button. */}
+      {hasAny && !canAdd && !locked && (
         <div className="rounded-md border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
           {blockedReason || "This job can’t take a change order."}
         </div>
       )}
-      {locked && (
+      {hasAny && locked && (
         <div className="flex items-center gap-1.5 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
           <Lock className="h-3.5 w-3.5" /> Job is completed — no new change orders.
         </div>
@@ -389,8 +411,15 @@ export default function JobChangeOrders({
             </div>
           </div>
 
-          {/* THE CEILING, IN PLAIN SENTENCES. Same price either way — only the authority differs. */}
-          {picks.length > 0 && (
+          {/* THE CEILING, IN PLAIN SENTENCES. Same price either way — only the authority differs, and
+              the sentence always names the limit that applied AND whose it is. Shown only once a
+              foreman is picked, because until then nobody knows which limit is his. */}
+          {picks.length > 0 && !foremanId && (
+            <div className="mt-2 rounded-md border border-dashed bg-muted/20 p-2 text-[11px] text-muted-foreground">
+              Pick the foreman above to see what he may quote on the spot — the limit follows the man.
+            </div>
+          )}
+          {picks.length > 0 && !!foremanId && (
             <div
               className="mt-2 rounded-md border p-2"
               style={
@@ -400,17 +429,23 @@ export default function JobChangeOrders({
               }
             >
               {withinCeiling ? (
-                <div className="font-medium">Quote this price to the customer: {formatMoney(price)}</div>
+                <>
+                  <div className="font-medium">Quote this price to the customer: {formatMoney(price)}</div>
+                  <div className="mt-0.5">
+                    {ceilingSource === "foreman"
+                      ? `Inside your ${formatMoney(ceiling)} on-the-spot authority.`
+                      : `Inside the company’s ${formatMoney(ceiling)} on-the-spot limit.`}
+                  </div>
+                </>
               ) : (
                 <>
-                  {/* NAMES THE LIMIT THAT ACTUALLY APPLIED — this job's authority, or the company's. */}
                   <div className="font-medium">
-                    {ceilingSource === "job"
-                      ? `Over the ${formatMoney(ceiling)} on-the-spot limit set for this job.`
-                      : `Over the ${formatMoney(ceiling)} company on-the-spot limit.`}
+                    {ceilingSource === "foreman"
+                      ? `Over your ${formatMoney(ceiling)} on-the-spot authority.`
+                      : `Over the company’s ${formatMoney(ceiling)} on-the-spot limit.`}
                   </div>
                   <div className="mt-0.5">
-                    Saved and waiting for approval — check with the salesperson or boss before quoting.
+                    Saved and waiting for approval — check with this job’s salesperson or a boss before quoting.
                   </div>
                 </>
               )}
@@ -448,9 +483,10 @@ export default function JobChangeOrders({
         </div>
       )}
 
-      {/* THE LIST. Additive only in this pass — a priced change order is never edited here. The lines
-          show WHAT and HOW MUCH; the only money is the price the foreman quoted. */}
-      {changeOrders.length > 0 && (
+      {/* THE LIST — and the approval desk inside it. Renders ONLY when a change order exists; on a job
+          that never took one, none of this is on screen at all. Additive only: a priced change order
+          is never edited here. The lines show WHAT and HOW MUCH; the only money is the price quoted. */}
+      {hasAny && (
         <div className="mt-2 space-y-2">
           {changeOrders.map((co) => (
             <div key={co.id} className="rounded-lg border bg-muted/10 p-2.5 text-xs">
@@ -522,8 +558,8 @@ export default function JobChangeOrders({
                   {desk?.id !== co.id ? (
                     approvers.length === 0 ? (
                       <div className="text-[11px] text-muted-foreground">
-                        Nobody on the roster holds the salesperson or boss role yet, so this can’t be decided.
-                        Add one in Company Setup → Company Roster.
+                        This job’s salesperson isn’t on the roster and nobody holds the boss role, so this
+                        can’t be decided. Add a boss in Company Setup → Company Roster.
                       </div>
                     ) : (
                       <div className="flex flex-wrap items-center gap-1.5">

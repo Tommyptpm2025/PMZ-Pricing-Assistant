@@ -7,7 +7,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { UserPlus, Pencil } from "lucide-react"
-import { usePeople, ROLES, type Role, type Person } from "@/lib/people"
+import {
+  usePeople,
+  ROLES,
+  authorityChangeSentence,
+  normalizeOnTheSpotLimit,
+  type Role,
+  type Person,
+} from "@/lib/people"
 import { formatPhone, PHONE_PLACEHOLDER } from "@/lib/phone"
 
 /**
@@ -18,6 +25,12 @@ import { formatPhone, PHONE_PLACEHOLDER } from "@/lib/phone"
  * graze). Each person has an Edit button; edits stage in local state and apply only on Save. A Save
  * that changes any ROLE or the ACTIVE flag is confirmed with a plain statement. People are never
  * deleted — deactivate instead; the id stays stamped on past quotes, so a rename follows the person.
+ *
+ * ON-THE-SPOT AUTHORITY LIVES HERE TOO, and under the SAME protection. How much a foreman may commit
+ * on a change order without calling anyone is money he can spend on the company's behalf — a
+ * permission in every sense that a role is — so it is editable only in this protected Edit mode and
+ * confirmed with the same kind of plain sentence ("Set Tim's on-the-spot authority to $2,500?").
+ * Raising it by a graze on a list row is exactly what must never be possible.
  */
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -58,6 +71,10 @@ export default function RosterManager() {
   const [eActive, setEActive] = React.useState(true)
   const [eEmailError, setEEmailError] = React.useState<string | null>(null)
   const [eRoleError, setERoleError] = React.useState<string | null>(null)
+  // On-the-spot authority, held as text so a blank field can mean "no personal limit" — distinct from
+  // a typed 0, which means "hold everything this man writes".
+  const [eLimit, setELimit] = React.useState("")
+  const [eLimitError, setELimitError] = React.useState<string | null>(null)
 
   const sorted = React.useMemo(
     () => [...people].sort((a, b) => a.name.localeCompare(b.name)),
@@ -110,12 +127,15 @@ export default function RosterManager() {
     setEActive(p.active)
     setEEmailError(null)
     setERoleError(null)
+    setELimit(p.onTheSpotLimitDollars != null ? String(p.onTheSpotLimitDollars) : "")
+    setELimitError(null)
   }
 
   const cancelEdit = () => {
     setEditingId(null)
     setEEmailError(null)
     setERoleError(null)
+    setELimitError(null)
   }
 
   const toggleEditRole = (r: Role) => {
@@ -123,7 +143,20 @@ export default function RosterManager() {
     setERoles((prev) => toggle(prev, r))
   }
 
-  // Compose the plain-language confirmation for any ROLE or ACTIVE change. Empty ⇒ nothing to confirm.
+  // The staged authority: blank ⇒ no personal limit (fall back to the company default); a typed number
+  // ⇒ that limit, 0 included. Parsed once, here, so the confirm and the save can never disagree about
+  // what the field said.
+  // Authority belongs to the foreman role. Take the role away and the authority goes with it — the
+  // confirm says so out loud — rather than lying dormant on the record to come back if the role ever
+  // returns.
+  const stagedLimit = (): number | undefined =>
+    !eRoles.includes("foreman") || eLimit.trim() === ""
+      ? undefined
+      : normalizeOnTheSpotLimit(parseFloat(eLimit.trim()))
+
+  // Compose the plain-language confirmation for any ROLE, ACTIVE or AUTHORITY change. Empty ⇒ nothing
+  // to confirm. Authority sits in this list and not beside it: money a man may commit without a phone
+  // call is a permission, and it is confirmed as one.
   const permissionConfirm = (original: Person): string | null => {
     const changes: string[] = []
     ROLES.forEach((r) => {
@@ -135,6 +168,9 @@ export default function RosterManager() {
     if (original.active !== eActive) {
       changes.push(eActive ? `Reactivate ${original.name}` : `Deactivate ${original.name}`)
     }
+    // The sentence comes from lib/people.ts — the roster shows exactly what the fence tests.
+    const authority = authorityChangeSentence(original.name, original.onTheSpotLimitDollars, stagedLimit())
+    if (authority) changes.push(authority.replace(/\?$/, ""))
     if (changes.length === 0) return null
     if (changes.length === 1) return `${changes[0]}?`
     return `Apply these permission changes to ${original.name}?\n\n- ${changes.join("\n- ")}`
@@ -159,9 +195,18 @@ export default function RosterManager() {
     } else {
       setERoleError(null)
     }
+    // A typed authority must be a real dollar amount. Refused rather than silently dropped: a limit
+    // that quietly failed to save reads as authority granted, which is the wrong way to be wrong.
+    const rawLimit = eLimit.trim()
+    if (rawLimit !== "" && stagedLimit() === undefined) {
+      setELimitError("Enter a dollar amount (0 or more), or leave it blank to use the company limit.")
+      ok = false
+    } else {
+      setELimitError(null)
+    }
     if (!ok) return
 
-    // Role / active changes are stated decisions, never a graze. Name/email/phone edits are safe.
+    // Role / active / AUTHORITY changes are stated decisions, never a graze. Name/email/phone are safe.
     const confirmMsg = permissionConfirm(original)
     if (confirmMsg && !window.confirm(confirmMsg)) return
 
@@ -171,6 +216,7 @@ export default function RosterManager() {
       phone: ePhone.trim() || undefined,
       roles: eRoles,
       active: eActive,
+      onTheSpotLimitDollars: stagedLimit(),
     })
     cancelEdit()
   }
@@ -311,6 +357,36 @@ export default function RosterManager() {
                         {roleCheckboxes(eRoles, toggleEditRole, "edit-role")}
                         {eRoleError && <p className="mt-1.5 text-[11px] font-medium text-[#EB3300]">{eRoleError}</p>}
                       </div>
+                      {/* ON-THE-SPOT AUTHORITY — a PERMISSION, sitting with the other permissions and
+                          confirmed like them. Only for a foreman: it is the one role that writes
+                          change orders in the field. */}
+                      {eRoles.includes("foreman") && (
+                        <div className="sm:col-span-2">
+                          <Label htmlFor="edit-limit">
+                            On-the-spot authority
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">
+                              (optional — blank uses the company limit)
+                            </span>
+                          </Label>
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">$</span>
+                            <Input
+                              id="edit-limit"
+                              value={eLimit}
+                              onChange={(e) => { setELimit(e.target.value); setELimitError(null) }}
+                              placeholder="Company limit"
+                              inputMode="decimal"
+                              className="w-40 text-right font-mono tabular-nums"
+                            />
+                          </div>
+                          <p className="mt-1.5 text-[11px] text-muted-foreground">
+                            The most this person may commit on a single change order without calling anyone.
+                            Changing it is a permission change and is confirmed. Enter 0 to hold every change
+                            order they write for approval.
+                          </p>
+                          {eLimitError && <p className="mt-1 text-[11px] font-medium text-[#EB3300]">{eLimitError}</p>}
+                        </div>
+                      )}
                       <div className="sm:col-span-2">
                         <label className="flex cursor-pointer items-center gap-2">
                           <input
@@ -347,6 +423,16 @@ export default function RosterManager() {
                         <div className="mt-1 text-xs text-muted-foreground">
                           Roles: <span className="text-foreground">{p.roles.map((r) => ROLE_LABELS[r]).join(" · ") || "—"}</span>
                         </div>
+                        {/* Visible without entering Edit — you can see who carries authority at a
+                            glance, but you can only CHANGE it through Edit → Save → confirm. */}
+                        {p.roles.includes("foreman") && p.onTheSpotLimitDollars != null && (
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            On-the-spot authority:{" "}
+                            <span className="text-foreground">
+                              ${p.onTheSpotLimitDollars.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <Button size="sm" variant="outline" onClick={() => startEdit(p)}>
                         <Pencil className="h-3.5 w-3.5" /> Edit

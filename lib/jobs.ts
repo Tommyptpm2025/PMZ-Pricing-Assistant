@@ -114,19 +114,10 @@ export interface Job {
   // Optional free text — foreman's post-job notes (entered in the Foreman View)
   notes?: string;
 
-  // ── PER-JOB ON-THE-SPOT AUTHORITY ──────────────────────────────────────────────────────────────
-  // What this job's foreman may commit on the spot without calling anyone, in dollars of COST. Set by
-  // leadership on the job's detail; when present it OVERRIDES the company default, up or down. Absent
-  // (the normal case) means this job simply runs on the company number — see appliedChangeOrderCeiling
-  // in lib/change-orders.ts, the ONE reader of the layered pair.
-  //
-  // An explicit 0 is a real setting, not a blank: it holds every change order on this job on purpose.
-  // Anything else non-numeric or negative is "not set" and falls through to the company default.
-  onTheSpotLimitDollars?: number;
-  // Who set it and when — a leadership decision about money carries a name, like every other one.
-  // Recorded on a CLEAR as well, so "who took this job's authority away" is answerable too.
-  onTheSpotLimitSetBy?: string;   // roster Person id — picked, never typed
-  onTheSpotLimitSetAt?: string;   // ISO
+  // NOTE: on-the-spot change-order authority is NOT here. It briefly lived on the Job and was removed
+  // the same day (owner's ruling, 2026-08-06): the limit is trust in a PERSON, earned over years, and
+  // it travels with the foreman to every job he runs. It lives on the roster record —
+  // Person.onTheSpotLimitDollars in lib/people.ts.
 }
 
 export const JOBS_STORAGE_KEY = "pmz_jobs_v1";
@@ -391,48 +382,6 @@ export function updateRecipeRowActual(
 export function setJobNotes(jobs: Job[], jobId: string, notes: string): Job[] {
   return jobs.map((job) =>
     job.id === jobId ? { ...job, notes } : job
-  );
-}
-
-/**
- * Set — or clear — THIS JOB'S on-the-spot authority, stamped with who did it and when.
- *
- * `dollars` null (or blank/negative/NaN) CLEARS the override, and the job falls back to the company
- * default; the stamp still records who cleared it. An explicit 0 is kept as a real ceiling — holding
- * every change order on one job is a legitimate call, and silently reading it as "unset" would quietly
- * hand back an authority leadership just took away.
- *
- * MONEY IS UNTOUCHED. Only the three authority fields are ever written; contractValue, bidItems,
- * recipeLines, rowCostBasis, the foreman's actuals and every other field come through byte-identical
- * on a shallow copy, and jobs other than the target are returned by the SAME reference.
- *
- * Throws without a setter id — a limit that cannot say who raised it is not a leadership decision,
- * it is an anonymous change to how much money a foreman may commit.
- */
-export function setJobOnTheSpotLimit(
-  jobs: Job[],
-  jobId: string,
-  dollars: number | null,
-  setBy: string,
-  now: () => string = () => new Date().toISOString()
-): Job[] {
-  const by = (setBy || '').trim();
-  if (!by) {
-    throw new Error(
-      "A job's on-the-spot authority is a leadership decision — pick who is setting it before saving."
-    );
-  }
-  const keep = typeof dollars === 'number' && Number.isFinite(dollars) && dollars >= 0;
-  const at = now();
-  return jobs.map((job) =>
-    job.id === jobId
-      ? {
-          ...job,
-          onTheSpotLimitDollars: keep ? (dollars as number) : undefined,
-          onTheSpotLimitSetBy: by,
-          onTheSpotLimitSetAt: at,
-        }
-      : job
   );
 }
 

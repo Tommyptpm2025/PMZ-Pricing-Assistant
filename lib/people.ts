@@ -29,6 +29,31 @@ export interface Person {
   roles: Role[];
   active: boolean;
   createdAt: string;
+
+  // ── ON-THE-SPOT AUTHORITY ────────────────────────────────────────────────────────────────────────
+  // What THIS PERSON may commit on a change order without calling anyone, in dollars of COST. It rides
+  // on the person and not on the job, because that is what it actually is: trust in a man, earned over
+  // years, and it travels with him to every job he runs. Applies to people holding the foreman role.
+  //
+  // Absent — the normal case — means he works under the company default. An explicit 0 is a real
+  // setting: everything he writes is held for approval. Anything negative or non-numeric is not a
+  // limit and falls through to the company (see appliedChangeOrderCeiling, the ONE reader).
+  //
+  // IT IS A PERMISSION. It changes only through the roster's Edit → Save, and only behind the same
+  // plainly-stated confirmation that guards roles and active — see authorityChangeSentence below.
+  onTheSpotLimitDollars?: number;
+}
+
+/** A stored authority value is a limit only when it is a finite, non-negative number. */
+export function normalizeOnTheSpotLimit(raw: unknown): number | undefined {
+  const n = typeof raw === 'number' ? raw : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+/** THIS person's on-the-spot authority, or undefined when they have none of their own. */
+export function personOnTheSpotLimit(people: Person[], personId: string): number | undefined {
+  const p = (people || []).find((x) => x.id === (personId || '').trim());
+  return normalizeOnTheSpotLimit(p?.onTheSpotLimitDollars);
 }
 
 export const PEOPLE_KEY = 'pmz_people_v1';
@@ -89,7 +114,34 @@ export function normalizePerson(
     roles: roles.length > 0 ? roles : (['salesperson'] as Role[]),
     active: raw.active !== false,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now(),
+    // An authority that arrives malformed is NO authority, never a guessed one — the fallback is the
+    // company default, which is the conservative direction.
+    onTheSpotLimitDollars: normalizeOnTheSpotLimit(raw.onTheSpotLimitDollars),
   };
+}
+
+/**
+ * The plain sentence a change to someone's on-the-spot authority must be confirmed with, or null when
+ * nothing about it changed. Money that a man may commit without a phone call is a PERMISSION, and a
+ * permission changes only as a stated decision — the same rule roles and the active flag live under.
+ *
+ * It is pure and lives here, beside the model, so the fence tests the SENTENCE THE ROSTER ACTUALLY
+ * SHOWS rather than a copy of it that can drift.
+ */
+export function authorityChangeSentence(
+  name: string,
+  previous: number | undefined,
+  next: number | undefined
+): string | null {
+  const before = normalizeOnTheSpotLimit(previous);
+  const after = normalizeOnTheSpotLimit(next);
+  if (before === after) return null;
+  const who = (name || '').trim() || 'this person';
+  const money = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  if (after === undefined) {
+    return `Remove ${who}'s own on-the-spot authority and fall back to the company limit?`;
+  }
+  return `Set ${who}'s on-the-spot authority to ${money(after)}?`;
 }
 
 // Active people who hold a given role, in insertion order.
