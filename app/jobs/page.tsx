@@ -48,9 +48,22 @@ import {
 } from "@/lib/jobs";
 import { STATUS_COLORS, STATUS_ORDER, type QuoteStatus } from "@/lib/pmz-types";
 import { getQuoteById } from "@/lib/quote-storage";
+import { usePeople, listActiveByRole } from "@/lib/people";
+import { useCompanySettings, changeOrderCeiling } from "@/lib/company-settings";
+import {
+  createChangeOrder,
+  loadChangeOrders,
+  saveChangeOrders,
+  changeOrdersForJob,
+  priceChangeOrder,
+  type ChangeOrder,
+} from "@/lib/change-orders";
+import JobChangeOrders from "@/components/JobChangeOrders";
 
-// Quantity formatter — up to 2 decimals, no trailing-zero noise. NO currency anywhere here:
-// the Foreman Work Order is field-execution only (cost lives in the Pricer, never on this view).
+// Quantity formatter — up to 2 decimals, no trailing-zero noise. The recipe and actuals carry NO
+// currency: bid cost lives in the Pricer, never on this view. The one exception the change-order
+// ruling created is the change-order block, which shows the foreman their entered cost and the price
+// to quote — and no margin, ever (see components/JobChangeOrders.tsx).
 function fmtQty(n: number): string {
   return (Number.isFinite(n) ? n : 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
@@ -285,6 +298,68 @@ export default function JobsForemanPage() {
   // Actual-qty inputs are read-only when the job is complete OR the quote has hit Ready to Invoice.
   const actualsLocked = isLocked || actualsFrozenByInvoice;
 
+  // ── CHANGE ORDERS (COMPANY-ROSTER-AND-ROLES.md § Foreman On-the-Spot Change Orders) ─────────────
+  const { people } = usePeople();
+  const { settings } = useCompanySettings();
+  const ceiling = changeOrderCeiling(settings);
+  const rosterForemen = React.useMemo(
+    () => listActiveByRole(people, "foreman").slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [people]
+  );
+  const personName = React.useCallback(
+    (id: string) => people.find((p) => p.id === id)?.name || "a foreman no longer on the roster",
+    [people]
+  );
+  const [changeOrders, setChangeOrders] = React.useState<ChangeOrder[]>([]);
+  React.useEffect(() => { setChangeOrders(loadChangeOrders()); }, []);
+
+  // THE PARENT'S FROZEN MARGIN — gaveled (Tom, 2026-08-05) as `grossProfitPercent`, the AT-BID margin
+  // the quote was actually priced at. NEVER `targetGpPercent`: the extra rides the deal that was
+  // struck, not the tier's suggestion, and inheriting the tier's number would re-resolve exactly what
+  // the change-order law forbids. Read here at the job → quoteId → quote hop, and handed to the math
+  // as a value. `null` = we cannot price honestly, which disables the action rather than guessing.
+  const parentMarginPct = React.useMemo<number | null>(() => {
+    if (!selectedJob?.quoteId) return null;
+    try {
+      const q = getQuoteById(selectedJob.quoteId) as { grossProfitPercent?: number } | undefined;
+      const m = q?.grossProfitPercent;
+      return typeof m === "number" && Number.isFinite(m) ? m : null;
+    } catch {
+      return null;
+    }
+  }, [selectedJob]);
+
+  // The margin goes into THIS closure and no further. JobChangeOrders receives a price function, not
+  // a percentage, so the hard wall ("the foreman never sees the margin") is structural on that screen.
+  const computeChangeOrderPrice = React.useCallback(
+    (totalCost: number) => priceChangeOrder(totalCost, parentMarginPct ?? 0),
+    [parentMarginPct]
+  );
+
+  function addChangeOrder(input: {
+    foremanId: string;
+    lines: Array<{ description: string; qty: number; rate: number }>;
+  }) {
+    if (!selectedJob || parentMarginPct === null) return;
+    try {
+      const co = createChangeOrder({
+        jobId: selectedJob.id,
+        quoteId: selectedJob.quoteId,
+        foremanId: input.foremanId,
+        parentMarginPct,          // the gaveled at-bid margin, FROZEN onto the record at creation
+        lines: input.lines,
+        ceiling,
+      });
+      const next = [...loadChangeOrders(), co];
+      saveChangeOrders(next);
+      setChangeOrders(next);
+    } catch (e) {
+      // createChangeOrder refuses an unattributable record. Never mute (Law 50).
+      console.error("[jobs] Could not save the change order", e);
+      alert(e instanceof Error ? e.message : "Could not save the change order.");
+    }
+  }
+
   return (
     <div className="max-w-6xl space-y-6 pb-12">
       {/* Print rules: clean letter page, 0.5in margins, matching the quote PDF. Everything that
@@ -313,7 +388,7 @@ export default function JobsForemanPage() {
               </Badge>
             </div>
             <p className="mt-1 text-muted-foreground">
-              The field work order: job site, the planned recipe per line, and actuals entry. No pricing — this is execution only.
+              The field work order: job site, the planned recipe per line, and actuals entry. Change-order prices appear here — margins never do.
             </p>
           </div>
         </div>
@@ -748,6 +823,23 @@ export default function JobsForemanPage() {
                 {justSaved && <div className="text-[10px] text-emerald-600 mt-1">Notes saved.</div>}
                 {isLocked && <div className="text-[10px] text-muted-foreground mt-1">Job is completed — notes are locked.</div>}
               </div>
+
+              {/* CHANGE ORDERS — resources in, price out, margin nowhere. See components/JobChangeOrders. */}
+              <JobChangeOrders
+                changeOrders={changeOrdersForJob(changeOrders, selectedJob.id)}
+                foremen={rosterForemen}
+                ceiling={ceiling}
+                computePrice={computeChangeOrderPrice}
+                canAdd={parentMarginPct !== null}
+                blockedReason={
+                  !selectedJob.quoteId
+                    ? "This job isn’t linked to a bid, so there’s no price to base a change order on. Demo jobs and jobs created outside the Pricer can’t take one."
+                    : "This job’s bid couldn’t be read, so a change order can’t be priced from it. Open the quote in the Pricer and save it once, then try again."
+                }
+                locked={isLocked}
+                onCreate={addChangeOrder}
+                personName={personName}
+              />
             </CardContent>
           </Card>
 
@@ -771,7 +863,8 @@ export default function JobsForemanPage() {
 
       {/* Footer hint (not printed) */}
       <div className="text-center text-xs text-muted-foreground max-w-prose mx-auto pt-2 wo-noprint">
-        The foreman work order is field-execution only — site, recipe, and actuals. No pricing ever appears here.
+        The foreman work order is field-execution — site, recipe, and actuals. The one price here is a change order’s:
+        the foreman quotes that on the spot, so they see it. Margins never appear on this view.
         <br />Currently data lives in your browser (localStorage). Full multi-user sync coming later.
       </div>
     </div>

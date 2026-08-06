@@ -13,6 +13,7 @@ import {
 } from "@/lib/company-settings"
 import RosterManager from "@/components/RosterManager"
 import { formatPhone, PHONE_PLACEHOLDER } from "@/lib/phone"
+import { selectOnFocusProps } from "@/lib/select-on-focus"
 
 // Local draft type alias for readability
 type Group = keyof CompanySettings
@@ -187,6 +188,18 @@ export default function CompanySetupPage() {
         <Field label="Cure / Avoid (hours)" value={form.process.cure_avoid_hours} onChange={(v) => setField("process", "cure_avoid_hours", v)} placeholder="e.g. 24" />
       </Section>
 
+      {/* Limits — what the crew may commit without asking */}
+      <Section title="Limits" description="What the field may commit on its own, before anyone has to call you.">
+        <Field
+          label="Foreman On-the-Spot Change Order Limit ($)"
+          value={form.limits.change_order_ceiling_dollars}
+          onChange={(v) => setField("limits", "change_order_ceiling_dollars", v)}
+          placeholder="e.g. 1500"
+          numeric
+          hint="The most a single change order may COST in resources before a foreman needs your say-so. At or under this, the foreman quotes the customer on the spot; over it, the change order is saved and held for the salesperson or boss. Either way it's priced the same, from that job's original bid. Leave blank for the $1,500 default — the price to the customer will be higher than this number, because this limits the cost of the work, not what it sells for."
+        />
+      </Section>
+
       {/* Save bar */}
       <div className="sticky bottom-0 -mx-2 flex items-center gap-3 border-t bg-background/95 px-2 py-4 backdrop-blur">
         <Button onClick={handleSave} className="font-semibold">Save Company Settings</Button>
@@ -231,12 +244,18 @@ function Field({
   onChange,
   placeholder,
   multiline,
+  numeric,
+  hint,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
   multiline?: boolean
+  /** Numeric entry: selects on focus like every other number in PMZ, so the first keystroke replaces. */
+  numeric?: boolean
+  /** Plain explanation of what this setting controls, rendered under the input. */
+  hint?: string
 }) {
   const id = React.useId()
   return (
@@ -253,12 +272,14 @@ function Field({
       ) : (
         <Input
           id={id}
+          {...(numeric ? { ...selectOnFocusProps, inputMode: "decimal" as const } : {})}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           className="mt-1.5"
         />
       )}
+      {hint && <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{hint}</p>}
     </div>
   )
 }
