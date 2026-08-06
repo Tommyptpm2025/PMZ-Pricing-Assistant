@@ -7,58 +7,90 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Lock } from "lucide-react";
 import { formatMoney } from "@/lib/format";
 import { selectOnFocusProps } from "@/lib/select-on-focus";
-import { changeOrderTotalCost, type ChangeOrder } from "@/lib/change-orders";
+import { type ChangeOrder } from "@/lib/change-orders";
 
 /**
  * FOREMAN CHANGE ORDERS — the on-the-spot lane's screen, over the fence-proved math in
- * lib/change-orders.ts. Display only: this file computes no price and decides no status.
+ * lib/change-orders.ts. Display only: this file computes no cost, no price and no status.
  *
  * ── THE HARD WALL ─────────────────────────────────────────────────────────────────────────────────
- * NO MARGIN PERCENTAGE APPEARS ANYWHERE ON THIS SCREEN. The foreman sees the COSTS they entered and
- * the PRICE to quote — never the relationship between them (COMPANY-ROSTER-AND-ROLES.md: "adds
- * resources to jobs and change orders. Never sets or sees margin").
+ * THE FOREMAN PICKS RESOURCES AND QUANTITIES. HE NEVER TYPES A DOLLAR, AND HE NEVER SEES ONE except
+ * the single price he is authorized to quote. Quantities are field knowledge; dollars are office
+ * knowledge. That is the whole design: hours and counts are what the man on the ground actually
+ * knows, and a foreman-typed cost is a guess wearing work gloves.
  *
- * That wall is STRUCTURAL, not a promise kept by careful JSX: this component never receives the
- * margin. It is handed `computePrice(totalCost)`, a function the parent closes the margin over. There
- * is no margin in these props to leak, so no future edit here can leak one. If you ever find yourself
- * adding a `marginPct` prop, that is the wall coming down — price the number in the parent instead.
+ * The wall is STRUCTURAL, not a promise kept by careful JSX. This component receives:
+ *   • a CATALOG of resources carrying only { id, name, unit } — NO rates, at all; and
+ *   • `evaluate(picks)`, which hands back exactly two facts: the price to quote, and whether the
+ *     picks are inside the foreman's on-the-spot authority.
+ * There is no rate, no cost and no margin in these props, so no future edit to this file can leak
+ * one. If you find yourself adding a `rate`, `cost` or `marginPct` prop, that is the wall coming
+ * down — resolve it in the parent instead.
  *
  * The price is also READ-ONLY (Law 56, no second price path): it is rendered, never an input.
  */
+
+export type ChangeOrderResourceKind = "crew" | "labor" | "equipment" | "material" | "misc";
+
+/** A pickable resource, stripped of money. `unit` is what the quantity is counted in. */
+export interface ChangeOrderResource {
+  id: string;
+  name: string;
+  unit: string;
+}
+
+export type ChangeOrderCatalog = Record<ChangeOrderResourceKind, ChangeOrderResource[]>;
+
+/** What the foreman chose: which resource, and how much of it. No dollars cross this boundary. */
+export interface ChangeOrderPick {
+  kind: ChangeOrderResourceKind;
+  id: string;
+  qty: number;
+}
+
+const KIND_LABELS: Array<{ kind: ChangeOrderResourceKind; label: string }> = [
+  { kind: "crew", label: "Crew" },
+  { kind: "labor", label: "Labor" },
+  { kind: "equipment", label: "Equipment" },
+  { kind: "material", label: "Material" },
+  { kind: "misc", label: "Misc" },
+];
 
 export interface JobChangeOrdersProps {
   changeOrders: ChangeOrder[];
   /** Active roster people holding the foreman role. Attribution is PICKED, never typed. */
   foremen: Array<{ id: string; name: string }>;
-  /** Owner-set on-the-spot ceiling, in dollars of COST. */
+  /** The company's rate catalogs, with every dollar stripped out before they reach this screen. */
+  catalog: ChangeOrderCatalog;
+  /**
+   * The two — and only two — money facts this screen may know. Costs are resolved in the parent from
+   * the catalog rates; the ceiling comparison happens there too, against COST (the gaveled rule).
+   */
+  evaluate: (picks: ChangeOrderPick[]) => { price: number; withinCeiling: boolean };
+  /** Owner-set on-the-spot ceiling, for the over-the-limit sentence. */
   ceiling: number;
-  /** The parent's frozen margin lives in HERE, in the caller's closure — never in this component. */
-  computePrice: (totalCost: number) => number;
   /** False when this job can't price a change order; `blockedReason` says why, in plain words. */
   canAdd: boolean;
   blockedReason?: string;
   /** Job is completed — the lane is closed. */
   locked?: boolean;
-  onCreate: (input: {
-    foremanId: string;
-    lines: Array<{ description: string; qty: number; rate: number }>;
-  }) => void;
+  onCreate: (input: { foremanId: string; picks: ChangeOrderPick[] }) => void;
   /** Roster name for an id, for the origin stamp. */
   personName: (id: string) => string;
 }
 
-interface DraftLine {
+interface DraftRow {
   key: string;
-  description: string;
-  qty: string;   // held as text so a foreman can type "1." and "0.5" without the field fighting them
-  rate: string;
+  kind: ChangeOrderResourceKind;
+  id: string;
+  qty: string; // held as text so a foreman can type "1." and "0.5" without the field fighting them
 }
 
-const blankLine = (): DraftLine => ({
+const blankRow = (): DraftRow => ({
   key: Math.random().toString(36).slice(2, 9),
-  description: "",
+  kind: "labor",
+  id: "",
   qty: "",
-  rate: "",
 });
 
 const num = (s: string): number => {
@@ -71,11 +103,18 @@ const stampDate = (iso: string): string => {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
 };
 
+// The one sentence for a resource that simply is not in the company's catalog. There is deliberately
+// NO free-typed cost escape hatch beside it: adding one would put a guessed number into the money,
+// which is exactly the wall this screen exists to hold.
+const NOT_IN_CATALOG =
+  "That resource isn’t in your company’s rate catalog — the office can add it under Resources/rates, then it can be priced here.";
+
 export default function JobChangeOrders({
   changeOrders,
   foremen,
+  catalog,
+  evaluate,
   ceiling,
-  computePrice,
   canAdd,
   blockedReason,
   locked,
@@ -84,34 +123,30 @@ export default function JobChangeOrders({
 }: JobChangeOrdersProps) {
   const [open, setOpen] = React.useState(false);
   const [foremanId, setForemanId] = React.useState("");
-  const [lines, setLines] = React.useState<DraftLine[]>([blankLine()]);
+  const [rows, setRows] = React.useState<DraftRow[]>([blankRow()]);
 
-  const parsedLines = lines.map((l) => ({
-    description: l.description.trim(),
-    qty: num(l.qty),
-    rate: num(l.rate),
-  }));
-  const totalCost = changeOrderTotalCost(parsedLines);
-  const price = computePrice(totalCost);
-  // The SAME comparison the record's status uses (lib/change-orders.ts) — at or under is inside the
-  // foreman's authority. Shown live so the wording never surprises anyone at the moment they save.
-  const withinCeiling = totalCost <= ceiling;
-  const hasWork = parsedLines.some((l) => l.description !== "" || l.qty > 0 || l.rate > 0);
-  const canSave = !!foremanId && hasWork && totalCost > 0;
+  const picks: ChangeOrderPick[] = rows
+    .filter((r) => r.id && num(r.qty) > 0)
+    .map((r) => ({ kind: r.kind, id: r.id, qty: num(r.qty) }));
+  const { price, withinCeiling } = evaluate(picks);
+  const canSave = !!foremanId && picks.length > 0;
+  // A category the office has never filled in is the commonest way a foreman hits the catalog wall.
+  const emptyKinds = KIND_LABELS.filter(({ kind }) => (catalog[kind] || []).length === 0).map((k) => k.label);
 
   function reset() {
     setOpen(false);
     setForemanId("");
-    setLines([blankLine()]);
+    setRows([blankRow()]);
   }
 
   function save() {
     if (!canSave) return;
-    onCreate({
-      foremanId,
-      lines: parsedLines.filter((l) => l.description !== "" || l.qty > 0 || l.rate > 0),
-    });
+    onCreate({ foremanId, picks });
     reset();
+  }
+
+  function patch(i: number, next: Partial<DraftRow>) {
+    setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...next } : r)));
   }
 
   return (
@@ -163,46 +198,58 @@ export default function JobChangeOrders({
             )}
           </div>
 
-          {/* WHAT IT TOOK. Resources only — the foreman enters costs and nothing else. */}
+          {/* WHAT IT TOOK. Pick the resource from the company's catalog; enter the quantity. Nothing
+              else is enterable, because nothing else is the foreman's to know. */}
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
-            What it took — description, quantity, and your cost per unit
+            What it took — pick the resource, enter the quantity
           </div>
           <div className="mt-1 space-y-1.5">
-            {lines.map((l, i) => {
-              const cost = Math.round(num(l.qty) * num(l.rate) * 100) / 100;
+            {rows.map((r, i) => {
+              const options = catalog[r.kind] || [];
+              const chosen = options.find((o) => o.id === r.id);
+              const unit = chosen?.unit || (r.kind === "material" || r.kind === "misc" ? "" : "hrs");
               return (
-                <div key={l.key} className="grid grid-cols-[1fr_5rem_6rem_6rem_1.75rem] items-center gap-1.5">
-                  <Input
-                    value={l.description}
-                    onChange={(e) =>
-                      setLines((prev) => prev.map((p, j) => (j === i ? { ...p, description: e.target.value } : p)))
-                    }
-                    placeholder="e.g. Extra base course"
-                    className="h-8 text-sm"
-                  />
+                <div key={r.key} className="grid grid-cols-[6.5rem_1fr_5rem_3.5rem_1.75rem] items-center gap-1.5">
+                  <select
+                    value={r.kind}
+                    onChange={(e) => patch(i, { kind: e.target.value as ChangeOrderResourceKind, id: "" })}
+                    aria-label="Resource type"
+                    className="h-8 rounded border bg-white px-1 text-sm"
+                    style={{ borderColor: "#7D1424", color: "#333333" }}
+                  >
+                    {KIND_LABELS.map((k) => (
+                      <option key={k.kind} value={k.kind}>{k.label}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={r.id}
+                    onChange={(e) => patch(i, { id: e.target.value })}
+                    aria-label="Resource"
+                    className="h-8 w-full min-w-0 rounded border bg-white px-1 text-sm"
+                    style={{ borderColor: "#7D1424", color: "#333333" }}
+                  >
+                    <option value="">
+                      {options.length > 0 ? "Select…" : "Nothing in this catalog yet"}
+                    </option>
+                    {options.map((o) => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
+                  </select>
                   <Input
                     {...selectOnFocusProps}
-                    value={l.qty}
-                    onChange={(e) => setLines((prev) => prev.map((p, j) => (j === i ? { ...p, qty: e.target.value } : p)))}
+                    value={r.qty}
+                    onChange={(e) => patch(i, { qty: e.target.value })}
                     inputMode="decimal"
-                    placeholder="Qty"
+                    placeholder={r.kind === "material" || r.kind === "misc" ? "Qty" : "Hours"}
                     className="h-8 text-right text-sm"
                   />
-                  <Input
-                    {...selectOnFocusProps}
-                    value={l.rate}
-                    onChange={(e) => setLines((prev) => prev.map((p, j) => (j === i ? { ...p, rate: e.target.value } : p)))}
-                    inputMode="decimal"
-                    placeholder="Cost/unit"
-                    className="h-8 text-right text-sm"
-                  />
-                  <div className="text-right tabular-nums text-sm">{formatMoney(cost)}</div>
+                  <div className="truncate text-[11px] text-muted-foreground">{unit}</div>
                   <button
                     type="button"
                     aria-label="Remove line"
                     className="text-muted-foreground hover:text-destructive disabled:opacity-40"
-                    disabled={lines.length === 1}
-                    onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}
+                    disabled={rows.length === 1}
+                    onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -214,17 +261,13 @@ export default function JobChangeOrders({
             size="sm"
             variant="ghost"
             className="mt-1 h-6 px-1 text-xs"
-            onClick={() => setLines((prev) => [...prev, blankLine()])}
+            onClick={() => setRows((prev) => [...prev, blankRow()])}
           >
-            <Plus className="mr-1 h-3 w-3" /> Add line
+            <Plus className="mr-1 h-3 w-3" /> Add resource
           </Button>
 
-          {/* THE TWO NUMBERS THE FOREMAN SEES: what it cost, and what to quote. Never the step between. */}
+          {/* THE ONE DOLLAR FIGURE ON THIS SCREEN. Not what it cost — what to quote. */}
           <div className="mt-3 space-y-1 border-t pt-2">
-            <div className="flex items-baseline justify-between">
-              <span className="text-muted-foreground">Your cost</span>
-              <span className="tabular-nums font-medium">{formatMoney(totalCost)}</span>
-            </div>
             <div className="flex items-baseline justify-between">
               <span className="font-medium">Price to the customer</span>
               <span className="tabular-nums text-base font-semibold" style={{ color: "#7D1424" }}>
@@ -232,12 +275,12 @@ export default function JobChangeOrders({
               </span>
             </div>
             <div className="text-[11px] text-muted-foreground">
-              Priced automatically from this job’s original bid. You don’t set this number.
+              Priced automatically from this job’s original bid and your company’s rates. You don’t set this number.
             </div>
           </div>
 
           {/* THE CEILING, IN PLAIN SENTENCES. Same price either way — only the authority differs. */}
-          {totalCost > 0 && (
+          {picks.length > 0 && (
             <div
               className="mt-2 rounded-md border p-2"
               style={
@@ -274,13 +317,24 @@ export default function JobChangeOrders({
             </Button>
             {!foremanId && <span className="text-[11px] text-muted-foreground">Pick the foreman first.</span>}
             {foremanId && !canSave && (
-              <span className="text-[11px] text-muted-foreground">Enter at least one resource with a quantity and a cost.</span>
+              <span className="text-[11px] text-muted-foreground">Enter at least one resource with a quantity.</span>
+            )}
+          </div>
+
+          {/* THE CATALOG WALL, said plainly — and with no free-typed cost offered as a way around it. */}
+          <div className="mt-2 border-t pt-2 text-[11px] text-muted-foreground">
+            Used something that isn’t on these lists? {NOT_IN_CATALOG}
+            {emptyKinds.length > 0 && (
+              <div className="mt-0.5">
+                Nothing saved yet under: {emptyKinds.join(", ")}.
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* THE LIST. Additive only in this pass — a priced change order is never edited here. */}
+      {/* THE LIST. Additive only in this pass — a priced change order is never edited here. The lines
+          show WHAT and HOW MUCH; the only money is the price the foreman quoted. */}
       {changeOrders.length > 0 && (
         <div className="mt-2 space-y-2">
           {changeOrders.map((co) => (
@@ -304,18 +358,12 @@ export default function JobChangeOrders({
               <div className="mt-1.5 space-y-0.5">
                 {co.lines.map((l) => (
                   <div key={l.id} className="flex items-baseline justify-between gap-2">
-                    <span className="truncate">
-                      {l.description || "Resource"}
-                      <span className="ml-1 text-muted-foreground">
-                        {l.qty} × {formatMoney(l.rate)}
-                      </span>
-                    </span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground">{formatMoney(l.cost)}</span>
+                    <span className="truncate">{l.description || "Resource"}</span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">{l.qty}</span>
                   </div>
                 ))}
               </div>
-              <div className="mt-1.5 flex items-baseline justify-between border-t pt-1.5">
-                <span className="text-muted-foreground">Cost {formatMoney(co.totalCost)}</span>
+              <div className="mt-1.5 flex items-baseline justify-end border-t pt-1.5">
                 <span className="tabular-nums font-semibold" style={{ color: "#7D1424" }}>
                   Price {formatMoney(co.priceCharged)}
                 </span>

@@ -56,9 +56,11 @@ import {
   saveChangeOrders,
   changeOrdersForJob,
   priceChangeOrder,
+  changeOrderTotalCost,
+  isWithinChangeOrderCeiling,
   type ChangeOrder,
 } from "@/lib/change-orders";
-import JobChangeOrders from "@/components/JobChangeOrders";
+import JobChangeOrders, { type ChangeOrderCatalog, type ChangeOrderPick } from "@/components/JobChangeOrders";
 import { runWorkOrderSweep } from "@/lib/work-order-sweep";
 import { buildLineRecipeSections, type LemRateCatalogs } from "@/lib/lem-detail";
 import { useRateStore } from "@/lib/rate-store";
@@ -357,17 +359,81 @@ export default function JobsForemanPage() {
     }
   }, [selectedJob]);
 
-  // The margin goes into THIS closure and no further. JobChangeOrders receives a price function, not
-  // a percentage, so the hard wall ("the foreman never sees the margin") is structural on that screen.
-  const computeChangeOrderPrice = React.useCallback(
-    (totalCost: number) => priceChangeOrder(totalCost, parentMarginPct ?? 0),
-    [parentMarginPct]
+  // Crews (pmz_crews, built in Crew Builder) — a crew is a NAMED BUNDLE of labor + equipment lines,
+  // so the foreman can add "Traffic Crew, 4 hours" instead of naming every person and machine in it.
+  const [crews, setCrews] = React.useState<Array<{ id: string; name: string; laborLines?: any[]; equipmentLines?: any[] }>>([]);
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem("pmz_crews");
+      const parsed = raw ? JSON.parse(raw) : [];
+      setCrews(Array.isArray(parsed) ? parsed : []);
+    } catch {}
+  }, []);
+
+  // THE CATALOG THE FOREMAN SEES — id, name and unit ONLY. Every rate is stripped here, before the
+  // data crosses into JobChangeOrders, which is what makes "he never sees a dollar" structural rather
+  // than a habit. Same four catalogs the Pricer's LEM sections pick from, plus crews.
+  const changeOrderCatalog: ChangeOrderCatalog = React.useMemo(
+    () => ({
+      crew: crews.map((c) => ({ id: c.id, name: c.name, unit: "hrs" })),
+      labor: laborRates.map((r: any) => ({ id: r.id, name: r.role || "Labor", unit: "hrs" })),
+      equipment: equipmentRates.map((r: any) => ({ id: r.id, name: r.description || "Equipment", unit: "hrs" })),
+      material: materialRates.map((r: any) => ({ id: r.id, name: r.description || "Material", unit: r.unitOfMeasure || "unit" })),
+      misc: miscRates.map((r: any) => ({ id: r.id, name: r.description || "Misc", unit: r.unitOfMeasure || "unit" })),
+    }),
+    [crews, laborRates, equipmentRates, materialRates, miscRates]
   );
 
-  function addChangeOrder(input: {
-    foremanId: string;
-    lines: Array<{ description: string; qty: number; rate: number }>;
-  }) {
+  // A crew's break-even cost per crew-hour: every member's rate × how many of them, plus the same for
+  // its equipment. Exactly the roll-up the Pricer uses for a crew on a bid line, so a crew hour costs
+  // the same whether it was bid or added later.
+  const crewCostPerHour = React.useCallback(
+    (crewId: string): number => {
+      const crew = crews.find((c) => c.id === crewId);
+      if (!crew) return 0;
+      const labor = (crew.laborLines || []).reduce(
+        (s: number, ln: any) => s + getLaborCostPerHour(ln.profileId || "") * (ln.quantity || 0), 0);
+      const equip = (crew.equipmentLines || []).reduce(
+        (s: number, ln: any) => s + getEquipmentCostPerHour(ln.profileId || "") * (ln.quantity || 0), 0);
+      return labor + equip;
+    },
+    [crews, getLaborCostPerHour, getEquipmentCostPerHour]
+  );
+
+  // PICKS → COST LINES. The one place a catalog rate is attached to a foreman's quantity. It happens
+  // HERE, in the page, so the rates never travel to the form. An unresolvable pick contributes a 0
+  // rate rather than a guess — the form's job is to keep that from happening by only offering what
+  // the catalog actually holds.
+  const resolvePicks = React.useCallback(
+    (picks: ChangeOrderPick[]): Array<{ description: string; qty: number; rate: number }> =>
+      picks.map((p) => {
+        const name = (changeOrderCatalog[p.kind] || []).find((r) => r.id === p.id)?.name || "Resource";
+        const rate =
+          p.kind === "crew" ? crewCostPerHour(p.id)
+          : p.kind === "labor" ? getLaborCostPerHour(p.id)
+          : p.kind === "equipment" ? getEquipmentCostPerHour(p.id)
+          : p.kind === "material" ? getMaterialCostPerUnit(p.id)
+          : getMiscCostPerUnit(p.id);
+        return { description: name, qty: p.qty, rate };
+      }),
+    [changeOrderCatalog, crewCostPerHour, getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit]
+  );
+
+  // The margin AND every rate stay in THIS closure. The form gets back exactly two facts — the price
+  // to quote, and whether that is inside the foreman's authority (compared against COST, the gaveled
+  // rule). No cost, no rate, no percentage crosses the boundary.
+  const evaluateChangeOrder = React.useCallback(
+    (picks: ChangeOrderPick[]) => {
+      const totalCost = changeOrderTotalCost(resolvePicks(picks));
+      return {
+        price: priceChangeOrder(totalCost, parentMarginPct ?? 0),
+        withinCeiling: isWithinChangeOrderCeiling(totalCost, ceiling),
+      };
+    },
+    [resolvePicks, parentMarginPct, ceiling]
+  );
+
+  function addChangeOrder(input: { foremanId: string; picks: ChangeOrderPick[] }) {
     if (!selectedJob || parentMarginPct === null) return;
     try {
       const co = createChangeOrder({
@@ -375,7 +441,7 @@ export default function JobsForemanPage() {
         quoteId: selectedJob.quoteId,
         foremanId: input.foremanId,
         parentMarginPct,          // the gaveled at-bid margin, FROZEN onto the record at creation
-        lines: input.lines,
+        lines: resolvePicks(input.picks),
         ceiling,
       });
       const next = [...loadChangeOrders(), co];
@@ -856,8 +922,9 @@ export default function JobsForemanPage() {
               <JobChangeOrders
                 changeOrders={changeOrdersForJob(changeOrders, selectedJob.id)}
                 foremen={rosterForemen}
+                catalog={changeOrderCatalog}
+                evaluate={evaluateChangeOrder}
                 ceiling={ceiling}
-                computePrice={computeChangeOrderPrice}
                 canAdd={parentMarginPct !== null}
                 blockedReason={
                   !selectedJob.quoteId
