@@ -4,10 +4,15 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Lock } from "lucide-react";
+import { Plus, Trash2, Lock, Check, X, FileText } from "lucide-react";
 import { formatMoney } from "@/lib/format";
 import { selectOnFocusProps } from "@/lib/select-on-focus";
-import { type ChangeOrder } from "@/lib/change-orders";
+import {
+  isChangeOrderLocked,
+  canDecideChangeOrder,
+  type ChangeOrder,
+  type ChangeOrderDecisionAction,
+} from "@/lib/change-orders";
 
 /**
  * FOREMAN CHANGE ORDERS — the on-the-spot lane's screen, over the fence-proved math in
@@ -28,6 +33,13 @@ import { type ChangeOrder } from "@/lib/change-orders";
  * down — resolve it in the parent instead.
  *
  * The price is also READ-ONLY (Law 56, no second price path): it is rendered, never an input.
+ *
+ * ── THE APPROVAL DESK LIVES HERE TOO ──────────────────────────────────────────────────────────────
+ * A change order the ceiling HELD is decided on the job it belongs to — approve & release, decline
+ * with a reason, or flag it as a quoted addition. That is a leadership action on a foreman's screen,
+ * and it does not breach the wall: the only money it shows is the price already on the record, and
+ * the decision itself moves status ONLY (lib/change-orders.ts decideChangeOrder holds that law). This
+ * file still computes nothing — it collects who decided, and why, and hands it up.
  */
 
 export type ChangeOrderResourceKind = "crew" | "labor" | "equipment" | "material" | "misc";
@@ -67,8 +79,23 @@ export interface JobChangeOrdersProps {
    * the catalog rates; the ceiling comparison happens there too, against COST (the gaveled rule).
    */
   evaluate: (picks: ChangeOrderPick[]) => { price: number; withinCeiling: boolean };
-  /** Owner-set on-the-spot ceiling, for the over-the-limit sentence. */
+  /** The on-the-spot ceiling that actually applied, for the over-the-limit sentence. */
   ceiling: number;
+  /**
+   * WHICH limit that was — this job's own authority, or the company default. The sentence names it,
+   * because "over the $1,500 limit" shown to a foreman working under a $5,000 JOB limit is a lie told
+   * by omission. Resolved in the parent by the one layered reader; never re-decided here.
+   */
+  ceilingSource: "job" | "company";
+  /**
+   * Who may decide a held change order — active salespeople and bosses, the job's own salesperson
+   * first. Already ordered by the parent (changeOrderApprovers); this screen only renders the list.
+   */
+  approvers: Array<{ id: string; name: string }>;
+  onDecide: (
+    changeOrderId: string,
+    input: { action: ChangeOrderDecisionAction; decidedBy: string; note?: string; reason?: string }
+  ) => void;
   /** False when this job can't price a change order; `blockedReason` says why, in plain words. */
   canAdd: boolean;
   blockedReason?: string;
@@ -109,12 +136,65 @@ const stampDate = (iso: string): string => {
 const NOT_IN_CATALOG =
   "That resource isn’t in your company’s rate catalog — the office can add it under Resources/rates, then it can be priced here.";
 
+// The three doors out of "waiting for approval", said the way leadership would say them.
+const DESK_ACTIONS: Array<{
+  action: ChangeOrderDecisionAction;
+  label: string;
+  icon: typeof Check;
+  colors: { border: string; text: string };
+}> = [
+  { action: "approve", label: "Approve & release", icon: Check, colors: { border: "#047857", text: "#065F46" } },
+  { action: "decline", label: "Decline", icon: X, colors: { border: "#B91C1C", text: "#991B1B" } },
+  { action: "convert", label: "Make this a quoted addition", icon: FileText, colors: { border: "#7D1424", text: "#7D1424" } },
+];
+
+// One badge per status, so a decided change order reads its outcome from across the room. Keyed by
+// string (not the union) so a record written before a status existed still renders something honest.
+const STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  quoted: { label: "Quoted", className: "border-emerald-500 text-emerald-700" },
+  pending_approval: { label: "Waiting for approval", className: "border-amber-500 text-amber-700" },
+  approved: { label: "Approved", className: "border-emerald-500 text-emerald-700" },
+  declined: { label: "Declined", className: "border-red-500 text-red-700" },
+  converted_to_quote: { label: "Quoted addition", className: "border-[#7D1424] text-[#7D1424]" },
+};
+
+// How a decision reads back in history. A decline is stamped exactly as loudly as an approval.
+const STAMP_VERB: Record<ChangeOrderDecisionAction, string> = {
+  approve: "Approved & released by",
+  decline: "Declined by",
+  convert: "Flagged as a quoted addition by",
+};
+
+const DESK_COPY: Record<ChangeOrderDecisionAction, { who: string; field: string; hint: string; confirm: string }> = {
+  approve: {
+    who: "Approved by",
+    field: "Note (optional)",
+    hint: "Releases this change order at the price already computed. The foreman may quote that number as it stands — approving never changes it.",
+    confirm: "Approve & release",
+  },
+  decline: {
+    who: "Declined by",
+    field: "Reason — required",
+    hint: "Say what was wrong with it. The reason stays on the record and is how the next one comes in right.",
+    confirm: "Decline",
+  },
+  convert: {
+    who: "Flagged by",
+    field: "Note (optional)",
+    hint: "Labels this in history as a quoted addition and stops it here. Nothing is created for you — price the work properly through the Pricer as new scope.",
+    confirm: "Make this a quoted addition",
+  },
+};
+
 export default function JobChangeOrders({
   changeOrders,
   foremen,
   catalog,
   evaluate,
   ceiling,
+  ceilingSource,
+  approvers,
+  onDecide,
   canAdd,
   blockedReason,
   locked,
@@ -124,6 +204,36 @@ export default function JobChangeOrders({
   const [open, setOpen] = React.useState(false);
   const [foremanId, setForemanId] = React.useState("");
   const [rows, setRows] = React.useState<DraftRow[]>([blankRow()]);
+  // The desk: which held change order is being decided, and by which door. One at a time — a decision
+  // is a single deliberate act, not a form you can leave half-open on three records at once.
+  const [desk, setDesk] = React.useState<{ id: string; action: ChangeOrderDecisionAction } | null>(null);
+  const [decidedBy, setDecidedBy] = React.useState("");
+  const [deskText, setDeskText] = React.useState("");
+
+  function openDesk(id: string, action: ChangeOrderDecisionAction) {
+    setDesk({ id, action });
+    // The job's own salesperson is first in the list — preselect them, since they are who the foreman
+    // actually calls. Still a real pick: leadership can change it before confirming.
+    setDecidedBy(approvers[0]?.id || "");
+    setDeskText("");
+  }
+  function closeDesk() {
+    setDesk(null);
+    setDecidedBy("");
+    setDeskText("");
+  }
+  function confirmDesk() {
+    if (!desk) return;
+    const text = deskText.trim();
+    if (!decidedBy) return;
+    if (desk.action === "decline" && !text) return; // the fence throws on this too — never reach it
+    onDecide(desk.id, {
+      action: desk.action,
+      decidedBy,
+      ...(desk.action === "decline" ? { reason: text } : text ? { note: text } : {}),
+    });
+    closeDesk();
+  }
 
   const picks: ChangeOrderPick[] = rows
     .filter((r) => r.id && num(r.qty) > 0)
@@ -293,7 +403,12 @@ export default function JobChangeOrders({
                 <div className="font-medium">Quote this price to the customer: {formatMoney(price)}</div>
               ) : (
                 <>
-                  <div className="font-medium">Over the {formatMoney(ceiling)} on-the-spot limit.</div>
+                  {/* NAMES THE LIMIT THAT ACTUALLY APPLIED — this job's authority, or the company's. */}
+                  <div className="font-medium">
+                    {ceilingSource === "job"
+                      ? `Over the ${formatMoney(ceiling)} on-the-spot limit set for this job.`
+                      : `Over the ${formatMoney(ceiling)} company on-the-spot limit.`}
+                  </div>
                   <div className="mt-0.5">
                     Saved and waiting for approval — check with the salesperson or boss before quoting.
                   </div>
@@ -347,13 +462,14 @@ export default function JobChangeOrders({
                   {" — "}{stampDate(co.createdAt)}
                   {co.autoPriced ? ", auto-priced" : ""}
                 </div>
-                {co.status === "quoted" ? (
-                  <Badge variant="outline" className="border-emerald-500 text-emerald-700 text-[10px]">Quoted</Badge>
-                ) : co.status === "pending_approval" ? (
-                  <Badge variant="outline" className="border-amber-500 text-amber-700 text-[10px]">Waiting for approval</Badge>
-                ) : (
-                  <Badge variant="outline" className="text-[10px] capitalize">{co.status}</Badge>
-                )}
+                {(() => {
+                  const b = STATUS_BADGE[co.status];
+                  return b ? (
+                    <Badge variant="outline" className={`text-[10px] ${b.className}`}>{b.label}</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] capitalize">{co.status.replace(/_/g, " ")}</Badge>
+                  );
+                })()}
               </div>
               <div className="mt-1.5 space-y-0.5">
                 {co.lines.map((l) => (
@@ -368,6 +484,119 @@ export default function JobChangeOrders({
                   Price {formatMoney(co.priceCharged)}
                 </span>
               </div>
+
+              {/* THE DECISION, IN HISTORY. Who ruled, when, and — on a decline — why. A converted
+                  order keeps its label and its instruction: the work gets priced in the Pricer. */}
+              {co.decision && (
+                <div className="mt-1.5 border-t pt-1.5 text-[11px] text-muted-foreground">
+                  <div>
+                    {STAMP_VERB[co.decision.action]}{" "}
+                    <span className="font-medium text-foreground">{personName(co.decision.decidedBy)}</span>
+                    {" — "}{stampDate(co.decision.decidedAt)}
+                  </div>
+                  {co.decision.reason && (
+                    <div className="mt-0.5">
+                      <span className="font-medium">Reason:</span> {co.decision.reason}
+                    </div>
+                  )}
+                  {co.decision.note && <div className="mt-0.5">{co.decision.note}</div>}
+                  {co.status === "converted_to_quote" && (
+                    <div className="mt-0.5 italic">
+                      Price this properly through the Pricer as new scope — nothing was created automatically.
+                    </div>
+                  )}
+                </div>
+              )}
+              {isChangeOrderLocked(co) && !co.decision && (
+                <div className="mt-1.5 flex items-center gap-1 border-t pt-1.5 text-[11px] text-muted-foreground">
+                  <Lock className="h-3 w-3" /> Quoted on the spot — this record is closed.
+                </div>
+              )}
+
+              {/* ── THE APPROVAL DESK ──────────────────────────────────────────────────────────────
+                  Only on a HELD order, and only three doors. The buttons are the whole desk until one
+                  is pressed; then the panel asks the two things a decision must carry — WHO, and (on a
+                  decline) WHY. Nothing here prices anything; the money above is already final. */}
+              {canDecideChangeOrder(co) && !locked && (
+                <div className="wo-noprint mt-2 border-t pt-2">
+                  {desk?.id !== co.id ? (
+                    approvers.length === 0 ? (
+                      <div className="text-[11px] text-muted-foreground">
+                        Nobody on the roster holds the salesperson or boss role yet, so this can’t be decided.
+                        Add one in Company Setup → Company Roster.
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {DESK_ACTIONS.map(({ action, label, icon: Icon, colors }) => (
+                          <Button
+                            key={action}
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px] font-medium"
+                            style={{ borderColor: colors.border, color: colors.text }}
+                            onClick={() => openDesk(co.id, action)}
+                          >
+                            <Icon className="mr-1 h-3.5 w-3.5" /> {label}
+                          </Button>
+                        ))}
+                      </div>
+                    )
+                  ) : (
+                    <div className="rounded-md border bg-white p-2" style={{ borderColor: "#7D1424" }}>
+                      <div className="text-[11px] text-muted-foreground">{DESK_COPY[desk.action].hint}</div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                            {DESK_COPY[desk.action].who} <span className="text-[#EB3300]">required</span>
+                          </div>
+                          <select
+                            value={decidedBy}
+                            onChange={(e) => setDecidedBy(e.target.value)}
+                            aria-label="Approver"
+                            className="mt-1 h-8 w-full rounded border bg-white px-2 text-sm"
+                            style={{ borderColor: "#7D1424", color: "#333333" }}
+                          >
+                            <option value="">Select…</option>
+                            {approvers.map((a) => (
+                              <option key={a.id} value={a.id}>{a.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                            {DESK_COPY[desk.action].field}
+                            {desk.action === "decline" && <span className="ml-1 text-[#EB3300]">required</span>}
+                          </div>
+                          <Input
+                            value={deskText}
+                            onChange={(e) => setDeskText(e.target.value)}
+                            placeholder={desk.action === "decline" ? "Why is this being declined?" : "Anything worth keeping on the record"}
+                            className="mt-1 h-8 text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          className="h-7 px-2 text-xs font-semibold text-white"
+                          style={{ backgroundColor: "#EB3300" }}
+                          disabled={!decidedBy || (desk.action === "decline" && !deskText.trim())}
+                          onClick={confirmDesk}
+                        >
+                          {DESK_COPY[desk.action].confirm}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-6 px-1 text-xs" onClick={closeDesk}>
+                          Cancel
+                        </Button>
+                        {!decidedBy && <span className="text-[11px] text-muted-foreground">Pick who is deciding.</span>}
+                        {decidedBy && desk.action === "decline" && !deskText.trim() && (
+                          <span className="text-[11px] text-muted-foreground">A decline needs a reason.</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

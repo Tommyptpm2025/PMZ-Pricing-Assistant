@@ -35,11 +35,13 @@ import {
   Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatMoney } from "@/lib/format";
 import {
   loadJobs,
   saveJobs,
   updateRecipeRowActual,
   setJobNotes,
+  setJobOnTheSpotLimit,
   completeJob,
   reopenJob,
   deleteJob,
@@ -58,7 +60,11 @@ import {
   priceChangeOrder,
   changeOrderTotalCost,
   isWithinChangeOrderCeiling,
+  appliedChangeOrderCeiling,
+  changeOrderApprovers,
+  decideChangeOrderInList,
   type ChangeOrder,
+  type ChangeOrderDecisionAction,
 } from "@/lib/change-orders";
 import JobChangeOrders, { type ChangeOrderCatalog, type ChangeOrderPick } from "@/components/JobChangeOrders";
 import { runWorkOrderSweep } from "@/lib/work-order-sweep";
@@ -100,6 +106,12 @@ export default function JobsForemanPage() {
   // without the controlled number coercing the trailing dot away. Committed value is the parsed
   // number stored on the job; this map is just the in-flight text. Reset when switching jobs.
   const [actualDrafts, setActualDrafts] = React.useState<Record<string, string>>({});
+  // PER-JOB ON-THE-SPOT AUTHORITY (leadership). In-flight text for this job's own change-order limit,
+  // plus who is setting it — the stamp is required, so it is asked for in the same breath as the
+  // number. Reset when switching jobs, like every other draft on this page.
+  const [limitDraft, setLimitDraft] = React.useState("");
+  const [limitSetBy, setLimitSetBy] = React.useState("");
+  const [limitSaved, setLimitSaved] = React.useState(false);
 
   // Rate catalogs — the sweep's FALLBACK for resolving a bid-time unit cost on a row that carries no
   // stored rate. Never a precondition for running it (see the mount effect below).
@@ -168,12 +180,17 @@ export default function JobsForemanPage() {
     setNotesDraft(job.notes || "");
     setActualDrafts({});
     setJustSaved(false);
+    setLimitDraft(job.onTheSpotLimitDollars != null ? String(job.onTheSpotLimitDollars) : "");
+    setLimitSetBy("");
+    setLimitSaved(false);
   }
 
   function clearSelection() {
     setSelectedId(null);
     setNotesDraft("");
     setActualDrafts({});
+    setLimitDraft("");
+    setLimitSetBy("");
   }
 
   // Foreman actuals entry against the cost-stripped recipe rows. Empty / "." / "-" clears the row
@@ -331,10 +348,30 @@ export default function JobsForemanPage() {
   // ── CHANGE ORDERS (COMPANY-ROSTER-AND-ROLES.md § Foreman On-the-Spot Change Orders) ─────────────
   const { people } = usePeople();
   const { settings } = useCompanySettings();
-  const ceiling = changeOrderCeiling(settings);
+  // THE LAYERED CEILING. The company default is the floor of policy; a job may carry its own authority
+  // and, when it does, that is the number the foreman works under — and the number his sentence names.
+  // Resolved ONCE here, by the one reader, and handed down as a resolved pair. No surface re-decides it.
+  const companyCeiling = changeOrderCeiling(settings);
+  const applied = React.useMemo(
+    () => appliedChangeOrderCeiling(selectedJob?.onTheSpotLimitDollars, companyCeiling),
+    [selectedJob, companyCeiling]
+  );
+  const ceiling = applied.amount;
   const rosterForemen = React.useMemo(
     () => listActiveByRole(people, "foreman").slice().sort((a, b) => a.name.localeCompare(b.name)),
     [people]
+  );
+  // WHO MAY DECIDE a held change order, and who may set this job's authority: active salespeople and
+  // bosses, this job's own salesperson first. The job stores a salesperson NAME (and, on records the
+  // attribution backfill claimed, an id) — both are offered, and the resolver promotes nobody when the
+  // name is ambiguous.
+  const rosterApprovers = React.useMemo(
+    () =>
+      changeOrderApprovers(people, {
+        id: (selectedJob as (Job & { salespersonId?: string }) | null)?.salespersonId,
+        name: selectedJob?.salesperson,
+      }).map((p) => ({ id: p.id, name: p.name })),
+    [people, selectedJob]
   );
   const personName = React.useCallback(
     (id: string) => people.find((p) => p.id === id)?.name || "a foreman no longer on the roster",
@@ -451,6 +488,45 @@ export default function JobsForemanPage() {
       // createChangeOrder refuses an unattributable record. Never mute (Law 50).
       console.error("[jobs] Could not save the change order", e);
       alert(e instanceof Error ? e.message : "Could not save the change order.");
+    }
+  }
+
+  // THE APPROVAL DESK. Re-reads the store before deciding, so a decision is always made against the
+  // record as it actually stands — two tabs open on the same job cannot silently overwrite each other's
+  // ruling, because decideChangeOrderInList refuses anything that is no longer pending. The refusal is
+  // shown, never muted (Law 50): leadership must never believe a decision stuck when it did not.
+  function decideChangeOrder(
+    changeOrderId: string,
+    input: { action: ChangeOrderDecisionAction; decidedBy: string; note?: string; reason?: string }
+  ) {
+    try {
+      const next = decideChangeOrderInList(loadChangeOrders(), changeOrderId, input);
+      saveChangeOrders(next);
+      setChangeOrders(next);
+    } catch (e) {
+      console.error("[jobs] Could not record the change-order decision", e);
+      alert(e instanceof Error ? e.message : "Could not record the decision.");
+    }
+  }
+
+  function saveJobLimit(clear: boolean) {
+    if (!selectedId) return;
+    const trimmed = limitDraft.trim();
+    const parsed = parseFloat(trimmed);
+    const dollars = clear || trimmed === "" ? null : Number.isFinite(parsed) ? parsed : null;
+    if (!clear && trimmed !== "" && !Number.isFinite(parsed)) {
+      alert("That isn’t a dollar amount. Enter a number, or clear the field to fall back to the company limit.");
+      return;
+    }
+    try {
+      setJobs((prev) => setJobOnTheSpotLimit(prev, selectedId, dollars, limitSetBy));
+      if (clear) setLimitDraft("");
+      setLimitSaved(true);
+      setTimeout(() => setLimitSaved(false), 1600);
+    } catch (e) {
+      // setJobOnTheSpotLimit refuses an unstamped change. Never mute (Law 50).
+      console.error("[jobs] Could not set this job's on-the-spot authority", e);
+      alert(e instanceof Error ? e.message : "Could not set this job’s on-the-spot authority.");
     }
   }
 
@@ -671,6 +747,76 @@ export default function JobsForemanPage() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* ── PER-JOB ON-THE-SPOT AUTHORITY (leadership) ────────────────────────────────────
+                  Lives on the job's detail, in the header, because it is a fact ABOUT THIS JOB —
+                  not a foreman control and not a company setting. Not printed: the work order the
+                  crew carries is the recipe, not the office's policy on it. */}
+              <div className="wo-noprint mt-4 rounded-lg border border-dashed bg-muted/20 p-3">
+                <div className="text-xs font-medium tracking-wider text-muted-foreground">
+                  ON-THE-SPOT AUTHORITY FOR THIS JOB — OVERRIDES THE COMPANY DEFAULT
+                </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  What this job’s foreman may commit on a change order without calling anyone. Leave it
+                  blank to use the company limit of {formatMoney(companyCeiling)}.
+                </div>
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Limit ($)</div>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={limitDraft}
+                      onChange={(e) => setLimitDraft(e.target.value)}
+                      placeholder={String(companyCeiling)}
+                      className="mt-1 h-9 w-32 rounded-md border border-input px-2 text-right text-sm tabular-nums font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Set by <span className="text-[#EB3300]">required</span>
+                    </div>
+                    <select
+                      value={limitSetBy}
+                      onChange={(e) => setLimitSetBy(e.target.value)}
+                      aria-label="Who is setting this job's authority"
+                      className="mt-1 h-9 w-56 rounded-md border border-input bg-background px-2 text-sm"
+                    >
+                      <option value="">Select…</option>
+                      {rosterApprovers.map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button size="sm" variant="outline" disabled={!limitSetBy} onClick={() => saveJobLimit(false)}>
+                    <Save className="mr-1 h-3.5 w-3.5" /> Save limit
+                  </Button>
+                  {selectedJob.onTheSpotLimitDollars != null && (
+                    <Button size="sm" variant="ghost" disabled={!limitSetBy} onClick={() => saveJobLimit(true)}>
+                      Clear — use company limit
+                    </Button>
+                  )}
+                </div>
+                <div className="mt-1.5 text-[11px] text-muted-foreground">
+                  {/* WHICH LIMIT IS LIVE, said plainly, from the same reader the math uses. */}
+                  {applied.source === "job"
+                    ? `In force on this job: ${formatMoney(applied.amount)} (this job’s own authority).`
+                    : `In force on this job: ${formatMoney(applied.amount)} (the company default).`}
+                  {selectedJob.onTheSpotLimitSetBy && (
+                    <>
+                      {" "}Last set by{" "}
+                      <span className="font-medium text-foreground">{personName(selectedJob.onTheSpotLimitSetBy)}</span>
+                      {selectedJob.onTheSpotLimitSetAt
+                        ? ` on ${new Date(selectedJob.onTheSpotLimitSetAt).toLocaleDateString()}.`
+                        : "."}
+                    </>
+                  )}
+                  {rosterApprovers.length === 0 && (
+                    <> Nobody on the roster holds the salesperson or boss role yet, so this can’t be set.</>
+                  )}
+                </div>
+                {limitSaved && <div className="mt-1 text-[10px] text-emerald-600">Authority saved.</div>}
               </div>
             </CardContent>
           </Card>
@@ -925,6 +1071,9 @@ export default function JobsForemanPage() {
                 catalog={changeOrderCatalog}
                 evaluate={evaluateChangeOrder}
                 ceiling={ceiling}
+                ceilingSource={applied.source}
+                approvers={rosterApprovers}
+                onDecide={decideChangeOrder}
                 canAdd={parentMarginPct !== null}
                 blockedReason={
                   !selectedJob.quoteId

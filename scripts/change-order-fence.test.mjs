@@ -24,9 +24,18 @@ import {
   changeOrderStatusForCost,
   isWithinChangeOrderCeiling,
   changeOrdersForJob,
+  appliedChangeOrderCeiling,
+  effectiveChangeOrderCeiling,
+  decideChangeOrder,
+  decideChangeOrderInList,
+  canDecideChangeOrder,
+  isChangeOrderLocked,
+  pendingChangeOrders,
+  changeOrderApprovers,
   DEFAULT_CHANGE_ORDER_CEILING,
   CHANGE_ORDERS_KEY,
 } from "../lib/change-orders.ts";
+import { setJobOnTheSpotLimit } from "../lib/jobs.ts";
 import { goldenFormula } from "../lib/pricing.ts";
 import { changeOrderCeiling, EMPTY_COMPANY_SETTINGS } from "../lib/company-settings.ts";
 
@@ -177,3 +186,259 @@ assert.deepEqual(
   "change orders are looked up by their job"
 );
 console.log("PASS: change-order origin stamp — foreman id, job, timestamp and auto-priced are all required; creation without a foreman id or a job THROWS rather than minting an unattributable record; the store key is pmz_change_orders_v1");
+
+// ── 5 — PER-JOB AUTHORITY: THE LAYERED CEILING ────────────────────────────────────────────────────
+// A job may carry its OWN on-the-spot authority, set by leadership. When it does it OVERRIDES the
+// company default — up or down. When it does not, the company number applies, unchanged.
+//
+// THE LITERAL CASES, hand-stated: job $5,000 over a company $1,500 → a $4,000-COST change order
+// quotes ON THE SPOT (it would have been held under the company number). No job limit → company.
+assert.deepEqual(
+  appliedChangeOrderCeiling(5000, 1500),
+  { amount: 5000, source: "job" },
+  "the JOB's $5,000 authority overrides the company's $1,500 — and the reader says WHICH limit applied"
+);
+assert.equal(effectiveChangeOrderCeiling(5000, 1500), 5000, "…the amount agrees");
+assert.equal(
+  changeOrderStatusForCost(4000, effectiveChangeOrderCeiling(5000, 1500)),
+  "quoted",
+  "job 5000 / company 1500: a $4,000-COST change order QUOTES ON THE SPOT under the job's authority"
+);
+// MUTATION TARGET (c): drop the job layer and this same order is held under the company's $1,500.
+assert.equal(
+  changeOrderStatusForCost(4000, 1500),
+  "pending_approval",
+  "…the very same $4,000 order WOULD be held at the company's $1,500 — which is exactly what the per-job authority changes"
+);
+assert.deepEqual(
+  appliedChangeOrderCeiling(undefined, 1500),
+  { amount: 1500, source: "company" },
+  "NO job limit → the COMPANY default applies, and says so"
+);
+assert.deepEqual(appliedChangeOrderCeiling(null, 1500), { amount: 1500, source: "company" }, "null is not a limit — company");
+assert.deepEqual(appliedChangeOrderCeiling(NaN, 1500), { amount: 1500, source: "company" }, "NaN is not a limit — company");
+assert.deepEqual(appliedChangeOrderCeiling(-10, 1500), { amount: 1500, source: "company" }, "a negative is not a limit — company");
+assert.deepEqual(
+  appliedChangeOrderCeiling(0, 1500),
+  { amount: 0, source: "job" },
+  "an EXPLICIT 0 on the job IS a ceiling — leadership may hold every change order on this one job on purpose"
+);
+assert.equal(
+  changeOrderStatusForCost(0.01, effectiveChangeOrderCeiling(0, 1500)),
+  "pending_approval",
+  "…and under a job ceiling of 0 even a one-cent change order is held"
+);
+// A tightened job limit works the same way in the other direction.
+assert.deepEqual(appliedChangeOrderCeiling(500, 1500), { amount: 500, source: "job" }, "a job limit BELOW the company default also wins");
+assert.equal(changeOrderStatusForCost(600, effectiveChangeOrderCeiling(500, 1500)), "pending_approval", "…$600 is held on a $500 job");
+// Creation honors the layered number, because the page hands it the resolved amount.
+seq = 0;
+const onBigJob = make({ ceiling: effectiveChangeOrderCeiling(5000, 1500), lines: [{ description: "Extra day", qty: 1, rate: 4000 }] });
+assert.equal(onBigJob.status, "quoted", "a $4,000 change order minted on the $5,000 job saves as QUOTED");
+assert.equal(onBigJob.priceCharged, 5000.0, "…priced at the parent margin as always: 4000 ÷ 0.8 = $5,000.00");
+
+// SETTING IT IS STAMPED, and touches nothing else on the job.
+const JOB_AT = "2026-08-06T09:15:00.000Z";
+const baseJob = {
+  id: "job_1",
+  createdAt: "2026-07-01T00:00:00.000Z",
+  status: "open",
+  jobName: "Elm Street",
+  contractValue: 18750,
+  bidItems: [{ id: "b1", description: "Paving", quantity: 1, unit: "LS", unitPrice: 18750 }],
+  recipeLines: [],
+  rowCostBasis: { r1: 41.67 },
+  attachments: [],
+  notes: "",
+};
+const other = { ...baseJob, id: "job_2" };
+const setList = setJobOnTheSpotLimit([baseJob, other], "job_1", 5000, "p_boss", () => JOB_AT);
+assert.equal(setList[0].onTheSpotLimitDollars, 5000, "the job carries its own on-the-spot authority");
+assert.equal(setList[0].onTheSpotLimitSetBy, "p_boss", "…stamped with WHO set it");
+assert.equal(setList[0].onTheSpotLimitSetAt, JOB_AT, "…and WHEN");
+assert.equal(setList[1], other, "every other job is returned by the SAME reference — untouched");
+assert.equal(setList[0].contractValue, 18750, "MONEY UNTOUCHED: the contract value is unchanged");
+assert.deepEqual(setList[0].bidItems, baseJob.bidItems, "…the bid items are unchanged");
+assert.deepEqual(setList[0].rowCostBasis, baseJob.rowCostBasis, "…and the owner cost basis is unchanged");
+assert.equal(baseJob.onTheSpotLimitDollars, undefined, "the input job was NOT mutated");
+// Clearing falls back to the company default — and still records who cleared it.
+const cleared = setJobOnTheSpotLimit(setList, "job_1", null, "p_boss2", () => JOB_AT);
+assert.equal(cleared[0].onTheSpotLimitDollars, undefined, "clearing removes the job's override");
+assert.equal(cleared[0].onTheSpotLimitSetBy, "p_boss2", "…and stamps who took it away");
+assert.deepEqual(
+  appliedChangeOrderCeiling(cleared[0].onTheSpotLimitDollars, 1500),
+  { amount: 1500, source: "company" },
+  "…so the job falls back to the company default"
+);
+assert.equal(
+  setJobOnTheSpotLimit(setList, "job_1", 0, "p_boss", () => JOB_AT)[0].onTheSpotLimitDollars,
+  0,
+  "an explicit 0 is STORED as 0 — never collapsed to 'unset', which would hand back authority just taken away"
+);
+assert.throws(
+  () => setJobOnTheSpotLimit([baseJob], "job_1", 5000, "  ", () => JOB_AT),
+  /leadership decision/i,
+  "setting a job's authority WITHOUT a person throws — an anonymous change to how much a foreman may commit is not a decision"
+);
+console.log("PASS: per-job on-the-spot authority — a job's own limit overrides the company default in the ONE layered reader (job 5000 over company 1500 lets a $4,000 order quote on the spot; no job limit falls back to company; an explicit 0 holds everything), setting or clearing it is stamped who+when, and no other field on the job — money included — is touched");
+
+// ── 6 — THE APPROVAL DESK ─────────────────────────────────────────────────────────────────────────
+// Three doors out of 'pending_approval', and only out of 'pending_approval'. A decision moves STATUS
+// and never money.
+const DECIDED_AT = "2026-08-06T16:45:00.000Z";
+const held = () => {
+  seq = 0;
+  return make({ ceiling: 1500, lines: [{ description: "Rock excavation", qty: 1, rate: 4000 }] });
+};
+const beforeHeld = held();
+assert.equal(beforeHeld.status, "pending_approval", "a $4,000-cost order over a $1,500 ceiling starts HELD");
+assert.equal(beforeHeld.priceCharged, 5000.0, "…priced at $5,000.00 (4000 ÷ 0.8) while it waits");
+assert.equal(beforeHeld.decision, undefined, "…and carries no decision until somebody makes one");
+assert.equal(canDecideChangeOrder(beforeHeld), true, "a held order is decidable");
+assert.equal(isChangeOrderLocked(beforeHeld), false, "…and is the ONLY state that is not locked");
+
+// APPROVE & RELEASE → 'quoted'. The foreman may now quote the SAME price he was shown.
+const approved = decideChangeOrder(beforeHeld, { action: "approve", decidedBy: "p_sales", note: "Called the owner, he's good for it." }, () => DECIDED_AT);
+assert.equal(approved.status, "quoted", "APPROVE & RELEASE moves the order to QUOTED — the foreman may now quote it");
+assert.equal(approved.decision.action, "approve", "…stamped as an approval");
+assert.equal(approved.decision.decidedBy, "p_sales", "…with the approver's roster id (the ruling's approvedBy)");
+assert.equal(approved.decision.decidedAt, DECIDED_AT, "…and the timestamp");
+assert.equal(approved.decision.note, "Called the owner, he's good for it.", "…and the optional note when one was given");
+assert.equal(isChangeOrderLocked(approved), true, "an approved order is LOCKED — no edits after a decision");
+
+// MONEY IS BYTE-IDENTICAL ACROSS EVERY TRANSITION. Approving is agreeing to the number already
+// computed — a decision that could reprice would be a second price path (Law 56) wearing a signature.
+const moneyOf = (co) => JSON.stringify({ totalCost: co.totalCost, priceCharged: co.priceCharged, parentMarginPct: co.parentMarginPct, autoPriced: co.autoPriced, lines: co.lines });
+const declined = decideChangeOrder(beforeHeld, { action: "decline", decidedBy: "p_boss", reason: "Customer never authorized the extra depth." }, () => DECIDED_AT);
+const converted = decideChangeOrder(beforeHeld, { action: "convert", decidedBy: "p_boss", note: "Price it properly through the Pricer as new scope." }, () => DECIDED_AT);
+for (const [label, after] of [["approve", approved], ["decline", declined], ["convert", converted]]) {
+  assert.equal(moneyOf(after), moneyOf(beforeHeld), `${label}: the priced money is BYTE-IDENTICAL to what it was while held — status moved, money did not`);
+  assert.equal(after.priceCharged, 5000.0, `${label}: still exactly $5,000.00`);
+  assert.equal(after.parentMarginPct, 20, `${label}: the frozen parent margin is untouched`);
+  assert.equal(after.foremanId, "p_foreman", `${label}: the origin stamp survives the decision`);
+  assert.equal(after.createdAt, AT, `${label}: …including when the foreman wrote it`);
+}
+assert.equal(beforeHeld.status, "pending_approval", "the INPUT record is never mutated — a decision returns a new one");
+
+// DECLINE → 'declined', reason REQUIRED (the why discipline, kept searchable in the record).
+assert.equal(declined.status, "declined", "DECLINE moves the order to DECLINED");
+assert.equal(declined.decision.reason, "Customer never authorized the extra depth.", "…carrying the REASON in the record");
+assert.throws(
+  () => decideChangeOrder(beforeHeld, { action: "decline", decidedBy: "p_boss" }, () => DECIDED_AT),
+  /reason/i,
+  "a decline with NO reason throws — the why is the record"
+);
+assert.throws(
+  () => decideChangeOrder(beforeHeld, { action: "decline", decidedBy: "p_boss", reason: "   " }, () => DECIDED_AT),
+  /reason/i,
+  "…and whitespace is not a reason"
+);
+
+// MAKE THIS A QUOTED ADDITION → a FLAG, not an automation. Nothing here mints a quote.
+assert.equal(converted.status, "converted_to_quote", "CONVERT labels the order as a quoted addition and leaves it in history");
+assert.equal(converted.decision.action, "convert", "…stamped as the conversion it was");
+assert.equal(converted.decision.decidedBy, "p_boss", "…by a named person");
+assert.equal(converted.decision.note, "Price it properly through the Pricer as new scope.", "…with the note directing where the work gets priced");
+assert.equal(converted.lines.length, 1, "the change order KEEPS its resources — it is history, not a deleted record");
+
+// THE STAMP IS STRUCTURAL — no approver, no decision.
+// MUTATION TARGET (d): allow an approve without an approver id and this throw is the fence that fails.
+assert.throws(
+  () => decideChangeOrder(beforeHeld, { action: "approve", decidedBy: "" }, () => DECIDED_AT),
+  /approver|person who made it/i,
+  "APPROVE WITHOUT AN APPROVER ID THROWS — a release nobody signed is not a decision"
+);
+assert.throws(
+  () => decideChangeOrder(beforeHeld, { action: "approve", decidedBy: "   " }, () => DECIDED_AT),
+  /approver|person who made it/i,
+  "whitespace is not an approver"
+);
+assert.throws(
+  () => decideChangeOrder(beforeHeld, { action: "convert", decidedBy: "" }, () => DECIDED_AT),
+  /approver|person who made it/i,
+  "…and a conversion needs a name too"
+);
+
+// A DECIDED ORDER IS CLOSED. No second decision, from any door, ever overwrites the first.
+for (const [label, decided] of [["approved", approved], ["declined", declined], ["converted", converted]]) {
+  for (const action of ["approve", "decline", "convert"]) {
+    assert.throws(
+      () => decideChangeOrder(decided, { action, decidedBy: "p_boss", reason: "changed my mind" }, () => DECIDED_AT),
+      /already|waiting for approval/i,
+      `an ${label} change order REFUSES a later '${action}' — history that can be re-decided is not history`
+    );
+  }
+}
+// A born-quoted order (under the ceiling) was never at the desk and cannot be decided either.
+seq = 0;
+const bornQuoted = make();
+assert.equal(bornQuoted.status, "quoted", "a $1,000 order under the ceiling is born quoted");
+assert.equal(canDecideChangeOrder(bornQuoted), false, "…and is not a pending decision");
+assert.equal(isChangeOrderLocked(bornQuoted), true, "…it is locked like every non-held order");
+assert.throws(() => decideChangeOrder(bornQuoted, { action: "approve", decidedBy: "p_boss" }, () => DECIDED_AT), /already|waiting for approval/i, "…so approving it throws");
+
+// The list-level applier: one record changes, every other passes through BY REFERENCE.
+const otherCo = (() => { seq = 20; return make({ jobId: "job_9", lines: [{ description: "Other job", qty: 1, rate: 100 }] }); })();
+const list = [beforeHeld, otherCo];
+const afterList = decideChangeOrderInList(list, beforeHeld.id, { action: "approve", decidedBy: "p_sales" }, () => DECIDED_AT);
+assert.equal(afterList[0].status, "quoted", "the targeted change order is decided in the list");
+assert.equal(afterList[1], otherCo, "every OTHER change order passes through by the same reference — untouched");
+assert.equal(moneyOf(afterList[0]), moneyOf(beforeHeld), "…and the decided one's money is byte-identical through the list path too");
+assert.throws(
+  () => decideChangeOrderInList(list, "co_nope", { action: "approve", decidedBy: "p_sales" }, () => DECIDED_AT),
+  /no longer in the record/i,
+  "deciding a change order that isn't there throws rather than silently doing nothing"
+);
+assert.deepEqual(
+  pendingChangeOrders([beforeHeld, approved, declined, converted, bornQuoted], "job_1").map((c) => c.status),
+  ["pending_approval"],
+  "the desk's queue is the HELD orders on that job — never the decided ones"
+);
+console.log("PASS: change-order approval desk — approve releases to QUOTED, decline requires a reason, convert flags a quoted addition and keeps it in history; every decision is stamped who+when and THROWS without an approver id; a decided order refuses every later transition; and across all three doors the priced money is byte-identical");
+
+// ── 7 — WHO MAY DECIDE ────────────────────────────────────────────────────────────────────────────
+// Salespeople and bosses only — and the job's own salesperson FIRST, because they priced the deal
+// this extra rides on. Foremen never appear: the man who wrote the change order does not sign it.
+const roster = [
+  { id: "p1", name: "Zoe Boss", roles: ["boss"], active: true },
+  { id: "p2", name: "Adam Sales", roles: ["salesperson"], active: true },
+  { id: "p3", name: "Frank Foreman", roles: ["foreman"], active: true },
+  { id: "p4", name: "Nina Numbers", roles: ["accountant"], active: true },
+  { id: "p5", name: "Gone Salesperson", roles: ["salesperson"], active: false },
+  { id: "p6", name: "Mia Multi", roles: ["foreman", "salesperson"], active: true },
+];
+assert.deepEqual(
+  changeOrderApprovers(roster).map((p) => p.id),
+  ["p2", "p6", "p1"],
+  "eligible = ACTIVE salespeople and bosses, alphabetical (Adam, Mia, Zoe) — a foreman-and-salesperson qualifies on the salesperson role"
+);
+assert.equal(changeOrderApprovers(roster).some((p) => p.id === "p3"), false, "a plain FOREMAN is never an approver — he does not sign his own change order");
+assert.equal(changeOrderApprovers(roster).some((p) => p.id === "p4"), false, "the accountant reads the money and changes nothing — not an approver");
+assert.equal(changeOrderApprovers(roster).some((p) => p.id === "p5"), false, "a departed salesperson is not pickable");
+assert.deepEqual(
+  changeOrderApprovers(roster, { id: "p1" }).map((p) => p.id),
+  ["p1", "p2", "p6"],
+  "THE JOB'S OWN SALESPERSON IS LISTED FIRST when the job carries their id"
+);
+assert.deepEqual(
+  changeOrderApprovers(roster, { name: "  adam sales  " }).map((p) => p.id),
+  ["p2", "p6", "p1"],
+  "…and by trimmed, case-insensitive NAME when the job only carries a name string"
+);
+assert.deepEqual(
+  changeOrderApprovers(roster, { id: "p3" }).map((p) => p.id),
+  ["p2", "p6", "p1"],
+  "a job salesperson who isn't eligible promotes NOBODY — it never adds an ineligible person to the list"
+);
+const twins = [
+  { id: "t1", name: "Sam Twin", roles: ["salesperson"], active: true },
+  { id: "t2", name: "Sam Twin", roles: ["boss"], active: true },
+  { id: "t3", name: "Ada First", roles: ["salesperson"], active: true },
+];
+assert.deepEqual(
+  changeOrderApprovers(twins, { name: "Sam Twin" }).map((p) => p.id),
+  ["t3", "t1", "t2"],
+  "two people share the name → NOBODY is promoted. A skip never guesses; being un-promoted costs a sort position, a wrong guess puts the wrong name on money"
+);
+assert.deepEqual(changeOrderApprovers([]).map((p) => p.id), [], "an empty roster has no approvers — the desk says so rather than inventing one");
+console.log("PASS: change-order approvers — only ACTIVE salespeople and bosses may decide (never the foreman, never the accountant), the job's own salesperson is listed first by id or by unambiguous name, and a shared name promotes nobody");
