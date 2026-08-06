@@ -255,3 +255,67 @@ assert.equal(run3.createdCount, 0, "and a third run is still zero — repeated l
 const DUPES = planWorkOrderSweep([quote("dup", "Approved"), quote("dup", "Invoiced")], [], buildSections);
 assert.equal(DUPES.createdCount, 1, "a repeated quote id inside a single sweep produces ONE work order, not two");
 console.log("PASS: work-order sweep idempotence — first run repairs every orphan, second and third create ZERO and touch nothing; duplicate ids within a run yield one job");
+
+// ── 6 — THE INVOCATION IS WIRED (the defect the math fence could not catch) ───────────────────────
+// REGRESSION OF RECORD: every assertion above passed while the sweep ran ZERO times in the browser.
+// The math was never the defect — the CALL was. A pure fence cannot see a missing call, so this block
+// reads the page sources and asserts the wiring itself.
+//
+// WHAT THIS IS AND IS NOT: it is a SOURCE-LEVEL check that both reader surfaces import the entry point
+// and call it inside a mount effect. It cannot prove React actually executed that effect in a browser
+// — only a DOM/component test could, and this repo has no component-test harness. What it DOES catch
+// is the whole family this defect belongs to: the call being deleted, renamed, moved out of a page, or
+// re-buried behind a readiness gate. Combined with the unconditional log in runWorkOrderSweep — one
+// "[work-order-sweep] ran:" line per call, on every path including failure — a silent console is now a
+// definite diagnosis ("not called") rather than an ambiguity. See the report for what a future
+// component-level test would add.
+import { readFileSync } from "node:fs";
+
+const sweepSrc = readFileSync(new URL("../lib/work-order-sweep.ts", import.meta.url), "utf8");
+assert.match(sweepSrc, /export function runWorkOrderSweep\b/, "the ONE storage-bound entry point exists — pages must never re-implement the sweep body");
+// It logs on EVERY path: created, nothing-to-do, and failure. Silence can then only mean "not called".
+// Each phrase is pinned individually — a count would happily be satisfied by three copies of one path.
+for (const [path, phrase] of [
+  ["created", "[work-order-sweep] ran: created "],
+  ["nothing to do", "[work-order-sweep] ran: nothing to do ("],
+  ["failed", "[work-order-sweep] ran: FAILED"],
+]) {
+  assert.ok(
+    sweepSrc.includes(phrase),
+    `runWorkOrderSweep announces the '${path}' path with "${phrase}" — it logs on ALL THREE paths, so a missing line can only ever mean it was NOT CALLED`
+  );
+}
+assert.doesNotMatch(
+  sweepSrc.slice(sweepSrc.indexOf("export function runWorkOrderSweep")),
+  /ratesLoaded|sweepPassRef|<\s*2\s*\)\s*return/,
+  "the entry point carries NO readiness gate — the pass-counter gate is exactly what made it never run"
+);
+
+for (const page of ["../app/quotes/page.tsx", "../app/jobs/page.tsx"]) {
+  const src = readFileSync(new URL(page, import.meta.url), "utf8");
+  assert.match(
+    src,
+    /import\s*\{[^}]*\brunWorkOrderSweep\b[^}]*\}\s*from\s*["']@\/lib\/work-order-sweep["']/,
+    `${page} imports the shared sweep entry point`
+  );
+  assert.match(
+    src,
+    /runWorkOrderSweep\s*\(/,
+    `${page} CALLS the sweep on load — the Quotes page lost its call behind a gate and the Jobs page never had one`
+  );
+  // The call must live inside an effect, not in render (a render-phase write to the job store would
+  // fire on every keystroke) and not inside a click handler (that is not "on load").
+  const callIdx = src.indexOf("runWorkOrderSweep(");
+  const before = src.slice(0, callIdx);
+  assert.match(
+    before.slice(-600),
+    /React\.useEffect\(\s*\(\)\s*=>\s*\{/,
+    `${page} calls the sweep from inside a mount effect — on load, not in render and not behind a button`
+  );
+  assert.doesNotMatch(
+    src,
+    /planWorkOrderSweep\s*\(/,
+    `${page} does NOT call planWorkOrderSweep directly — a page that plans its own sweep can forget to log, which is the defect`
+  );
+}
+console.log("PASS: work-order sweep invocation — one storage-bound entry point that logs on all three paths with no readiness gate, imported AND called from a mount effect on BOTH reader pages (quotes + jobs), neither of which plans its own sweep");

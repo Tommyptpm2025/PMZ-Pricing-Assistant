@@ -59,6 +59,9 @@ import {
   type ChangeOrder,
 } from "@/lib/change-orders";
 import JobChangeOrders from "@/components/JobChangeOrders";
+import { runWorkOrderSweep } from "@/lib/work-order-sweep";
+import { buildLineRecipeSections, type LemRateCatalogs } from "@/lib/lem-detail";
+import { useRateStore } from "@/lib/rate-store";
 
 // Quantity formatter — up to 2 decimals, no trailing-zero noise. The recipe and actuals carry NO
 // currency: bid cost lives in the Pricer, never on this view. The one exception the change-order
@@ -96,14 +99,39 @@ export default function JobsForemanPage() {
   // number stored on the job; this map is just the in-flight text. Reset when switching jobs.
   const [actualDrafts, setActualDrafts] = React.useState<Record<string, string>>({});
 
+  // Rate catalogs — the sweep's FALLBACK for resolving a bid-time unit cost on a row that carries no
+  // stored rate. Never a precondition for running it (see the mount effect below).
+  const {
+    laborRates, equipmentRates, materialRates, miscRates,
+    getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
+  } = useRateStore();
+  const lemCats: LemRateCatalogs = {
+    laborRates, equipmentRates, materialRates, miscRates,
+    getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
+  };
+
   // Load saved jobs on client mount (deterministic — recipeLines are present before the user
   // opens a job, so the Recipe & Actuals section renders immediately with no interaction).
+  //
+  // THE SWEEP RUNS HERE TOO. This page is the READER of job records — the surface where a missing
+  // work order actually shows up as "No jobs yet" — so it is the last place that should be waiting on
+  // some other screen to have healed the store first. Before this, the sweep's only caller was the
+  // Quotes page, so a foreman who opened /jobs directly saw an empty list and nothing ever repaired
+  // it. Idempotent (absence of the job IS the condition), so double-running with /quotes is free, and
+  // it logs on every call — silence here means it was not invoked.
   React.useEffect(() => {
-    try {
-      setJobs(loadJobs());
-    } catch {}
-    setLoaded(true);
-  }, []);
+    const plan = runWorkOrderSweep((it) => buildLineRecipeSections(it, lemCats));
+    // Re-read only on the first pass or when the repair actually made something. A later pass (the
+    // rate catalogs arriving) must not blindly re-read the store, or it would drop actuals the foreman
+    // typed in the meantime that this render hasn't persisted yet.
+    if (!loaded || (plan && plan.createdCount > 0)) {
+      try {
+        setJobs(loadJobs());
+      } catch {}
+      setLoaded(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [laborRates, equipmentRates, materialRates, miscRates]);
 
   // Persist on any jobs change — but only AFTER the initial client load, so the empty initial
   // state never overwrites stored jobs.

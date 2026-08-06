@@ -1,4 +1,4 @@
-import { createJobFromQuote, type CreateJobInput, type Job } from "./jobs";
+import { createJobFromQuote, loadJobs, saveJobs, type CreateJobInput, type Job } from "./jobs";
 import { statusBucket } from "./sales-tracker";
 import type { QuoteStatus } from "./pmz-types";
 
@@ -176,4 +176,71 @@ export function planWorkOrderSweep(
     createdCount: created.length,
     counts,
   };
+}
+
+// ── THE INVOCATION ────────────────────────────────────────────────────────────────────────────────
+//
+// THE DEFECT THIS EXISTS TO END: the sweep was fence-proved and still never ran. Its only caller was
+// an effect on the Quotes page gated behind a "wait one effect pass for the rate catalogs" counter
+// whose second pass depended on four arrays owned by ANOTHER hook changing identity — a condition the
+// sweep neither controls nor can observe. Worse, the LOG LIVED INSIDE THAT GATE: an early return
+// printed nothing, so "the repair ran and found nothing" and "the repair never ran" produced the
+// identical empty console. The tripwire was inside the trap.
+//
+// So the invocation moved here, and the rules are now structural:
+//   • ONE ENTRY POINT, called by every surface that reads jobs — never a copy of this body in a page.
+//   • IT ALWAYS RUNS. No pass counter, no readiness gate, no precondition on any React state.
+//   • IT ALWAYS LOGS, exactly once per call, on every path including failure. A MISSING
+//     "[work-order-sweep] ran:" line can now only ever mean the function was NOT CALLED — which makes
+//     an absent log a real diagnosis instead of an ambiguity.
+//
+// Idempotent by construction (absence of the job IS the condition), so calling it from two pages, or
+// twice on one page, costs nothing and can never double-create.
+//
+// On the rate catalogs: they are a FALLBACK, never a precondition. Saved LEM entries carry their own
+// bid-time `rate` and buildLineRecipeSections prefers it; a row with no stored rate and no catalog
+// takes a 0 cost basis, which backfillRowCostBasis later fills at re-accept (it only ever fills a
+// MISSING basis). A repair that happens with an imperfect basis beats a repair that never happens —
+// that trade was already gaveled when the "rates must be non-empty" gate came out.
+
+const SAVED_QUOTES_KEY = "pmz_saved_quotes";
+
+function readSavedQuotes(): SweepQuoteInput[] {
+  try {
+    const raw = localStorage.getItem(SAVED_QUOTES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Run the self-healing work-order sweep against the live stores. Returns the plan it carried out, or
+ * null if it could not run at all (no localStorage / a thrown read) — and SAYS which, every time.
+ */
+export function runWorkOrderSweep(buildSections: RecipeSectionBuilder): WorkOrderSweepPlan | null {
+  if (typeof localStorage === "undefined") return null; // server render — not a run, nothing to say
+  try {
+    const plan = planWorkOrderSweep(readSavedQuotes(), loadJobs(), buildSections);
+    if (plan.createdCount > 0) saveJobs(plan.jobs);
+    const c = plan.counts;
+    // UNCONDITIONAL. Every call prints exactly one of these two lines.
+    if (plan.createdCount > 0) {
+      console.log(
+        `[work-order-sweep] ran: created ${plan.createdCount} missing work order${plan.createdCount === 1 ? "" : "s"} ` +
+          `(${c.examined} quotes checked, ${c.eligible} accepted-or-later, ${c.alreadyServed} already had one).`
+      );
+    } else {
+      console.log(
+        `[work-order-sweep] ran: nothing to do (${c.examined} quotes checked, all have jobs or are ineligible — ` +
+          `${c.eligible} accepted-or-later of which ${c.alreadyServed} already have one, ${c.skippedNotEpp} not EPP, ${c.skippedStatus} not yet accepted).`
+      );
+    }
+    return plan;
+  } catch (e) {
+    console.error("[work-order-sweep] ran: FAILED — no work orders were created", e);
+    return null;
+  }
 }

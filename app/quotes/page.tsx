@@ -53,7 +53,7 @@ import GatePanel from "@/components/GatePanel";
 import { useRateStore } from "@/lib/rate-store";
 import { buildLineLemDetail, buildLineRecipeSections, buildLineGateFailures, classifyGateFailures, type LemRateCatalogs, type LemGateLineFailure } from "@/lib/lem-detail";
 import { createJobFromQuote, backfillRowCostBasis, loadJobs, saveJobs, computeOwnerVariance, type Job } from "@/lib/jobs";
-import { planWorkOrderSweep, recipeLinesFromQuote, workOrderInputFromQuote } from "@/lib/work-order-sweep";
+import { runWorkOrderSweep, recipeLinesFromQuote, workOrderInputFromQuote } from "@/lib/work-order-sweep";
 import {
   getAllQuotes,
   deleteQuote,
@@ -318,52 +318,26 @@ export default function QuotesPage() {
   // accept path uses. Idempotent with no flag: absence of the job IS the condition, so a second run
   // finds nothing. Never touches an existing job and never writes to the quote store.
   //
-  // WAITS ONE EFFECT PASS for the rate catalogs, then runs REGARDLESS. useRateStore loads in its own
-  // mount effect, so on the first pass this closure still holds its initial empty arrays; a row
-  // WITHOUT a stored `rate` would then take a 0 cost basis, and backfillRowCostBasis only fills a
-  // MISSING basis, never overwrites — so that zero would be permanent. Hence the one-pass wait.
-  // It is NOT a "rates must be non-empty" gate: that was the original defect — a contractor whose
-  // four catalogs are empty waited forever and the repair door never opened at all. Saved LEM
-  // entries carry their own bid-time `rate` (serializeEppLine persists it) and
-  // buildLineRecipeSections prefers it over the catalogs, so the catalogs are a fallback, never the
-  // precondition. Ref-guarded so the body runs once per mount.
-  const sweepRanRef = React.useRef(false);
-  const sweepPassRef = React.useRef(0);
+  // RUNS ON EVERY LOAD, UNCONDITIONALLY. It used to sit behind a "wait one effect pass for the rate
+  // catalogs" counter whose second pass depended on four arrays owned by ANOTHER hook (useRateStore)
+  // changing identity — a condition this page neither controls nor can observe. When that second pass
+  // didn't come, the effect returned at the gate and printed NOTHING, because the log lived inside the
+  // gate too. That is how a fence-proved repair ran zero times and left no trace: the tripwire was
+  // inside the trap. There is no gate now. runWorkOrderSweep (lib/work-order-sweep.ts) always runs and
+  // always logs exactly one "[work-order-sweep] ran:" line, so a missing line means NOT CALLED.
+  //
+  // The rate catalogs stay a FALLBACK, not a precondition: saved LEM entries carry their own bid-time
+  // `rate` and buildLineRecipeSections prefers it. Kept in the deps so a late-arriving catalog gives
+  // the repair a second, better-informed pass — free, because the sweep is idempotent (a quote that
+  // now owns a job is skipped) and honest, because that pass logs too.
   React.useEffect(() => {
-    if (sweepRanRef.current) return;
-    sweepPassRef.current += 1;
-    const ratesLoaded =
-      laborRates.length + equipmentRates.length + materialRates.length + miscRates.length > 0;
-    // One pass of grace for the rate store to commit — then proceed whatever it holds.
-    if (!ratesLoaded && sweepPassRef.current < 2) return;
-    sweepRanRef.current = true;
-    try {
-      const plan = planWorkOrderSweep(readRawQuotes(), loadJobs(), (it) =>
-        buildLineRecipeSections(it, lemCats)
-      );
-      if (plan.createdCount > 0) {
-        saveJobs(plan.jobs);
-        setWorkOrderQuoteIds((prev) => {
-          const next = new Set(prev);
-          for (const j of plan.created) if (j.quoteId) next.add(j.quoteId);
-          return next;
-        });
-        console.log(
-          `[work-order-sweep] Created ${plan.createdCount} missing work order${plan.createdCount === 1 ? "" : "s"} for accepted-or-later quotes.`
-        );
-      } else {
-        // A repair that does nothing must SAY nothing-was-needed, and why. Logging only on success
-        // is what made this defect invisible: "created nothing" read exactly like "never ran".
-        const c = plan.counts;
-        console.log(
-          `[work-order-sweep] No work orders needed — examined ${c.examined} quote(s): ${c.eligible} accepted-or-later ` +
-            `(${c.alreadyServed} already have one), ${c.skippedNotEpp} not EPP, ${c.skippedStatus} not yet accepted.`
-        );
-      }
-    } catch (e) {
-      // A sweep failure must never break the Quotes page — but it must never be mute either. The
-      // original bare `catch {}` could swallow the entire repair with no trace anywhere.
-      console.error("[work-order-sweep] Sweep failed — no work orders were created", e);
+    const plan = runWorkOrderSweep((it) => buildLineRecipeSections(it, lemCats));
+    if (plan && plan.createdCount > 0) {
+      setWorkOrderQuoteIds((prev) => {
+        const next = new Set(prev);
+        for (const j of plan.created) if (j.quoteId) next.add(j.quoteId);
+        return next;
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [laborRates, equipmentRates, materialRates, miscRates]);
