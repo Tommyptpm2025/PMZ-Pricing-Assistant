@@ -130,6 +130,12 @@ export interface WorkOrderSweepCounts {
   alreadyServed: number; // …that already own a job record (the healthy steady state)
   skippedNotEpp: number; // …refused for being Full/untyped
   skippedStatus: number; // …refused for not being Accepted-or-beyond
+  // …that THREW while being built. One rotten board must not condemn the whole load: creation is
+  // guarded per quote, so a single malformed record costs exactly itself. Named, not just counted —
+  // "one failed" is a shrug; "q_1754 failed because X" is something an owner can act on.
+  failed: number;
+  failedQuoteIds: string[];
+  firstError?: string;
 }
 
 export interface WorkOrderSweepPlan {
@@ -158,6 +164,7 @@ export function planWorkOrderSweep(
   const created: Job[] = [];
   const counts: WorkOrderSweepCounts = {
     examined: 0, eligible: 0, alreadyServed: 0, skippedNotEpp: 0, skippedStatus: 0,
+    failed: 0, failedQuoteIds: [],
   };
   for (const q of quotes || []) {
     counts.examined++;
@@ -165,9 +172,18 @@ export function planWorkOrderSweep(
     if (!isSweepEligibleStatus(q.status)) { counts.skippedStatus++; continue; }
     counts.eligible++;
     if (claimed.has(q.id)) { counts.alreadyServed++; continue; } // absence of the job IS the condition
-    const recipeLines = recipeLinesFromQuote(q, buildSections);
-    created.push(createJobFromQuote(workOrderInputFromQuote(q, recipeLines)));
-    claimed.add(q.id);                        // guard duplicate quote ids within a single sweep
+    // GUARDED PER QUOTE. This used to be bare, so ONE malformed record threw out of the loop and the
+    // caller's catch reported a total failure — every other repairable quote in the book went unbuilt
+    // because of a neighbour. Now a failure costs exactly one quote, and says which and why.
+    try {
+      const recipeLines = recipeLinesFromQuote(q, buildSections);
+      created.push(createJobFromQuote(workOrderInputFromQuote(q, recipeLines)));
+      claimed.add(q.id);                      // guard duplicate quote ids within a single sweep
+    } catch (e) {
+      counts.failed++;
+      counts.failedQuoteIds.push(q.id);
+      if (!counts.firstError) counts.firstError = e instanceof Error ? e.message : String(e);
+    }
   }
 
   return {
@@ -226,10 +242,16 @@ export function runWorkOrderSweep(buildSections: RecipeSectionBuilder): WorkOrde
     const plan = planWorkOrderSweep(readSavedQuotes(), loadJobs(), buildSections);
     if (plan.createdCount > 0) saveJobs(plan.jobs);
     const c = plan.counts;
-    // UNCONDITIONAL. Every call prints exactly one of these two lines.
-    if (plan.createdCount > 0) {
+    // A per-quote failure is never swallowed: it rides the SAME line as the successes, names the
+    // quotes, and carries the first error's message so the fault is diagnosable from the console.
+    const failClause =
+      c.failed > 0
+        ? `, failed ${c.failed} (${c.failedQuoteIds.join(", ")}) — first error: ${c.firstError || "unknown"}`
+        : "";
+    // UNCONDITIONAL. Every call prints exactly one of these lines.
+    if (plan.createdCount > 0 || c.failed > 0) {
       console.log(
-        `[work-order-sweep] ran: created ${plan.createdCount} missing work order${plan.createdCount === 1 ? "" : "s"} ` +
+        `[work-order-sweep] ran: created ${plan.createdCount} missing work order${plan.createdCount === 1 ? "" : "s"}${failClause} ` +
           `(${c.examined} quotes checked, ${c.eligible} accepted-or-later, ${c.alreadyServed} already had one).`
       );
     } else {

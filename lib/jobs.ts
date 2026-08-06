@@ -167,19 +167,28 @@ export function jobActualCost(
   return { cost, complete };
 }
 
+// Trimmed text from a value of ANY shape. Stored PMZ data is JSON that has been through several
+// model revisions, so a field the types call `string` can genuinely arrive as a number, an object, or
+// null — see the note on jobSiteFromCustomer. Anything that isn't usable text becomes "" rather than
+// throwing: this is snapshot formatting, and a work order must never fail to exist over a field it
+// only ever intended to print.
+function text(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "";
+  return ""; // objects, arrays, booleans — never "[object Object]" on a work order
+}
+
 // Single-line site address from a structured address-ish object. Mirrors the Pricer/PDF address
-// formatting (street, city, state, zip) but collapsed to one line for the work order.
-function formatSiteAddressLine(
-  a:
-    | { street?: string; street2?: string; city?: string; state?: string; stateCode?: string; zip?: string }
-    | null
-    | undefined
-): string | undefined {
-  if (!a) return undefined;
-  const line1 = [a.street, a.street2].filter((s) => s && s.trim()).join(", ");
-  const region = [a.city, a.state || a.stateCode].filter((s) => s && String(s).trim()).join(", ");
-  const tail = [region, a.zip].filter((s) => s && String(s).trim()).join(" ").trim();
-  const full = [line1, tail].filter((s) => s && s.trim()).join(", ").trim();
+// formatting (street, city, state, zip) but collapsed to one line for the work order. EVERY field is
+// coerced, not trusted: `zip` in particular is routinely a number in stored records.
+function formatSiteAddressLine(a: unknown): string | undefined {
+  if (!a || typeof a !== "object") return undefined;
+  const o = a as Record<string, unknown>;
+  const line1 = [text(o.street), text(o.street2)].filter(Boolean).join(", ");
+  const region = [text(o.city), text(o.state) || text(o.stateCode)].filter(Boolean).join(", ");
+  const tail = [region, text(o.zip)].filter(Boolean).join(" ").trim();
+  const full = [line1, tail].filter(Boolean).join(", ").trim();
   return full || undefined;
 }
 
@@ -191,15 +200,31 @@ function formatSiteAddressLine(
  * This is the one place that "pulls" site context from a Customer — the many-sites rework later
  * only has to change what gets passed in here, not the Job shape or the Foreman View.
  */
+// WHY `fallbackAddress` IS `unknown` AND NOT `string` — THE CRASH OF RECORD:
+//   TypeError: fallbackAddress?.trim is not a function  (jobSiteFromCustomer → createJobFromQuote)
+// It aborted the ENTIRE work-order sweep, so a whole book of accepted quotes got no job records.
+// `SavedQuote.jobSiteAddress` is DECLARED string (lib/pmz-types.ts) but is not one in real data: the
+// Pricer copies the linked customer's STRUCTURED address object straight onto the estimate
+// (app/project-pricer/page.tsx — `jobSiteAddress: match.jobSiteAddress`, into a field typed
+// `string | any`), and saveQuote persists that object verbatim. So the declared type was a promise
+// the data never made, and `.trim()` met an object.
+//
+// The lesson generalized: this function is fed by localStorage that has survived several model
+// revisions. It now trusts NO shape and can throw for NO input — a string, an address object, a
+// number, null, or something nobody has thought of yet all resolve to a sensible line or to nothing.
 export function jobSiteFromCustomer(
   customer: Pick<Customer, "jobSiteAddress"> | null | undefined,
-  fallbackAddress?: string
+  fallbackAddress?: unknown
 ): JobSite | undefined {
   const site = customer?.jobSiteAddress;
-  const address = formatSiteAddressLine(site) || (fallbackAddress?.trim() || undefined);
-  const latitude = site?.latitude;
-  const longitude = site?.longitude;
-  const accessNotes = site?.accessNotes?.trim() || undefined;
+  // The fallback may itself be a structured address object (the real-data case above) or plain text.
+  // Address only, deliberately: GPS and access notes come from the linked customer record, which is
+  // the surface that owns them.
+  const fallback = formatSiteAddressLine(fallbackAddress) || text(fallbackAddress) || undefined;
+  const address = formatSiteAddressLine(site) || fallback;
+  const latitude = typeof site?.latitude === "number" ? site.latitude : undefined;
+  const longitude = typeof site?.longitude === "number" ? site.longitude : undefined;
+  const accessNotes = text(site?.accessNotes) || undefined;
   if (!address && latitude == null && longitude == null && !accessNotes) return undefined;
   return { address, latitude, longitude, accessNotes };
 }

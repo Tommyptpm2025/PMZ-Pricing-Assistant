@@ -21,7 +21,7 @@ import {
   workOrderInputFromQuote,
   recipeLinesFromQuote,
 } from "../lib/work-order-sweep.ts";
-import { createJobFromQuote, jobActualCost } from "../lib/jobs.ts";
+import { createJobFromQuote, jobActualCost, jobSiteFromCustomer } from "../lib/jobs.ts";
 import { statusBucket } from "../lib/sales-tracker.ts";
 import { STATUS_LABELS } from "../lib/pmz-types.ts";
 
@@ -319,3 +319,100 @@ for (const page of ["../app/quotes/page.tsx", "../app/jobs/page.tsx"]) {
   );
 }
 console.log("PASS: work-order sweep invocation — one storage-bound entry point that logs on all three paths with no readiness gate, imported AND called from a mount effect on BOTH reader pages (quotes + jobs), neither of which plans its own sweep");
+
+// ── 7 — THE JOB SITE ACCEPTS WHAT REAL DATA ACTUALLY HOLDS ───────────────────────────────────────
+// CRASH OF RECORD (from the live console):
+//   TypeError: fallbackAddress?.trim is not a function  at jobSiteFromCustomer (jobs.ts:199)
+// It threw out of createJobFromQuote, out of planWorkOrderSweep, and killed the WHOLE sweep — a book
+// of accepted quotes got no job records because of one field. `SavedQuote.jobSiteAddress` is DECLARED
+// string but the Pricer copies the customer's structured address OBJECT into it, so the declared type
+// was a promise the data never made. These cases pin every shape that has been seen or is plausible.
+const SITE_SHAPES = [
+  ["a structured address OBJECT (the real-data case that crashed)", { street: "12 Elm St", city: "Springfield", stateCode: "IL", zip: "62704" }, "12 Elm St, Springfield, IL 62704"],
+  ["a plain string", "  1420 Oak Ave, Peoria IL  ", "1420 Oak Ave, Peoria IL"],
+  ["a NUMBER (a bare street number survives an old import)", 1420, "1420"],
+  ["an address object whose zip is a NUMBER, not a string", { street: "9 Main", city: "Ames", state: "IA", zip: 50010 }, "9 Main, Ames, IA 50010"],
+  ["an EMPTY object", {}, undefined],
+  ["an object of unrelated junk", { foo: "bar", nested: { deep: 1 } }, undefined],
+  ["an ARRAY", ["12 Elm St"], undefined],
+  ["null", null, undefined],
+  ["undefined", undefined, undefined],
+  ["a boolean", true, undefined],
+  ["an empty string", "   ", undefined],
+];
+for (const [label, fallback, expected] of SITE_SHAPES) {
+  let site;
+  assert.doesNotThrow(
+    () => { site = jobSiteFromCustomer(null, fallback); },
+    `jobSiteFromCustomer NEVER throws on ${label} — a work order must never fail to exist over a field it only meant to print`
+  );
+  if (expected === undefined) {
+    assert.equal(site, undefined, `${label} yields no job site at all (never "[object Object]", never a fabricated address)`);
+  } else {
+    assert.equal(typeof site.address, "string", `${label} yields a STRING address`);
+    assert.equal(site.address, expected, `${label} formats to "${expected}"`);
+  }
+}
+// The linked customer's own address still wins over the fallback, and still carries GPS + notes.
+const withCustomer = jobSiteFromCustomer(
+  { jobSiteAddress: { street: "1 Depot Rd", city: "Quincy", stateCode: "MA", zip: "02169", latitude: 42.25, longitude: -71.0, accessNotes: "  Gate code 4821  " } },
+  { street: "IGNORED fallback", city: "Nowhere" }
+);
+assert.equal(withCustomer.address, "1 Depot Rd, Quincy, MA 02169", "the linked customer's address still wins over the quote's fallback");
+assert.equal(withCustomer.latitude, 42.25, "…and still carries GPS");
+assert.equal(withCustomer.accessNotes, "Gate code 4821", "…and trimmed access notes");
+// Corrupt GPS is dropped rather than stored as junk.
+const badGps = jobSiteFromCustomer({ jobSiteAddress: { street: "5 Way", latitude: "42.25", longitude: null, accessNotes: { text: "hi" } } }, undefined);
+assert.equal(badGps.latitude, undefined, "a STRING latitude is not a latitude — dropped, never stored as text (GPS is numeric or absent)");
+assert.equal(badGps.longitude, undefined, "a null longitude is dropped rather than stored");
+assert.equal(badGps.accessNotes, undefined, "OBJECT access notes are dropped — never '[object Object]' printed at a foreman");
+assert.equal(badGps.address, "5 Way", "…and the address still comes through");
+// A number IS text, deliberately and consistently: it is what rescues a numeric zip, and a note the
+// owner typed as "7" is still the note they typed.
+assert.equal(
+  jobSiteFromCustomer({ jobSiteAddress: { street: "5 Way", accessNotes: 7 } }, undefined).accessNotes,
+  "7",
+  "a NUMERIC access note coerces to text — same rule that rescues a numeric zip, applied consistently"
+);
+console.log("PASS: job site coercion — jobSiteFromCustomer accepts a string, an address object, a number, an array, junk, null and undefined without EVER throwing; it returns a real one-line address or nothing at all, and corrupt GPS is dropped rather than stored");
+
+// ── 8 — ONE ROTTEN BOARD MUST NOT CONDEMN THE LOAD ───────────────────────────────────────────────
+// The crash above aborted the whole sweep because creation was unguarded inside the loop. Creation is
+// now guarded PER QUOTE: everything creatable gets created, and the failures are counted and NAMED.
+
+// (a) THE LIVE REPRO. A quote carrying the object-shaped jobSiteAddress must now produce a work order.
+// MUTATION TARGET: restore the unguarded `fallbackAddress?.trim()` in lib/jobs.ts and this quote
+// throws — it lands in `failed` instead of `created`, and these assertions fail by name.
+const OBJECT_SITE = quote("q_objsite", "Approved", {
+  jobSiteAddress: { street: "12 Elm St", city: "Springfield", stateCode: "IL", zip: "62704" },
+});
+const objSweep = planWorkOrderSweep([OBJECT_SITE], [], buildSections);
+assert.equal(objSweep.counts.failed, 0, "a quote whose jobSiteAddress is an OBJECT no longer fails — this is the crash of record, fixed at the root");
+assert.equal(objSweep.createdCount, 1, "…it CREATES its work order");
+assert.equal(objSweep.created[0].jobSite?.address, "12 Elm St, Springfield, IL 62704", "…with the object formatted into a real one-line site address");
+
+// (b) A genuinely poisoned quote (its recipe build throws) costs EXACTLY ITSELF.
+const poisonBuild = (item) => {
+  if (String(item.description).includes("POISON")) throw new Error("recipe build exploded on this line");
+  return buildSections(item);
+};
+const MIXED_BOOK = [
+  quote("q_good1", "Approved"),
+  quote("q_poison", "Invoiced", { eppLineItems: [eppLine("p_l1", "POISON line")] }),
+  quote("q_good2", "In Progress"),
+];
+const mixed = planWorkOrderSweep(MIXED_BOOK, [], poisonBuild);
+assert.equal(mixed.createdCount, 2, "two good quotes are still built — ONE bad record does not abort the sweep");
+assert.deepEqual(mixed.created.map((j) => j.quoteId).sort(), ["q_good1", "q_good2"], "…and they are exactly the two good ones");
+assert.equal(mixed.counts.failed, 1, "the failure is COUNTED, not swallowed and not fatal");
+assert.deepEqual(mixed.counts.failedQuoteIds, ["q_poison"], "…and the failing quote is NAMED, so an owner can go look at it");
+assert.match(mixed.counts.firstError, /recipe build exploded/, "…carrying the first error's message for the console line");
+assert.equal(mixed.counts.eligible, 3, "all three were eligible — a build failure is not an eligibility skip");
+assert.equal(mixed.jobs.length, 2, "the saved job set holds the two that worked");
+
+// A sweep where EVERY quote fails still returns cleanly (it reports, it does not throw).
+const allBad = planWorkOrderSweep([quote("q_p1", "Approved", { eppLineItems: [eppLine("x", "POISON a")] })], [], poisonBuild);
+assert.equal(allBad.createdCount, 0, "an all-failing sweep creates nothing…");
+assert.equal(allBad.counts.failed, 1, "…and says so rather than throwing");
+assert.deepEqual(allBad.jobs, [], "…leaving the existing job set untouched");
+console.log("PASS: work-order sweep resilience — the object-shaped jobSiteAddress now builds instead of crashing; a genuinely poisoned quote costs exactly itself while the rest of the load is created, and the failure is counted, named, and carries its first error message");
