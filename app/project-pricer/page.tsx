@@ -3754,25 +3754,43 @@ export default function ProjectPricerPage() {
             </div>
           </div>
 
-          {/* CONTRACT-TOTAL STRIP — READ-ONLY, DISPLAY ONLY. A locked bid that has picked up change
-              orders is worth more than the number above it, and the owner should not have to open the
-              customer document to learn that. It states the three facts and the law that governs
-              them; it writes nothing. totalRevenue and every stored figure are untouched — the bid is
-              frozen (Law 56), and that is exactly what the sentence says out loud. */}
+          {/* THE CONTRACT BANNER — READ-ONLY, DISPLAY ONLY, directly below the total it explains.
+              A locked bid that has picked up change orders is worth more than the number above, and
+              the owner should not have to open the customer document to learn that. Three labeled
+              figures, left to right, weighted like the money they are: what was signed, what was
+              added, what is owed. It writes nothing — totalRevenue and every stored figure are
+              untouched, which is exactly what the sentence beneath it says out loud (Law 83).
+              Same single reader as the customer document (contractStrip → changeOrderDocumentLines),
+              so the banner and the paper can never quote two different contract totals. */}
           {contractStrip && (
-            <div className="border-t bg-muted/20 px-4 py-2 text-sm">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 tabular-nums">
-                <span className="text-muted-foreground">Original bid</span>
-                <span className="font-medium">{formatMoney(contractStrip.bidTotal)}</span>
-                <span className="text-muted-foreground">·</span>
-                <span className="text-muted-foreground">Change orders</span>
-                <span className="font-medium">+{formatMoney(contractStrip.changeOrderTotal)}</span>
-                <span className="text-muted-foreground">·</span>
-                <span className="text-muted-foreground">Contract total</span>
-                <span className="font-semibold" style={{ color: "#7D1424" }}>{formatMoney(contractStrip.contractTotal)}</span>
+            <div className="border-t bg-muted/20 px-4 py-3">
+              <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+                <div>
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Original Bid</div>
+                  <div className="mt-0.5 text-xl font-medium tabular-nums tracking-tight">
+                    {formatMoney(contractStrip.bidTotal)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Change Orders</div>
+                  <div className="mt-0.5 text-xl font-medium tabular-nums tracking-tight">
+                    +{formatMoney(contractStrip.changeOrderTotal)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "#7D1424" }}>
+                    Contract Total
+                  </div>
+                  <div
+                    className="mt-0.5 text-3xl font-semibold tabular-nums tracking-tighter"
+                    style={{ color: "#7D1424" }}
+                  >
+                    {formatMoney(contractStrip.contractTotal)}
+                  </div>
+                </div>
               </div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                Change orders are priced from the frozen bid margin and never alter the bid.
+              <div className="mt-2 border-t pt-2 text-xs text-muted-foreground">
+                Change orders are priced from the frozen bid margin and never alter the bid (Law 83).
               </div>
             </div>
           )}
