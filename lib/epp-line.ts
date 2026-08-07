@@ -23,6 +23,9 @@ export interface EppBidLine {
   // Per-line LEM detail — carried through save so the costed line survives reload (no longer stripped).
   priceOverridden?: boolean;
   flatRate?: boolean; // declared flat rate — carried through save so the declaration survives the round trip
+  // Acknowledgement stamp for a KNOWING contradiction (flat rate ticked over entered costs, Cause 4).
+  flatRateAcknowledgedAt?: string;
+  flatRateAcknowledgedRows?: number;
   laborEntries?: LaborEntry[];
   equipmentEntries?: EquipmentEntry[];
   materialEntries?: MaterialEntry[];
@@ -43,6 +46,8 @@ export function serializeEppLine(item: {
   unitPrice?: number;
   priceOverridden?: boolean;
   flatRate?: boolean;
+  flatRateAcknowledgedAt?: string;
+  flatRateAcknowledgedRows?: number;
   laborEntries?: LaborEntry[];
   equipmentEntries?: EquipmentEntry[];
   materialEntries?: MaterialEntry[];
@@ -59,6 +64,8 @@ export function serializeEppLine(item: {
     // live estimate state). Omit a key entirely when absent so scope-only lines stay clean.
     ...(item.priceOverridden !== undefined ? { priceOverridden: item.priceOverridden } : {}),
     ...(item.flatRate ? { flatRate: true } : {}),
+    ...(item.flatRateAcknowledgedAt ? { flatRateAcknowledgedAt: item.flatRateAcknowledgedAt } : {}),
+    ...(item.flatRateAcknowledgedRows ? { flatRateAcknowledgedRows: item.flatRateAcknowledgedRows } : {}),
     ...(item.laborEntries ? { laborEntries: item.laborEntries.map((e) => ({ ...e })) } : {}),
     ...(item.equipmentEntries ? { equipmentEntries: item.equipmentEntries.map((e) => ({ ...e })) } : {}),
     ...(item.materialEntries ? { materialEntries: item.materialEntries.map((e) => ({ ...e })) } : {}),

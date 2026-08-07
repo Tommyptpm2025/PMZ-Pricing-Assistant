@@ -210,6 +210,10 @@ export interface LineItem {
   // behind this line. A declared flat line is a ZERO (confirm-and-carry), not a blank — it does not
   // block Send (Law 50, Cause 3). An UNDECLARED line with no LEM rows is still a blank and still blocks.
   flatRate?: boolean;
+  // Cause 4 — a KNOWINGLY acknowledged flat-rate/real-cost contradiction: when it was confirmed and
+  // how many entered cost rows were set aside. Absent on every clean line.
+  flatRateAcknowledgedAt?: string;
+  flatRateAcknowledgedRows?: number;
   laborEntries?: LaborEntry[];
   equipmentEntries?: EquipmentEntry[];
   materialEntries?: MaterialEntry[];

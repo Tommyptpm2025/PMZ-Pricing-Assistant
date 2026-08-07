@@ -47,6 +47,16 @@ import UpdateExportDialog from "@/components/UpdateExportDialog";
 import GatePanel from "@/components/GatePanel";
 import { buildQuoteDocument } from "@/lib/quote-document";
 import {
+  planFlatRateTick,
+  applyFlatRateTick,
+  clearFlatRate,
+  applyCostEntry,
+  flatRateBadge,
+  flatRateContradictions,
+  hasRealCostRows,
+  FLAT_RATE_SECTION_NOTICE,
+} from "@/lib/flat-rate";
+import {
   loadChangeOrders,
   changeOrderDocumentLines,
   changeOrderDocumentTotal,
@@ -62,6 +72,7 @@ import {
   ChevronDown,
   ChevronRight,
   Paperclip,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -1267,16 +1278,26 @@ export default function ProjectPricerPage() {
     }
     setEstimate((prev) => ({
       ...prev,
-      bidItems: prev.bidItems.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              [field]: (field === "priceOverridden" || field === "flatRate" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string))
-                ? (value === "" ? undefined : value)
-                : Math.max(0, Number(value) || 0),
-            }
-          : item
-      ),
+      bidItems: prev.bidItems.map((item) => {
+        if (item.id !== id) return item;
+        const updated: any = {
+          ...item,
+          [field]: (field === "priceOverridden" || field === "flatRate" || (value != null && typeof value === "object" && !Array.isArray(value)) || ["description", "unit", "laborRateId", "equipmentRateId", "materialRateId", "laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"].includes(field as string))
+            ? (value === "" ? undefined : value)
+            : Math.max(0, Number(value) || 0),
+        };
+        // CAUSE 4 — a real cost landing on a flat-rate line AUTO-UNTICKS it, loudly. The newest fact
+        // wins: somebody just typed this, and a stale declaration must never silently swallow it. The
+        // rule lives in lib/flat-rate.ts (fence-proved); this is only where the typing happens.
+        if (COST_FIELDS.includes(field as string)) {
+          const { next, plan } = applyCostEntry(updated);
+          if (plan.autoUnticked) {
+            setFlatRateNotice({ itemId: id, text: plan.announcement || "", tone: "untick" });
+            return next;
+          }
+        }
+        return updated;
+      }),
     }));
   }
 
@@ -1827,6 +1848,35 @@ export default function ProjectPricerPage() {
       getLaborCostPerHour, getEquipmentCostPerHour, getMaterialCostPerUnit, getMiscCostPerUnit,
     });
     const flatLines = zeros.filter((z) => z.flatRate);
+    // 0b) THE FLAT-RATE CONTRADICTION (Cause 4) — announced HERE, in the FIRST moment of truth, beside
+    //     every other gate. A line declaring flat rate while carrying entered costs is not a blocker
+    //     (the costs are kept on purpose and the declaration was acknowledged), but it must never be
+    //     something the owner meets for the first time AFTER the recipient step: a contradiction found
+    //     at the last door is one they have already stopped thinking about.
+    const contradictions = flatRateContradictions(gateItems);
+    if (contradictions.length > 0 && !flatConfirmed) {
+      const lines = contradictions
+        .map((c) => `• ${c.description} — ${c.costRowCount} cost row${c.costRowCount === 1 ? "" : "s"} ignored`)
+        .join("\n");
+      // Same confirm-and-carry mechanism the flat-line confirm already uses: the panel's own confirm
+      // re-enters this function with flatConfirmed=true, so one acknowledgement clears both.
+      setSendBlock({
+        failures: [],
+        flatLines,
+        confirmFlat: true,
+        notice: {
+          tone: "warn",
+          title:
+            contradictions.length === 1
+              ? "One line is marked flat rate but carries entered costs."
+              : `${contradictions.length} lines are marked flat rate but carry entered costs.`,
+          detail:
+            `Those costs stay on the record and are IGNORED in pricing — the line prints at its own price.\n\n${lines}\n\n` +
+            `Untick flat rate on a line to price it from its costs, or confirm to send as it stands.`,
+        },
+      });
+      return;
+    }
     if (blocking.length > 0) {
       setSendBlock({ failures: blocking, flatLines }); // block panel; flat lines ride along in the confirm section
       return;
@@ -2092,6 +2142,43 @@ export default function ProjectPricerPage() {
   // Guarded on revenue > 0 and a resolvable target > 0 (no work type / zero revenue → no target line).
   const showTargetGuidance = !hasCostBasis && totalRevenue > 0 && targetMargin > 0;
   const { profitTarget: eppProfitTarget, costCeiling: eppCostCeiling } = profitTargetAndCeiling(totalRevenue, targetMargin);
+
+  // CAUSE 4 — the cost-bearing fields on a bid line. Typing into any of them is "entering a real cost",
+  // which is the act that cannot coexist with a flat-rate declaration.
+  const COST_FIELDS = ["laborEntries", "equipmentEntries", "materialEntries", "miscellaneousEntries", "crewUsages"];
+
+  // The on-screen announcement for a flat-rate state change — an auto-untick, or an acknowledged
+  // contradiction. Per line, cleared when another one happens. A state change nobody was told about is
+  // the invisible decision this whole cause exists to end.
+  const [flatRateNotice, setFlatRateNotice] = React.useState<{ itemId: string; text: string; tone: "untick" | "kept" } | null>(null);
+
+  // Ticking flat rate. Clean lines just tick; a line that already carries entered costs takes a stated
+  // confirm naming the dollars, and the acknowledgement is stamped onto the line when it is accepted.
+  function toggleFlatRate(item: any, checked: boolean) {
+    if (!checked) {
+      setFlatRateNotice(null);
+      setEstimate((prev) => ({
+        ...prev,
+        bidItems: prev.bidItems.map((it) => (it.id === item.id ? clearFlatRate(it) : it)) as BidItem[],
+      }));
+      return;
+    }
+    const plan = planFlatRateTick(item, lineBreakEvenCost(item));
+    if (plan.requiresConfirm && !window.confirm(plan.message || "")) return; // refused — nothing changes
+    setEstimate((prev) => ({
+      ...prev,
+      bidItems: prev.bidItems.map((it) => (it.id === item.id ? applyFlatRateTick(it) : it)) as BidItem[],
+    }));
+    setFlatRateNotice(
+      plan.requiresConfirm
+        ? {
+            itemId: item.id,
+            text: `Flat rate marked — ${plan.costRowCount} entered cost row${plan.costRowCount === 1 ? "" : "s"} kept on the line and IGNORED in pricing.`,
+            tone: "kept",
+          }
+        : null
+    );
+  }
 
   // THE CONTRACT-TOTAL STRIP (read-only view only). The SAME reader the customer document uses —
   // lib/change-orders.ts decides which orders count (quoted+ and this quote's only), so the strip and
@@ -2782,11 +2869,11 @@ export default function ProjectPricerPage() {
                               </div>
                               {/* Flat-rate declaration (Cause 3): plain language that there is no LEM behind
                                   this line. A declared flat line is a zero, not a blank — it does not block Send. */}
-                              <label className="flex items-start gap-2 mb-3 text-sm cursor-pointer">
+                              <label className="flex items-start gap-2 mb-1 text-sm cursor-pointer">
                                 <input
                                   type="checkbox"
                                   checked={!!item.flatRate}
-                                  onChange={(e) => updateBidItem(item.id, "flatRate", e.target.checked)}
+                                  onChange={(e) => toggleFlatRate(item, e.target.checked)}
                                   disabled={isReadOnly}
                                   className="mt-0.5"
                                 />
@@ -2794,6 +2881,38 @@ export default function ProjectPricerPage() {
                                   This line is a <span className="font-medium">flat rate</span> — there is no labor, equipment, or material behind it. It prints at the price above.
                                 </span>
                               </label>
+
+                              {/* THE CONTRADICTION, VISIBLE (Cause 4). A line declaring flat rate while
+                                  carrying entered costs wears this badge rather than hiding it. Data
+                                  written before the rule existed is ANNOUNCED, never silently repaired. */}
+                              {flatRateBadge(item) && (
+                                <div className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-amber-400 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900">
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                  {flatRateBadge(item)}
+                                </div>
+                              )}
+                              {/* The announcement for a state change that just happened on this line. */}
+                              {flatRateNotice?.itemId === item.id && (
+                                <div
+                                  className={`mb-2 rounded-md border px-2 py-1 text-xs font-medium ${
+                                    flatRateNotice.tone === "untick"
+                                      ? "border-emerald-400 bg-emerald-50 text-emerald-900"
+                                      : "border-amber-400 bg-amber-50 text-amber-900"
+                                  }`}
+                                >
+                                  {flatRateNotice.text}
+                                </div>
+                              )}
+
+                              {/* WHILE FLAT RATE IS TICKED the cost panels are closed and say why. No
+                                  entry is possible: the two states cannot be built up side by side. */}
+                              {item.flatRate ? (
+                                <div className="mb-3 rounded-md border border-dashed bg-muted/30 px-3 py-4 text-center text-sm text-muted-foreground">
+                                  {FLAT_RATE_SECTION_NOTICE}
+                                </div>
+                              ) : (
+                              <>
+                              {/* Flat-rate OFF — the Labor / Equipment / Material / Misc panels below. */}
                               {/* Labor */}
                               <div className="mb-3">
                                 <div className="flex items-center mb-1">
@@ -3664,6 +3783,8 @@ export default function ProjectPricerPage() {
                                   );
                                 })}
                               </div>
+                              </>
+                              )}
                               <div className="border-t pt-3 mt-2 flex flex-wrap gap-x-8 text-lg">
                                 <div>Total Cost: <span className="font-semibold tabular-nums">{formatMoney(computedItemCost)}</span></div>
                                 {lineHasCostBasis ? (
