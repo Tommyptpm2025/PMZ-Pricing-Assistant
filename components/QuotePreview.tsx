@@ -84,6 +84,15 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
     ? q.total
     : lineItems.reduce((s: number, it: any) => s + ((it.quantity || 0) * (it.unitPrice || 0)), 0);
 
+  // Change orders arrive as their OWN section (never inside lineItems) with the two halves of the
+  // contract total already resolved. `hasChangeOrders` is decided in lib/quote-document.ts so this
+  // renderer and the PDF cannot disagree about which money story to tell. A document built before
+  // change orders existed carries none of these and falls back to the single bare TOTAL.
+  const changeOrders: any[] = Array.isArray(q.changeOrders) ? q.changeOrders : [];
+  const hasChangeOrders = q.hasChangeOrders === true && changeOrders.length > 0;
+  const bidTotal = q.bidTotal !== undefined ? q.bidTotal : grandTotal;
+  const changeOrderTotal = q.changeOrderTotal || 0;
+
   const termsText = q.termsText || null;
   // Company logo (from the Update Export dialog). Shown in place of the brand wordmark when set —
   // matches the PDF header behavior so the on-screen preview is no longer logo-blind.
@@ -370,11 +379,51 @@ export default function QuotePreview({ quote, onClose, onExportPDF }: QuotePrevi
             )}
           </div>
 
-          {/* TOTAL row */}
-          <div className="pmz-total pmz-charcoal" style={{ display: 'flex', marginTop: 4, borderTop: '1px solid #111', paddingTop: 4, color: '#333' }}>
-            <div style={{ fontSize: 11, fontWeight: 'bold', flexBasis: '70%' }}>TOTAL</div>
-            <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'right', flexBasis: '30%' }}>${formatMoney(grandTotal)}</div>
-          </div>
+          {/* CHANGE ORDERS — its own titled section, never mixed into the bid table above. One row
+              per order: what it was and when, in plain words, and the price that was quoted. */}
+          {hasChangeOrders && (
+            <div className="pmz-change-orders" style={{ width: '100%', marginBottom: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#333', borderBottom: '1px solid #111', paddingBottom: 3, marginBottom: 0 }}>
+                Change Orders
+              </div>
+              {changeOrders.map((co: any) => (
+                <div key={co.id} className="pmz-line" style={{ display: 'flex', borderBottom: '0.5px solid #ccc', color: '#333' }}>
+                  <div style={{ padding: 5, fontSize: 9, borderRight: '0.5px solid #ccc', flexBasis: '85%' }}>
+                    <div style={{ fontWeight: 'bold' }}>{co.title}</div>
+                    <div style={{ color: '#555' }}>{co.description}</div>
+                  </div>
+                  {showLineItemPrices && (
+                    <div style={{ padding: 5, fontSize: 9, textAlign: 'right', flexBasis: '15%' }}>${formatMoney(co.amount)}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* THE MONEY STORY. With change orders, three labeled rows: what was signed, what was added,
+              and what is owed — so a total that differs from the bid always shows where it came from
+              on the same page. With none, the single bare TOTAL exactly as before. */}
+          {hasChangeOrders ? (
+            <div className="pmz-total pmz-charcoal" style={{ marginTop: 4, borderTop: '1px solid #111', paddingTop: 4, color: '#333' }}>
+              <div style={{ display: 'flex' }}>
+                <div style={{ fontSize: 10, flexBasis: '70%' }}>Original Contract</div>
+                <div style={{ fontSize: 10, textAlign: 'right', flexBasis: '30%' }}>${formatMoney(bidTotal)}</div>
+              </div>
+              <div style={{ display: 'flex', marginTop: 2 }}>
+                <div style={{ fontSize: 10, flexBasis: '70%' }}>Change Orders</div>
+                <div style={{ fontSize: 10, textAlign: 'right', flexBasis: '30%' }}>${formatMoney(changeOrderTotal)}</div>
+              </div>
+              <div style={{ display: 'flex', marginTop: 4, borderTop: '0.5px solid #999', paddingTop: 4 }}>
+                <div style={{ fontSize: 11, fontWeight: 'bold', flexBasis: '70%' }}>CONTRACT TOTAL</div>
+                <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'right', flexBasis: '30%' }}>${formatMoney(grandTotal)}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="pmz-total pmz-charcoal" style={{ display: 'flex', marginTop: 4, borderTop: '1px solid #111', paddingTop: 4, color: '#333' }}>
+              <div style={{ fontSize: 11, fontWeight: 'bold', flexBasis: '70%' }}>TOTAL</div>
+              <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'right', flexBasis: '30%' }}>${formatMoney(grandTotal)}</div>
+            </div>
+          )}
 
           {/* Terms & Conditions — six tokenized sections (Payment Terms is section 1, folded in
               from Step 5). Each section renders when its tokens are complete; an incomplete section

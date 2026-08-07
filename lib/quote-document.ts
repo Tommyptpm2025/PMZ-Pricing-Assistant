@@ -15,6 +15,11 @@
 import { buildLineLemDetail, type LemRateCatalogs } from "./lem-detail";
 import { eppLineTotal, eppTotalRevenue } from "./epp-line";
 import { formatMoney } from "./format";
+import {
+  changeOrderDocumentLines,
+  changeOrderDocumentTotal,
+  type ChangeOrder,
+} from "./change-orders";
 
 export interface QuoteDocumentDeps {
   /** The live estimate — fallback source for header fields and bid items. */
@@ -31,6 +36,13 @@ export interface QuoteDocumentDeps {
   now?: Date;
   /** Injectable quote number — defaults to the last 7 digits of the epoch. */
   quoteNumber?: string;
+  /**
+   * The change-order store (any list — this mapping filters it). Only the QUOTED ones belonging to
+   * THIS quote print, and only as description + price; lib/change-orders.ts owns that rule so no
+   * document surface can widen it. Omitted ⇒ nothing to add, and the document is byte-identical to
+   * what it was before change orders existed.
+   */
+  changeOrders?: ChangeOrder[];
 }
 
 /** Format a customer address object into non-empty display lines (street, street2, "City, ST ZIP"). */
@@ -85,6 +97,8 @@ export function buildQuoteDocument(source: any, deps: QuoteDocumentDeps) {
   const { estimate, currentCustomer, estimators, lemCats, grossProfit } = deps;
   const s = source || {};
   const bidItems = s.bidItems || estimate.bidItems || [];
+  // THE BID LINES, and only the bid lines. Change orders live in their own section below and are
+  // never mixed in here — the original contract must always read on the page exactly as it was signed.
   const lineItems = bidItems.map((item: any) => {
     const qty = Number(item.quantity || 0);
     // Law 56 — ONE PRICE PATH. The customer document prints the QUOTED price: the same
@@ -104,9 +118,37 @@ export function buildQuoteDocument(source: any, deps: QuoteDocumentDeps) {
       lemDetail: buildLineLemDetail(item, lemCats),
     };
   });
-  // Same helper the worksheet total and the save path use — the printed TOTAL is
-  // byte-identical to the persisted totalRevenue by construction, not by coincidence.
-  const total = eppTotalRevenue(bidItems);
+  // Same helper the worksheet total and the save path use — the printed BID total is byte-identical
+  // to the persisted totalRevenue by construction, not by coincidence.
+  const bidTotal = eppTotalRevenue(bidItems);
+
+  // ── CHANGE ORDERS: THEIR OWN SECTION, AFTER THE BID LINES ─────────────────────────────────────
+  // Extra work the customer already agreed to. It gets a TITLED SECTION of its own rather than being
+  // crammed into the bid table, because that is what it actually is: a second conversation, held
+  // after the bid was struck, on a date, about a specific thing. One row per order — what it was and
+  // when, in plain words — and the price that was quoted.
+  //
+  // The bid lines are NOT touched. A change order is never mixed in among them, so the original
+  // contract can always be read on the page exactly as it was signed.
+  //
+  // lib/change-orders.ts decides WHICH ones may print (quoted only — never a pending one, never a
+  // declined one, never one converted to new scope) and hands back title, plain-words description and
+  // amount, so no cost, rate, margin or resource math can reach this document through here.
+  //
+  // LAW 56 STILL HOLDS, precisely stated: the BID total still equals the persisted totalRevenue
+  // exactly, and it is printed under its own label. The document's CONTRACT TOTAL is that bid total
+  // plus the change orders the customer was already quoted — which is what they owe. Three labeled
+  // numbers instead of one bare TOTAL, because a customer who sees a total that is not the number
+  // they signed deserves to see, on the same page, exactly where the difference came from.
+  const changeOrders = changeOrderDocumentLines(deps.changeOrders || [], s.id || estimate?.id);
+  const changeOrderTotal = changeOrderDocumentTotal(changeOrders);
+  const hasChangeOrders = changeOrders.length > 0;
+  // NO PRESENTATION ROUNDING ON THE PRICE PATH (Law 56). With nothing to add, the total is the bid
+  // total ITSELF — the same value, not an arithmetic result that happens to match — so a quote whose
+  // lines total to a sub-cent amount still prints exactly what was persisted. (An earlier draft of
+  // this line rounded the sum to the cent and printed $344.43 for a persisted $344.425; the fence
+  // caught it. Rounding belongs where a VALUE is created, never where one is displayed.)
+  const total = changeOrderTotal === 0 ? bidTotal : bidTotal + changeOrderTotal;
   // Resolve the selected estimator's full record (Tier B token source). The quote stores the
   // estimator NAME (mirrors salesperson); title/email/phone come from the Estimator Registry.
   const estimatorName = s.estimator || estimate.estimator || "";
@@ -144,6 +186,14 @@ export function buildQuoteDocument(source: any, deps: QuoteDocumentDeps) {
     status: s.status || "EPP",
     lineItems,
     total,
+    // The change-order section, and both halves of the contract total — the bid exactly as persisted,
+    // and what the quoted change orders added. A renderer shows the three-row money story when there
+    // are change orders and the single bare TOTAL when there are none; `hasChangeOrders` is that one
+    // decision, made here, so the preview and the PDF can never disagree about which story to tell.
+    changeOrders,
+    hasChangeOrders,
+    bidTotal,
+    changeOrderTotal,
     grossProfit,
     // Tier B token context — estimator (Step 2) + customer/project/quote/acceptance (Step 3).
     // Line-item / section tokens come in Step 4; rendering into T&C / Payment Terms in Steps 5–6.

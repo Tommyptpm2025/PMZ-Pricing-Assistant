@@ -118,10 +118,24 @@ const styles = StyleSheet.create({
   },
   lemSectionTitle: { fontSize: 8, color: "#777", textTransform: "uppercase", letterSpacing: 0.5 },
   lemRow: { flexDirection: "row", fontSize: 8, color: "#555555", lineHeight: 1.4 },
+  // --- Change orders (their own titled section, never mixed into the bid table) ---
+  coSection: { width: "100%", marginBottom: 12 },
+  coHeading: { fontSize: 10, fontWeight: "bold", textTransform: "uppercase", letterSpacing: 0.5, color: CHARCOAL, borderBottomWidth: 1, borderBottomColor: "#111", paddingBottom: 3 },
+  coRow: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#ccc", color: CHARCOAL },
+  coCell: { padding: 5, fontSize: 9, borderRightWidth: 0.5, borderRightColor: "#ccc", width: "85%" },
+  coTitle: { fontWeight: "bold" },
+  coDescription: { color: "#555555" },
+  coAmount: { padding: 5, fontSize: 9, textAlign: "right", width: "15%" },
   // --- Total ---
   totalRow: { flexDirection: "row", marginTop: 4, borderTopWidth: 1, borderTopColor: "#111", paddingTop: 4, color: CHARCOAL },
   totalLabel: { fontSize: 11, fontWeight: "bold", width: "70%" },
   totalValue: { fontSize: 11, fontWeight: "bold", textAlign: "right", width: "30%" },
+  // The three-row money story: two quiet subtotals, then the bold contract total.
+  totalsBlock: { marginTop: 4, borderTopWidth: 1, borderTopColor: "#111", paddingTop: 4, color: CHARCOAL },
+  subtotalRow: { flexDirection: "row", marginTop: 2 },
+  subtotalLabel: { fontSize: 10, width: "70%" },
+  subtotalValue: { fontSize: 10, textAlign: "right", width: "30%" },
+  contractTotalRow: { flexDirection: "row", marginTop: 4, borderTopWidth: 0.5, borderTopColor: "#999", paddingTop: 4 },
   // --- Terms ---
   terms: { marginTop: 16, fontSize: 9, color: CHARCOAL },
   termsHeading: { fontSize: 9, fontWeight: "bold", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 },
@@ -188,6 +202,15 @@ export default function QuotePdfDocument({ quote, company }: QuotePdfDocumentPro
     q.total !== undefined
       ? q.total
       : lineItems.reduce((s: number, it: any) => s + (it.quantity || 0) * (it.unitPrice || 0), 0);
+
+  // Change orders arrive as their OWN section (never inside lineItems) with both halves of the
+  // contract total already resolved. `hasChangeOrders` is decided in lib/quote-document.ts so the PDF
+  // and the on-screen preview cannot disagree about which money story to tell. A document built
+  // before change orders existed carries none of these and falls back to the single bare TOTAL.
+  const changeOrders: any[] = Array.isArray(q.changeOrders) ? q.changeOrders : [];
+  const hasChangeOrders = q.hasChangeOrders === true && changeOrders.length > 0;
+  const bidTotal = q.bidTotal !== undefined ? q.bidTotal : grandTotal;
+  const changeOrderTotal = q.changeOrderTotal || 0;
 
   const termsText = q.termsText || null;
   const logoDataUrl = q.logoDataUrl || null;
@@ -349,11 +372,47 @@ export default function QuotePdfDocument({ quote, company }: QuotePdfDocumentPro
           )}
         </View>
 
-        {/* TOTAL */}
-        <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>TOTAL</Text>
-          <Text style={styles.totalValue}>${formatMoney(grandTotal)}</Text>
-        </View>
+        {/* CHANGE ORDERS — its own titled section, never mixed into the bid table above. */}
+        {hasChangeOrders ? (
+          <View style={styles.coSection}>
+            <Text style={styles.coHeading}>Change Orders</Text>
+            {changeOrders.map((co: any) => (
+              <View key={co.id} style={styles.coRow} wrap={false}>
+                <View style={styles.coCell}>
+                  <Text style={styles.coTitle}>{co.title}</Text>
+                  <Text style={styles.coDescription}>{co.description}</Text>
+                </View>
+                {showLineItemPrices ? (
+                  <Text style={styles.coAmount}>${formatMoney(co.amount)}</Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {/* THE MONEY STORY. With change orders, three labeled rows: what was signed, what was added,
+            and what is owed. With none, the single bare TOTAL exactly as before. */}
+        {hasChangeOrders ? (
+          <View style={styles.totalsBlock}>
+            <View style={styles.subtotalRow}>
+              <Text style={styles.subtotalLabel}>Original Contract</Text>
+              <Text style={styles.subtotalValue}>${formatMoney(bidTotal)}</Text>
+            </View>
+            <View style={styles.subtotalRow}>
+              <Text style={styles.subtotalLabel}>Change Orders</Text>
+              <Text style={styles.subtotalValue}>${formatMoney(changeOrderTotal)}</Text>
+            </View>
+            <View style={styles.contractTotalRow}>
+              <Text style={styles.totalLabel}>CONTRACT TOTAL</Text>
+              <Text style={styles.totalValue}>${formatMoney(grandTotal)}</Text>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>TOTAL</Text>
+            <Text style={styles.totalValue}>${formatMoney(grandTotal)}</Text>
+          </View>
+        )}
 
         {/* Terms & Conditions — only ready sections render (incomplete are omitted, matching print). */}
         <View style={styles.terms}>

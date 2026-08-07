@@ -47,6 +47,13 @@ import UpdateExportDialog from "@/components/UpdateExportDialog";
 import GatePanel from "@/components/GatePanel";
 import { buildQuoteDocument } from "@/lib/quote-document";
 import {
+  loadChangeOrders,
+  changeOrderDocumentLines,
+  changeOrderDocumentTotal,
+  CHANGE_ORDERS_KEY,
+  type ChangeOrder,
+} from "@/lib/change-orders";
+import {
   TrendingUp,
   Plus,
   Trash2,
@@ -449,6 +456,22 @@ export default function ProjectPricerPage() {
   // Track the current quote's saved id + lifecycle status so it can be sent /
   // updated in place rather than duplicated. Default is an unsaved Draft.
   const [currentQuoteId, setCurrentQuoteId] = React.useState<string | null>(null);
+
+  // Change orders, for the customer document. Loaded from their own store on mount and re-read when
+  // another surface writes one (the Jobs page's desk fires no event, so a storage event from another
+  // tab plus the mount read is what we get — a change order decided in this tab's lifetime is rare and
+  // the document is rebuilt on export anyway). Only QUOTED ones belonging to THIS quote ever print;
+  // that rule lives in lib/change-orders.ts, not here.
+  const [documentChangeOrders, setDocumentChangeOrders] = React.useState<ChangeOrder[]>([]);
+  React.useEffect(() => {
+    const read = () => {
+      try { setDocumentChangeOrders(loadChangeOrders()); } catch {}
+    };
+    read();
+    const onStorage = (e: StorageEvent) => { if (e.key === CHANGE_ORDERS_KEY) read(); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
   const [currentQuoteStatus, setCurrentQuoteStatus] = React.useState<QuoteStatus>("Draft");
 
   // Send Quote (recipient capture) dialog state
@@ -2070,12 +2093,33 @@ export default function ProjectPricerPage() {
   const showTargetGuidance = !hasCostBasis && totalRevenue > 0 && targetMargin > 0;
   const { profitTarget: eppProfitTarget, costCeiling: eppCostCeiling } = profitTargetAndCeiling(totalRevenue, targetMargin);
 
+  // THE CONTRACT-TOTAL STRIP (read-only view only). The SAME reader the customer document uses —
+  // lib/change-orders.ts decides which orders count (quoted+ and this quote's only), so the strip and
+  // the paper can never quote the owner two different contract totals. Null when there is nothing to
+  // say: no change orders, or a bid still being worked on. DISPLAY ONLY — nothing here is persisted.
+  const contractStrip = React.useMemo(() => {
+    if (!isReadOnly || !currentQuoteId) return null;
+    const lines = changeOrderDocumentLines(documentChangeOrders, currentQuoteId);
+    if (lines.length === 0) return null;
+    const changeOrderTotal = changeOrderDocumentTotal(lines);
+    return {
+      bidTotal: totalRevenue,
+      changeOrderTotal,
+      contractTotal: totalRevenue + changeOrderTotal,
+    };
+  }, [isReadOnly, currentQuoteId, documentChangeOrders, totalRevenue]);
+
   // Customer document mapping lives in lib/quote-document.ts so the Law 56 fence can EXECUTE
   // it rather than pin its call sites by source text. Component state is passed explicitly.
   const buildQuoteData = (source: any) =>
-    buildQuoteDocument(source, {
+    buildQuoteDocument({ id: currentQuoteId, ...(source || {}) }, {
       estimate,
       currentCustomer,
+      // CHANGE ORDERS REACH THE CUSTOMER DOCUMENT through this one dep, so the preview and the PDF —
+      // which are both built from this single call — can never disagree about what the customer owes.
+      // lib/change-orders.ts decides which ones may print (quoted only) and hands back description +
+      // price alone; no cost, rate or margin can travel this path.
+      changeOrders: documentChangeOrders,
       // The roster is the people source now (estimator folded into the Person). buildQuoteDocument
       // resolves the estimator's contact info by name from this list (Tier B document tokens).
       estimators: people,
@@ -3709,6 +3753,29 @@ export default function ProjectPricerPage() {
               {formatMoney(eppSellingPrice)}
             </div>
           </div>
+
+          {/* CONTRACT-TOTAL STRIP — READ-ONLY, DISPLAY ONLY. A locked bid that has picked up change
+              orders is worth more than the number above it, and the owner should not have to open the
+              customer document to learn that. It states the three facts and the law that governs
+              them; it writes nothing. totalRevenue and every stored figure are untouched — the bid is
+              frozen (Law 56), and that is exactly what the sentence says out loud. */}
+          {contractStrip && (
+            <div className="border-t bg-muted/20 px-4 py-2 text-sm">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 tabular-nums">
+                <span className="text-muted-foreground">Original bid</span>
+                <span className="font-medium">{formatMoney(contractStrip.bidTotal)}</span>
+                <span className="text-muted-foreground">·</span>
+                <span className="text-muted-foreground">Change orders</span>
+                <span className="font-medium">+{formatMoney(contractStrip.changeOrderTotal)}</span>
+                <span className="text-muted-foreground">·</span>
+                <span className="text-muted-foreground">Contract total</span>
+                <span className="font-semibold" style={{ color: "#7D1424" }}>{formatMoney(contractStrip.contractTotal)}</span>
+              </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                Change orders are priced from the frozen bid margin and never alter the bid.
+              </div>
+            </div>
+          )}
 
           {/* Cause 3 Part 2 — labeled GOAL above the strip when there is no cost basis. "Target" is
               load-bearing: it is what makes the number safe to show. Never render it without the word. */}

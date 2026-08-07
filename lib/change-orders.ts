@@ -453,6 +453,122 @@ export function changeOrderApprovers<T extends ApproverCandidate>(
     });
 }
 
+// ── WHAT THE CUSTOMER SEES ────────────────────────────────────────────────────────────────────────
+//
+// A change order that has been QUOTED is work the customer agreed to pay for, so it belongs on the
+// paper they get — as its own line, after the original bid lines, in the same plain form: what it was
+// and what it costs them.
+//
+// ── WHICH ONES PRINT, AND WHY THE REST NEVER CAN ──────────────────────────────────────────────────
+// PRINTS:  'quoted' (the foreman quoted it on the spot, or leadership approved & released it) and the
+//          legacy 'approved', which means the same thing on records written before the desk existed.
+// NEVER:   'pending_approval' — nobody has agreed to it yet, and billing a customer for work still
+//          waiting on an internal signature is exactly the mistake this rule exists to prevent.
+//          'declined' — it was refused; it is history, not an amount owed.
+//          'converted_to_quote' — it was deliberately taken OUT of this document to be priced as new
+//          scope in the Pricer. Printing it here would bill the same work twice.
+//
+// AND WHAT NEVER CROSSES: no rate, no cost, no margin, no resource math. The customer line carries a
+// description in plain words and ONE number — priceCharged, the price already computed and already
+// shown. This module hands out exactly those two fields, so no document surface can print a third.
+
+export const PRINTABLE_CHANGE_ORDER_STATUSES: ChangeOrderStatus[] = ['quoted', 'approved'];
+
+export function isPrintableChangeOrder(co: Pick<ChangeOrder, 'status'>): boolean {
+  return PRINTABLE_CHANGE_ORDER_STATUSES.includes(co.status);
+}
+
+/** One customer-document line: a title, plain words, and the price. Nothing else is on this shape. */
+export interface ChangeOrderDocumentLine {
+  id: string;
+  /** "Change Order — 8/5/2026" — what it is and when it was written. */
+  title: string;
+  /** The work in plain words, drawn from the resources. Never a catalog artifact. */
+  description: string;
+  amount: number;
+  /** The ISO stamp behind the title, for any surface that wants to sort or re-format. */
+  at: string;
+}
+
+/**
+ * A resource name as a CUSTOMER should read it.
+ *
+ * The rate catalog is an internal working document: entries get duplicated while an owner builds it
+ * out, and they carry the scars — "Skid Steer 75HP (Copy)", "3/4\" Gravel - Copy 2". Those are
+ * bookkeeping marks about the catalog, not facts about the work, and a customer reading "(Copy)" on
+ * an invoice learns nothing except that we print our filing system. Stripped here, once, so no
+ * document surface has to remember to.
+ *
+ * ONLY the artifact is removed. The name itself is never rewritten, abbreviated or prettified —
+ * whatever the office called the resource is what the customer sees, minus the duplication mark.
+ */
+export function cleanResourceName(raw: string): string {
+  return (raw || '')
+    // "(Copy)", "(copy 2)", "[Copy]" — anywhere, though in practice always at the end.
+    .replace(/[([]\s*copy(\s*\d+)?\s*[)\]]/gi, ' ')
+    // " - Copy", " – Copy 3", and a bare trailing "Copy".
+    .replace(/[-–—]\s*copy(\s*\d+)?\s*$/gi, ' ')
+    .replace(/\s+copy(\s*\d+)?\s*$/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    // A name left ending in a dangling separator once its suffix went.
+    .replace(/[\s,\-–—]+$/, '')
+    .trim();
+}
+
+/** The date on a change-order line: M/D/YYYY off the ISO stamp, calendar-stable and not locale-drifty. */
+export function changeOrderDocumentDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec((iso || '').trim());
+  if (!m) return '';
+  return `${Number(m[2])}/${Number(m[3])}/${m[1]}`;
+}
+
+/** "Change Order — 8/5/2026", or just "Change Order" when the stamp is unreadable. */
+export function changeOrderDocumentTitle(co: Pick<ChangeOrder, 'createdAt'>): string {
+  const date = changeOrderDocumentDate(co?.createdAt || '');
+  return date ? `Change Order — ${date}` : 'Change Order';
+}
+
+/**
+ * The description, in the words of the work. Cleaned resource names as the foreman picked them, with
+ * the count when there is more than one — quantities are field facts, not costs, and they are what
+ * makes the line mean something to the person paying for it. A change order with no lines still says
+ * what it is rather than leaving a bare price nobody can place.
+ */
+export function changeOrderDocumentDescription(co: Pick<ChangeOrder, 'lines'>): string {
+  const parts = (co.lines || [])
+    .map((l) => {
+      const name = cleanResourceName(l?.description || '') || 'Additional resource';
+      const qty = typeof l?.qty === 'number' && Number.isFinite(l.qty) ? l.qty : 0;
+      return qty > 1 ? `${name} (${qty})` : name;
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : 'Additional work authorized on site';
+}
+
+/** The printable change orders for ONE quote, oldest first, as customer-document lines. */
+export function changeOrderDocumentLines(
+  list: ChangeOrder[],
+  quoteId: string | undefined | null
+): ChangeOrderDocumentLine[] {
+  const id = (quoteId || '').trim();
+  if (!id) return []; // an estimate that was never saved has no change orders to print
+  return (list || [])
+    .filter((co) => co && co.quoteId === id && isPrintableChangeOrder(co))
+    .map((co) => ({
+      id: co.id,
+      title: changeOrderDocumentTitle(co),
+      description: changeOrderDocumentDescription(co),
+      // The price already on the record. Never recomputed here — this is a reader, not a pricer.
+      amount: round2(co.priceCharged),
+      at: co.createdAt,
+    }));
+}
+
+/** What the printed change-order lines add to the document total. */
+export function changeOrderDocumentTotal(lines: ChangeOrderDocumentLine[]): number {
+  return round2((lines || []).reduce((sum, l) => sum + (l?.amount || 0), 0));
+}
+
 // ── STORAGE ───────────────────────────────────────────────────────────────────────────────────────
 
 export function loadChangeOrders(): ChangeOrder[] {
