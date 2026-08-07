@@ -69,9 +69,11 @@ export interface TrackerQuoteInput {
   actualCost?: number;
   actualCostComplete?: boolean;
   // RELEASED change-order money on this quote (quoted-or-beyond only — Law 83). Revenue joins the
-  // recognized actual revenue above; the GP is carried at the parent's FROZEN margin. Both are
-  // resolved at the call site from lib/change-orders (releasedTotalsByQuote), never computed here.
+  // recognized actual revenue above and the COST joins the recognized cost subtraction — together or
+  // not at all (see the recognition rule below). The GP is carried at the parent's FROZEN margin. All
+  // three are resolved at the call site from lib/change-orders (releasedTotalsByQuote), never here.
   changeOrderRevenue?: number;
+  changeOrderCost?: number;
   changeOrderGpDollars?: number;
   // Loss capture.
   objection?: string;
@@ -84,10 +86,17 @@ export interface TrackerActuals {
 }
 
 // RULING (recorded at the join): a job's ACTUAL REVENUE = the frozen accepted bid (totalRevenue) plus
-// approved change orders, RECOGNIZED ONLY when the job is realized money — Invoiced, Paid, or legacy
+// released change orders, RECOGNIZED ONLY when the job is realized money — Invoiced, Paid, or legacy
 // Completed (all three are the Qualifying Set, Law 2). Earlier statuses stay blank — never zero, never
 // an estimate (earned facts, Law 38 spirit). ACTUAL GP = actual revenue − the job's actual recorded
 // cost, computed ONLY when that cost data is complete; otherwise GP is blank.
+//
+// TOGETHER OR NOT AT ALL (gaveled 2026-08-07). A released change order's REVENUE and its COST enter
+// recognition as one act. Its price joins actual revenue; its stored break-even totalCost joins the
+// cost being subtracted. Letting the revenue in without the cost was the defect this ruling closes:
+// it credited the company with the extra's whole price as profit, so every job that grew after the bid
+// reported a better margin than it earned — and the more extras a job took, the more flattering the lie.
+// The two numbers move together or the GP is not computed at all.
 const REVENUE_RECOGNIZED: ReadonlySet<QuoteStatus> = new Set<QuoteStatus>(["Invoiced", "Paid", "Completed"]);
 
 export interface TrackerRow {
@@ -105,6 +114,7 @@ export interface TrackerRow {
   // frozen; the contract accretes). Company totals add these; a salesperson's personal row never does
   // — the gaveled bonus ruling, enforced in computeScorecard where the buckets part ways.
   changeOrderRevenue: number;
+  changeOrderCost: number;
   changeOrderGp: number;
   salespersonId: string | null;
   salesperson: string;  // roster name (by id) · legacy name · "—" when unattributed
@@ -133,7 +143,11 @@ export function deriveTrackerRows(quotes: TrackerQuoteInput[], people: Person[])
       if (REVENUE_RECOGNIZED.has(q.status)) {
         const revenue = (q.totalRevenue ?? 0) + (q.changeOrderRevenue ?? 0);
         const costKnown = q.actualCostComplete === true && typeof q.actualCost === "number";
-        const gpDollars = costKnown ? revenue - (q.actualCost as number) : null;
+        // The extras' cost rides with the extras' revenue — the job's recorded cost covers the BID
+        // work only (its recipe rows), so a change order's own break-even cost has to be added here or
+        // the subtraction is missing money the company actually spent.
+        const cost = (q.actualCost ?? 0) + (q.changeOrderCost ?? 0);
+        const gpDollars = costKnown ? revenue - cost : null;
         const gpPercent = gpDollars !== null && revenue > 0 ? (gpDollars / revenue) * 100 : null;
         actuals = { revenue, gpDollars, gpPercent };
       }
@@ -149,6 +163,7 @@ export function deriveTrackerRows(quotes: TrackerQuoteInput[], people: Person[])
         gpAtBid: q.grossProfitDollars ?? 0,
         margin: q.grossProfitPercent ?? 0,
         changeOrderRevenue: q.changeOrderRevenue ?? 0,
+        changeOrderCost: q.changeOrderCost ?? 0,
         changeOrderGp: q.changeOrderGpDollars ?? 0,
         salespersonId,
         salesperson,
@@ -472,6 +487,11 @@ export function computeScorecard(
     // are credited from a VISIBLE POOL, by a person, outside the software (Law 82). The Extras roll-up
     // is that pool; this split is what keeps it a pool instead of an automatic payout.
     //
+    // RULED AND RE-RULED (Tom, 2026-08-07, confirmed on review the same day): extras appear on NO
+    // personal row — NOT Booked, NOT Performed. Both exclusions below are DECIDED, not accidental, and
+    // not an oversight from a build that only got round to one of them. A future reader finding that a
+    // salesperson's Booked and Performed both omit extras is looking at the ruling, not a bug.
+    //
     // IF YOU ARE HERE TO "FIX" A SALESPERSON'S TOTAL NOT MATCHING THE COMPANY TOTAL: that gap is the
     // extras, and it is the ruling working. The fence mutation-proves this exact line — credit the
     // change order to personAgg and it fails by name.
@@ -520,11 +540,15 @@ export function computeScorecard(
     // up extras money through the back door if it used it unchanged. It does not.
     //
     //   companyAgg — recognized revenue as it stands: bid + released extras. The company earned it.
-    //   personAgg  — the same figure with the extras REMOVED, leaving exactly the recognized frozen
-    //                bid. The subtraction is exact, not an estimate: a.revenue was built as
-    //                totalRevenue + changeOrderRevenue, so taking changeOrderRevenue back off returns
-    //                the bid itself. GP follows the same subtraction, which leaves bid − actual cost.
+    //   personAgg  — the same figures with the extras REMOVED, leaving exactly the recognized frozen
+    //                bid and the GP the bid itself earned. Both subtractions are exact, not estimates:
+    //                a.revenue was built as totalRevenue + changeOrderRevenue, so taking
+    //                changeOrderRevenue back off returns the bid; and a.gpDollars was built as
+    //                (bid + coRevenue) − (bidCost + coCost), so taking the extras' GP back off leaves
+    //                bid − bidCost. Removing the GP — not the revenue — is what keeps the person's
+    //                margin honest now that the extras' cost is in the company subtraction.
     const coRevenue = r.changeOrderRevenue || 0;
+    const coGp = r.changeOrderGp || 0;
     const personRevenue = revenue - coRevenue;
     const companyAgg: PerformedAgg = {
       salesDollars: revenue,
@@ -536,7 +560,7 @@ export function computeScorecard(
     const personAgg: PerformedAgg = {
       salesDollars: personRevenue,
       costedSalesDollars: costed ? personRevenue : 0,
-      gpDollars: costed ? (a.gpDollars as number) - coRevenue : 0,
+      gpDollars: costed ? (a.gpDollars as number) - coGp : 0,
       jobCount: 1,
       costedJobCount: costed ? 1 : 0,
     };

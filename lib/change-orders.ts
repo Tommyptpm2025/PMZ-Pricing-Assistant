@@ -612,10 +612,17 @@ export function changeOrderGpDollars(co: Pick<ChangeOrder, 'priceCharged' | 'tot
 export interface ReleasedChangeOrderTotals {
   count: number;
   revenue: number;
+  /**
+   * The break-even COST of the released extras. It travels beside the revenue because recognition
+   * takes them TOGETHER OR NOT AT ALL: a change order that adds its price to what the company earned
+   * must add its cost to what the company spent, or the margin it appears to have earned is the
+   * whole price and the company's performed GP is overstated by every dollar the extra cost.
+   */
+  cost: number;
   gpDollars: number;
 }
 
-const EMPTY_TOTALS: ReleasedChangeOrderTotals = { count: 0, revenue: 0, gpDollars: 0 };
+const EMPTY_TOTALS: ReleasedChangeOrderTotals = { count: 0, revenue: 0, cost: 0, gpDollars: 0 };
 
 /** Released extras per parent quote — the join the tracker uses to recognize a job's actual revenue. */
 export function releasedTotalsByQuote(list: ChangeOrder[]): Map<string, ReleasedChangeOrderTotals> {
@@ -627,6 +634,7 @@ export function releasedTotalsByQuote(list: ChangeOrder[]): Map<string, Released
     out.set(quoteId, {
       count: cur.count + 1,
       revenue: round2(cur.revenue + (co.priceCharged || 0)),
+      cost: round2(cur.cost + (co.totalCost || 0)),
       gpDollars: round2(cur.gpDollars + changeOrderGpDollars(co)),
     });
   }
@@ -704,6 +712,7 @@ export function buildExtrasRollup(list: ChangeOrder[], names: ExtrasRollupNames 
   const byJob = new Map<string, ExtrasGroup>();
   let count = 0;
   let revenue = 0;
+  let cost = 0;
   let gpDollars = 0;
   const notCounted = { pending: 0, declined: 0, converted: 0 };
 
@@ -717,6 +726,7 @@ export function buildExtrasRollup(list: ChangeOrder[], names: ExtrasRollupNames 
     }
     count += 1;
     revenue = round2(revenue + (co.priceCharged || 0));
+    cost = round2(cost + (co.totalCost || 0));
     gpDollars = round2(gpDollars + changeOrderGpDollars(co));
     const fId = (co.foremanId || '').trim() || 'unattributed';
     addToGroup(byForeman, fId, names.personName?.(fId) || fId, co);
@@ -727,7 +737,7 @@ export function buildExtrasRollup(list: ChangeOrder[], names: ExtrasRollupNames 
   return {
     byForeman: groupsToSorted(byForeman),
     byJob: groupsToSorted(byJob),
-    totals: { count, revenue, gpDollars },
+    totals: { count, revenue, cost, gpDollars },
     notCounted,
   };
 }

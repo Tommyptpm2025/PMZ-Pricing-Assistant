@@ -95,8 +95,9 @@ export default function SalesTrackerPage() {
     const inputs = quotes.map((q) => {
       const job = jobByQuoteId.get(q.id);
       const extras = extrasByQuoteId.get(q.id);
+      // Revenue AND cost together — recognition takes them as one act (lib/sales-tracker.ts).
       const withExtras = extras
-        ? { ...q, changeOrderRevenue: extras.revenue, changeOrderGpDollars: extras.gpDollars }
+        ? { ...q, changeOrderRevenue: extras.revenue, changeOrderCost: extras.cost, changeOrderGpDollars: extras.gpDollars }
         : q;
       if (!job) return withExtras;
       const { cost, complete } = jobActualCost(job);

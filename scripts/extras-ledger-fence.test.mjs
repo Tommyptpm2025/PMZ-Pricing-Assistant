@@ -78,12 +78,12 @@ assert.equal(isReleasedChangeOrder(pending), false, "…and a held order is NOT 
 // Per-quote join used by the tracker.
 assert.deepEqual(
   releasedTotalsForQuote([released, pending], "q_1"),
-  { count: 1, revenue: 1250.0, gpDollars: 250.0 },
-  "the per-quote join counts the RELEASED order only: $1,250.00 revenue, $250.00 GP"
+  { count: 1, revenue: 1250.0, cost: 1000.0, gpDollars: 250.0 },
+  "the per-quote join counts the RELEASED order only: $1,250.00 revenue, $1,000.00 cost, $250.00 GP — revenue and cost travel together"
 );
 assert.deepEqual(
   releasedTotalsForQuote([pending], "q_1"),
-  { count: 0, revenue: 0, gpDollars: 0 },
+  { count: 0, revenue: 0, cost: 0, gpDollars: 0 },
   "a quote whose only extra is held has zeros — never a null a caller has to guard"
 );
 seq = 0;
@@ -111,9 +111,10 @@ const quote = (over = {}) => ({
   ...over,
 });
 
-const withExtra = deriveTrackerRows([quote({ changeOrderRevenue: 1250, changeOrderGpDollars: 250 })], PEOPLE)[0];
+const withExtra = deriveTrackerRows([quote({ changeOrderRevenue: 1250, changeOrderCost: 1000, changeOrderGpDollars: 250 })], PEOPLE)[0];
 assert.equal(withExtra.actuals.revenue, 81250.0, "recognized actual revenue = frozen bid 80,000 + released extra 1,250 = $81,250.00 (Law 83)");
-assert.equal(withExtra.actuals.gpDollars, 17500.0, "…and actual GP = 81,250 − 63,750 = $17,500.00");
+assert.equal(withExtra.actuals.gpDollars, 16500.0, "…and actual GP = 81,250 − (63,750 bid cost + 1,000 extra cost) = $16,500.00");
+assert.equal(withExtra.changeOrderCost, 1000.0, "…the extra brought its own cost into the subtraction");
 assert.equal(withExtra.bidAmount, 80000, "THE BID IS UNTOUCHED — the extra stands beside it, never inside it");
 assert.equal(withExtra.changeOrderRevenue, 1250.0, "…the extra is carried on the row, separately and visibly");
 assert.equal(withExtra.changeOrderGp, 250.0, "…with its GP at the frozen margin");
@@ -124,7 +125,7 @@ assert.equal(noExtra.changeOrderRevenue, 0, "…and carries zero extras, never u
 
 // A PENDING extra never reaches recognized revenue — the call site passes only released totals, and
 // this proves the join is what feeds it: zero in, bid out.
-const heldOnly = deriveTrackerRows([quote({ changeOrderRevenue: 0, changeOrderGpDollars: 0 })], PEOPLE)[0];
+const heldOnly = deriveTrackerRows([quote({ changeOrderRevenue: 0, changeOrderCost: 0, changeOrderGpDollars: 0 })], PEOPLE)[0];
 assert.equal(heldOnly.actuals.revenue, 80000, "a job whose only change order is PENDING recognizes the bid alone — held work is not revenue");
 
 // BLANK STAYS BLANK BEFORE RECOGNITION. An extra cannot drag an unrecognized job into PERFORMED.
@@ -133,14 +134,76 @@ for (const st of ["Approved", "Scheduled", "In Progress", "Ready to Invoice"]) {
   assert.equal(early.actuals, null, `${st}: not yet recognized — actuals stay BLANK even with a released extra present`);
   assert.equal(early.changeOrderRevenue, 1250.0, `…though the extra is still carried on the row (${st})`);
 }
-console.log("PASS: extras recognition — a RELEASED change order joins recognized actual revenue at Invoiced+ (80,000 bid + 1,250 extra = 81,250.00, GP 17,500.00) while the frozen bid stays 80,000; a pending one contributes nothing; and before recognition the actuals stay blank with the extra present");
+console.log("PASS: extras recognition — a RELEASED change order joins recognized actual revenue at Invoiced+ (80,000 bid + 1,250 extra = 81,250.00, GP 16,500.00 after its own 1,000 cost) while the frozen bid stays 80,000; a pending one contributes nothing; and before recognition the actuals stay blank with the extra present");
+
+// ── 2b — TOGETHER OR NOT AT ALL: THE EXTRA'S COST JOINS ITS REVENUE ──────────────────────────────
+// Gaveled 2026-08-07. A released change order's price joins recognized revenue and its stored
+// break-even totalCost joins the recognized cost subtraction, as ONE act. Otherwise the company is
+// credited with the extra's whole price as profit, and every job that grew after the bid reports a
+// better margin than it earned.
+//
+// HAND-CALC: bid $10,000 / actual cost $8,000, plus a released extra priced $1,250 costing $1,000.
+//   performed revenue = 10,000 + 1,250 = $11,250.00
+//   performed cost    =  8,000 + 1,000 = $9,000.00
+//   performed GP      = 11,250 − 9,000 = $2,250.00   ← the truth
+//   (the defect this closes reported 11,250 − 8,000 = $3,250.00 — the extra's cost never subtracted)
+const truthQuote = (over = {}) => ({
+  id: "q_t",
+  status: "Invoiced",
+  createdAt: "2026-03-01T00:00:00Z",
+  workTypeId: "wtA",
+  salespersonId: "p_sales",
+  totalRevenue: 10000,
+  grossProfitDollars: 2000,
+  actualCost: 8000,
+  actualCostComplete: true,
+  changeOrderRevenue: 1250,
+  changeOrderCost: 1000,
+  changeOrderGpDollars: 250,
+  ...over,
+});
+const truthRow = deriveTrackerRows([truthQuote()], PEOPLE)[0];
+assert.equal(truthRow.actuals.revenue, 11250.0, "performed revenue = bid 10,000 + released extra 1,250 = $11,250.00");
+// MUTATION TARGET: drop changeOrderCost from the subtraction and this reads 3,250.00.
+assert.equal(
+  truthRow.actuals.gpDollars,
+  2250.0,
+  "PERFORMED GP = 11,250 − (8,000 bid cost + 1,000 EXTRA COST) = $2,250.00 — NOT $3,250.00. The extra's cost recognizes with its revenue, together or not at all."
+);
+assert.notEqual(truthRow.actuals.gpDollars, 3250.0, "…and is never the overstated figure the missing cost produced");
+assert.equal(truthRow.changeOrderCost, 1000.0, "the extra's cost is carried on the row, visibly");
+assert.equal(Math.round(truthRow.actuals.gpPercent * 10000) / 10000, 20.0, "…margin = 2,250/11,250 = 20.0000%, the margin the work actually earned");
+
+// The company sees the true GP; the person sees the BID's own GP. Both are correct answers to
+// different questions, and the difference between them is exactly the extra's GP.
+const truthCard = computeScorecard(deriveTrackerRows([truthQuote()], PEOPLE), [], PEOPLE, 2026);
+const truthPerson = truthCard.people.find((p) => p.salespersonId === "p_sales");
+assert.equal(truthCard.companyTotal.performed.gpDollars, 2250.0, "company PERFORMED GP = $2,250.00 — revenue and cost both include the extra");
+assert.equal(truthPerson.total.performed.gpDollars, 2000.0, "…the salesperson's PERFORMED GP = bid 10,000 − bid cost 8,000 = $2,000.00");
+assert.equal(
+  truthCard.companyTotal.performed.gpDollars - truthPerson.total.performed.gpDollars,
+  250.0,
+  "…and the gap is EXACTLY the extra's GP at the frozen margin (1,250 − 1,000), not its price"
+);
+
+// A job with no extras is unaffected in every direction.
+const cleanRow = deriveTrackerRows([truthQuote({ changeOrderRevenue: 0, changeOrderCost: 0, changeOrderGpDollars: 0 })], PEOPLE)[0];
+assert.equal(cleanRow.actuals.revenue, 10000, "no extras → performed revenue is the bid");
+assert.equal(cleanRow.actuals.gpDollars, 2000.0, "…and performed GP = 10,000 − 8,000 = $2,000.00, untouched by this ruling");
+
+// Incomplete cost still blanks the GP — the extra's cost cannot conjure a margin from a job whose own
+// cost is unknown. Blank, never an estimate.
+const uncosted = deriveTrackerRows([truthQuote({ actualCostComplete: false })], PEOPLE)[0];
+assert.equal(uncosted.actuals.revenue, 11250.0, "revenue is still recognized with incomplete cost data");
+assert.equal(uncosted.actuals.gpDollars, null, "…but GP stays BLANK — an extra's known cost never rescues a job whose own cost is unknown");
+console.log("PASS: extras cost recognition — a released change order's COST joins the subtraction exactly when its revenue joins recognition (bid 10,000/cost 8,000 + extra 1,250/cost 1,000 at Invoiced → revenue $11,250.00, GP $2,250.00, never the overstated $3,250.00); the company/personal GP gap is exactly the extra's frozen-margin GP; and incomplete job cost still blanks the margin");
 
 // ── 3 — THE SPLIT: COMPANY YES, PERSONAL NEVER ───────────────────────────────────────────────────
 // The SAME quote, scored twice: once with its released extra, once without. The company numbers move
 // by exactly the extra. The salesperson's personal row must not move by one cent.
 const YEAR = 2026;
 const rowsWithout = deriveTrackerRows([quote()], PEOPLE);
-const rowsWith = deriveTrackerRows([quote({ changeOrderRevenue: 1250, changeOrderGpDollars: 250 })], PEOPLE);
+const rowsWith = deriveTrackerRows([quote({ changeOrderRevenue: 1250, changeOrderCost: 1000, changeOrderGpDollars: 250 })], PEOPLE);
 const cardWithout = computeScorecard(rowsWithout, [], PEOPLE, YEAR);
 const cardWith = computeScorecard(rowsWith, [], PEOPLE, YEAR);
 
@@ -171,7 +234,7 @@ assert.deepEqual(
 assert.equal(cardWith.companyTotal.performed.salesDollars, 81250.0, "company PERFORMED includes the recognized extra: $81,250.00");
 assert.equal(personOf(cardWith).total.performed.salesDollars, 80000, "…while the salesperson's PERFORMED is the recognized BID alone: $80,000");
 assert.equal(personOf(cardWith).total.performed.gpDollars, 16250.0, "…and their performed GP is bid − actual cost = 80,000 − 63,750 = $16,250.00");
-assert.equal(cardWith.companyTotal.performed.gpDollars, 17500.0, "…where the company's is 81,250 − 63,750 = $17,500.00 — the difference IS the extra");
+assert.equal(cardWith.companyTotal.performed.gpDollars, 16500.0, "…where the company GP is 81,250 − (63,750 + 1,000 extra cost) = $16,500.00");
 // The gap between company and personal is exactly the extras. That gap is the ruling working.
 assert.equal(
   cardWith.companyTotal.actual.salesDollars - personOf(cardWith).total.actual.salesDollars,
@@ -200,7 +263,7 @@ const rollup = buildExtrasRollup([timA, timB, daveA, held, refused, movedToPrice
 
 assert.deepEqual(
   rollup.totals,
-  { count: 3, revenue: 3125.0, gpDollars: 625.0 },
+  { count: 3, revenue: 3125.0, cost: 2500.0, gpDollars: 625.0 },
   "the ledger totals the RELEASED extras only: 3 orders, 1,250 + 625 + 1,250 = $3,125.00, GP 250 + 125 + 250 = $625.00"
 );
 assert.deepEqual(
@@ -246,5 +309,5 @@ const orphan = { ...co(), foremanId: "" };
 const orphanRollup = buildExtrasRollup([orphan], names);
 assert.equal(orphanRollup.totals.revenue, 1250.0, "an extra with no foreman id is still counted in the money");
 assert.equal(orphanRollup.byForeman[0].key, "unattributed", "…and is grouped as unattributed rather than dropped");
-assert.deepEqual(buildExtrasRollup([], names).totals, { count: 0, revenue: 0, gpDollars: 0 }, "an empty ledger is zeros, not blanks");
+assert.deepEqual(buildExtrasRollup([], names).totals, { count: 0, revenue: 0, cost: 0, gpDollars: 0 }, "an empty ledger is zeros, not blanks");
 console.log("PASS: the extras roll-up — released extras group BY FOREMAN (Tim 2 / $1,875.00 / $375.00, Dave 1 / $1,250.00 / $250.00) and BY JOB to the same $3,125.00 total; pending, declined and converted orders appear only as counts and never touch the money; an unattributed extra is grouped, never dropped");

@@ -62,6 +62,7 @@ import {
 } from "@/lib/quote-storage";
 import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, STATUS_CAUSE_LABELS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
 import { canTransition, applyStatusChange as libApplyStatusChange, sendBlockingFailures, lastAutomaticStatusChange } from "@/lib/quote-lifecycle";
+import { loadChangeOrders, releasedTotalsByQuote, type ChangeOrder } from "@/lib/change-orders";
 import { resolveCustomerName } from "@/lib/customer-resolve";
 import { runCustomerBackfillIfNeeded } from "@/lib/customer-attribution";
 
@@ -186,6 +187,11 @@ export default function QuotesPage() {
   // (resolveCustomerName), not from the quote's stored copy. Resolving happens in render, so a late
   // registry load simply re-renders with the live name (not the C2 one-shot-effect staleness trap).
   const [customers, setCustomers] = React.useState<any[]>([]);
+  // Change orders, for the EXTRAS column. Released ones only ever count — that rule lives in
+  // lib/change-orders (releasedTotalsByQuote), the same single reader the pricer's contract banner and
+  // the customer document use, so no surface can show a different extras figure for the same quote.
+  const [changeOrders, setChangeOrders] = React.useState<ChangeOrder[]>([]);
+  const extrasByQuoteId = React.useMemo(() => releasedTotalsByQuote(changeOrders), [changeOrders]);
   const [deleteTarget, setDeleteTarget] = React.useState<SavedQuote | null>(null);
   // Maintenance panel — review + safe delete of ALL stored entries (incl. legacy/untyped rows
   // the two lists hide). Selection + a bulk-delete confirm; nothing deletes without a confirm.
@@ -327,6 +333,9 @@ export default function QuotesPage() {
       setWorkOrderQuoteIds(new Set(ids));
     } catch {}
     setCustomers(registry);
+    try {
+      setChangeOrders(loadChangeOrders());
+    } catch {}
   }, []);
 
   // ── SELF-HEALING WORK-ORDER SWEEP (lib/work-order-sweep.ts) ────────────────────────────────────
@@ -1047,20 +1056,22 @@ export default function QuotesPage() {
       <Card className="overflow-hidden border">
         <div className="overflow-x-auto">
           <Table className="w-full table-fixed">
-            {/* Fixed column widths so all 8 columns fit a 1280px+ viewport without horizontal
+            {/* Fixed column widths so all 9 columns fit a 1280px+ viewport without horizontal
                 scroll. Status is sized to show the longest pill label ("Sent for Acceptance")
                 without truncation; Actions stays wide enough that its pill never truncates.
                 Text columns (Customer/Job Name/Work Type/Salesperson/Last Updated) may ellipsis
-                but carry a native title tooltip with the full value. */}
+                but carry a native title tooltip with the full value. Extras is narrow — it is a
+                small "+$X" or a dash, never a long number. */}
             <colgroup>
-              <col style={{ width: "16%" }} />
               <col style={{ width: "15%" }} />
-              <col style={{ width: "12%" }} />
+              <col style={{ width: "14%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "9%" }} />
               <col style={{ width: "10%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "17%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "10%" }} />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "9%" }} />
             </colgroup>
             <TableHeader>
               <TableRow className="bg-muted/30">
@@ -1069,6 +1080,9 @@ export default function QuotesPage() {
                 <TableHead className="whitespace-nowrap">Work Type</TableHead>
                 <TableHead className="whitespace-nowrap">Salesperson</TableHead>
                 <TableHead className="text-right whitespace-nowrap">Total Revenue</TableHead>
+                {/* EXTRAS — released change orders on this quote, BESIDE the bid and never inside it
+                    (Laws 56/83). Total Revenue above stays the frozen bid, exactly as saved. */}
+                <TableHead className="text-right whitespace-nowrap">Extras</TableHead>
                 <TableHead className="whitespace-nowrap">Status</TableHead>
                 <TableHead className="text-right pr-4 whitespace-nowrap">Actions</TableHead>
                 <TableHead className="whitespace-nowrap">Last Updated</TableHead>
@@ -1077,7 +1091,7 @@ export default function QuotesPage() {
             <TableBody>
               {quotes.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-20 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="h-20 text-center text-muted-foreground">
                     No {typeLabel} quotes match the current filters.
                     {allQuotes.length === 0 && " Create quotes using the Save buttons inside Project Pricer."}
                   </TableCell>
@@ -1102,6 +1116,16 @@ export default function QuotesPage() {
                     <TableCell className="text-sm truncate" title={quote.salesperson || "—"}>{quote.salesperson || "—"}</TableCell>
                     <TableCell className="text-right font-medium tabular-nums whitespace-nowrap">
                       ${formatMoney(quote.totalRevenue)}
+                    </TableCell>
+                    {/* EXTRAS — the same single reader the pricer banner and the customer document
+                        use, so no surface can quote a different figure. A dash when there are none. */}
+                    <TableCell className="text-right tabular-nums whitespace-nowrap text-muted-foreground">
+                      {(() => {
+                        const extras = extrasByQuoteId.get(quote.id);
+                        return extras && extras.revenue > 0
+                          ? <span className="font-medium text-foreground">+${formatMoney(extras.revenue)}</span>
+                          : "—";
+                      })()}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       {/* Status pill IS the dropdown trigger (locked UI standard: colored pill +

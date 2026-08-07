@@ -233,13 +233,14 @@ console.log("PASS: sales-tracker scorecard — goals×booked-wins by work type; 
 //   pf1  Ann wtA  Invoiced, complete cost   bid 100000 gpAtBid 25000 | cost 70000  → performed 100000, GP 30000 (30%)
 //   pf2  Ann wtA  Approved, NOT invoiced    bid  60000 gpAtBid 15000               → BOOKED ONLY, performed nothing
 //   pf3  Ann wtB  Invoiced, INCOMPLETE cost bid  50000 gpAtBid 12500               → performed 50000, GP null
-//   pf4  Bob wtA  legacy Completed + CO     bid  80000 gpAtBid 20000 | CO 5000, cost 63750 → performed 85000, GP 21250 (25%)
+//   pf4  Bob wtA  legacy Completed + CO     bid 80000 gpAtBid 20000 | released CO 5000 rev / 4000 cost /
+//                                          1000 GP, job cost 63750 → company performed 85000, GP 17250| CO 5000, cost 63750 → performed 85000, GP 21250 (25%)
 //   pf5  Bob wtB  Approved, NOT invoiced    bid  40000 gpAtBid 10000               → BOOKED ONLY, performed nothing
 const PF_QUOTES = [
   { id: "pf1", status: "Invoiced",  createdAt: "2026-02-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 100000, grossProfitDollars: 25000, actualCost: 70000, actualCostComplete: true },
   { id: "pf2", status: "Approved",  createdAt: "2026-03-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 60000,  grossProfitDollars: 15000 },
   { id: "pf3", status: "Invoiced",  createdAt: "2026-04-01T00:00:00Z", workTypeId: "wtB", salespersonId: "p1", totalRevenue: 50000,  grossProfitDollars: 12500, actualCost: 38000, actualCostComplete: false },
-  { id: "pf4", status: "Completed", createdAt: "2026-05-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p2", totalRevenue: 80000,  grossProfitDollars: 20000, changeOrderRevenue: 5000, actualCost: 63750, actualCostComplete: true },
+  { id: "pf4", status: "Completed", createdAt: "2026-05-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p2", totalRevenue: 80000,  grossProfitDollars: 20000, changeOrderRevenue: 5000, changeOrderCost: 4000, changeOrderGpDollars: 1000, actualCost: 63750, actualCostComplete: true },
   { id: "pf5", status: "Approved",  createdAt: "2026-06-01T00:00:00Z", workTypeId: "wtB", salespersonId: "p2", totalRevenue: 40000,  grossProfitDollars: 10000 },
   // NOISE that must never reach PERFORMED:
   { id: "pfn_2025", status: "Invoiced", createdAt: "2025-07-01T00:00:00Z", workTypeId: "wtA", salespersonId: "p1", totalRevenue: 999999, grossProfitDollars: 111111, actualCost: 1, actualCostComplete: true }, // wrong year
@@ -300,7 +301,7 @@ near(bobP.total.performed.marginPct, 20.3125, "Bob TOTAL PERFORMED margin = 1625
 
 // ---- Both-direction totals: work type and company ----
 assert.equal(pcard.byWorkType["wtA"].performed.salesDollars, 185000, "company wtA PERFORMED = pf1 100000 + pf4 85000");
-assert.equal(pcard.byWorkType["wtA"].performed.gpDollars, 51250, "company wtA PERFORMED GP = 30000 + 21250");
+assert.equal(pcard.byWorkType["wtA"].performed.gpDollars, 47250, "company wtA PERFORMED GP = 30000 + pf4's 17250 (85000 revenue − 63750 job cost − 4000 extra cost)");
 assert.equal(pcard.byWorkType["wtB"].performed.salesDollars, 50000, "company wtB PERFORMED = pf3 only (pf5 unrecognized)");
 assert.equal(pcard.byWorkType["wtB"].performed.gpDollars, null, "company wtB PERFORMED GP null — its only recognized job has incomplete cost");
 assert.equal(pcard.companyTotal.actual.salesDollars, 335000, "company TOTAL BOOKED = 330000 of bids + pf4's 5000 released change order — COMPANY booked includes extras (gaveled 2026-08-07)");
@@ -310,9 +311,9 @@ assert.equal(
   "…and the company total EXCEEDS the sum of the personal rows by EXACTLY the extras. That gap is the ruling working, not a reconciliation bug."
 );
 assert.equal(pcard.companyTotal.performed.salesDollars, 235000, "company TOTAL PERFORMED = 100000 + 50000 + 85000 — 2025 and LOST noise excluded");
-assert.equal(pcard.companyTotal.performed.gpDollars, 51250, "company TOTAL PERFORMED GP = 30000 + 21250");
+assert.equal(pcard.companyTotal.performed.gpDollars, 47250, "company TOTAL PERFORMED GP = 30000 + 17250 — the extra's 4000 cost recognizes with its 5000 revenue (gaveled 2026-08-07)");
 assert.equal(pcard.companyTotal.performed.costedSalesDollars, 185000, "company margin denominator = the costed slice 185000, not 235000");
-near(pcard.companyTotal.performed.marginPct, (51250 / 185000) * 100, "company TOTAL PERFORMED margin = 51250/185000");
+near(pcard.companyTotal.performed.marginPct, (47250 / 185000) * 100, "company TOTAL PERFORMED margin = 47250/185000");
 assert.equal(pcard.companyTotal.performed.jobCount, 3, "3 recognized jobs company-wide (the 2025 Invoiced job is a different year)");
 assert.equal(pcard.companyTotal.performed.costedJobCount, 2, "2 of the 3 fully costed");
 assert.ok(
