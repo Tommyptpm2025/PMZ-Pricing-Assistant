@@ -114,6 +114,11 @@ export interface Job {
   // Optional free text — foreman's post-job notes (entered in the Foreman View)
   notes?: string;
 
+  // Recipe refresh stamp (see refreshJobRecipe). Absent on every job whose recipe is still the one
+  // snapshotted at accept — which is almost all of them.
+  recipeRefreshedAt?: string;
+  recipeRefreshedBy?: string;   // roster Person id — picked, never typed
+
   // NOTE: on-the-spot change-order authority is NOT here. It briefly lived on the Job and was removed
   // the same day (owner's ruling, 2026-08-06): the limit is trust in a PERSON, earned over years, and
   // it travels with the foreman to every job he runs. It lives on the roster record —
@@ -263,22 +268,29 @@ export interface CreateJobInput {
   quoteJobSiteAddress?: string;
 }
 
-export function createJobFromQuote(input: CreateJobInput): Job {
-  const now = new Date().toISOString();
-
-  // Stamp stable ids onto every recipe line + row; actuals start null (not yet entered). As each
-  // row id is minted, peel the draft's bid-time unitCost into the owner-only rowCostBasis and build
-  // the persisted foreman row WITHOUT cost (the Foreman View stays zero-dollars by construction).
+/**
+ * Stamp stable ids onto every recipe line + row; actuals start null (not yet entered). As each row id
+ * is minted, peel the draft's bid-time unitCost into the owner-only rowCostBasis and build the
+ * persisted foreman row WITHOUT cost (the Foreman View stays zero-dollars by construction).
+ *
+ * ONE HOME. Both job creation and the recipe REFRESH below run through this, so a refreshed recipe is
+ * indistinguishable from one snapshotted at accept — same shape, same id minting, same cost peeling.
+ * A second copy of this loop is how the two would start disagreeing about what a recipe row is.
+ */
+export function stampRecipeLines(
+  drafts: CreateJobInput["recipeLines"],
+  idFactory: () => string = createId
+): { recipeLines: JobRecipeLine[]; rowCostBasis: Record<string, number> } {
   const rowCostBasis: Record<string, number> = {};
-  const recipeLines: JobRecipeLine[] = input.recipeLines.map((line) => ({
-    id: createId(),
+  const recipeLines: JobRecipeLine[] = (drafts || []).map((line) => ({
+    id: idFactory(),
     lineId: line.lineId,
     description: line.description,
     sections: line.sections.map((section) => ({
       title: section.title,
       isCrew: section.isCrew,
       rows: section.rows.map((row) => {
-        const id = createId();
+        const id = idFactory();
         rowCostBasis[id] = Math.max(0, row.unitCost || 0);
         return {
           id,
@@ -290,6 +302,13 @@ export function createJobFromQuote(input: CreateJobInput): Job {
       }),
     })),
   }));
+  return { recipeLines, rowCostBasis };
+}
+
+export function createJobFromQuote(input: CreateJobInput): Job {
+  const now = new Date().toISOString();
+
+  const { recipeLines, rowCostBasis } = stampRecipeLines(input.recipeLines);
 
   // Snapshot intake context from the customer/quote at the moment the job is created.
   const jobSite = jobSiteFromCustomer(input.customer, input.quoteJobSiteAddress);
@@ -382,6 +401,96 @@ export function updateRecipeRowActual(
 export function setJobNotes(jobs: Job[], jobId: string, notes: string): Job[] {
   return jobs.map((job) =>
     job.id === jobId ? { ...job, notes } : job
+  );
+}
+
+// ── RECIPE REFRESH ────────────────────────────────────────────────────────────────────────────────
+//
+// THE DEFECT THIS CLOSES. A job's recipe is a SNAPSHOT, taken once at createJobFromQuote and never
+// re-read. That is deliberate — a work order in the field must not change under the crew — but it
+// means a job created while its quote's lines were still empty keeps an empty recipe forever, even
+// after the estimator fills the LEM detail in. The foreman opens a work order that names the line and
+// lists nothing under it, while the quote behind it carries a full priced recipe.
+//
+// THE FIX IS AN OFFERED ACTION, NEVER AN AUTO-SYNC. A recipe that silently rewrote itself would be a
+// worse defect than the one it fixes: the crew would be working from paper that no longer matches what
+// they were told. So this is a button somebody presses, stamped with who and when.
+//
+// THE WINDOW IS NARROW ON PURPOSE. Refresh is available only while the recipe is UNTOUCHED — no actual
+// quantity entered anywhere, job still open. The moment a foreman writes a single number the recipe is
+// frozen: those actuals were recorded against THESE rows, and swapping the rows under them would
+// silently re-point real field measurements at work they were never taken for.
+
+/** Has the foreman entered any actual quantity at all? One number is enough to freeze the recipe. */
+export function jobHasAnyActual(job: Pick<Job, "recipeLines">): boolean {
+  for (const line of job?.recipeLines || []) {
+    for (const section of line.sections || []) {
+      for (const row of section.rows || []) {
+        if (row.actualQty != null) return true;
+      }
+    }
+  }
+  return false;
+}
+
+export interface RecipeRefreshPlan {
+  allowed: boolean;
+  /** Why not, in the words the work order shows. Null when the refresh is available. */
+  reason: string | null;
+}
+
+export const RECIPE_FROZEN_REASON =
+  "Actuals have been entered — the recipe is frozen. Reopen or start a new work order if the scope changed.";
+export const RECIPE_COMPLETE_REASON =
+  "This job is complete — the recipe is frozen. Reopen the job if the scope changed.";
+export const RECIPE_NO_QUOTE_REASON =
+  "This job isn’t linked to a bid, so there’s no quote to refresh its recipe from.";
+
+/** Whether this job may take a recipe refresh right now, and the plain reason when it may not. */
+export function planRecipeRefresh(job: Pick<Job, "recipeLines" | "status" | "quoteId">): RecipeRefreshPlan {
+  if (!job?.quoteId) return { allowed: false, reason: RECIPE_NO_QUOTE_REASON };
+  if (job.status === "completed") return { allowed: false, reason: RECIPE_COMPLETE_REASON };
+  if (jobHasAnyActual(job)) return { allowed: false, reason: RECIPE_FROZEN_REASON };
+  return { allowed: true, reason: null };
+}
+
+/**
+ * Rebuild ONE job's recipe from its quote's CURRENT lines, through the same stamping used at creation.
+ * Throws on a refused refresh rather than quietly no-op'ing: a button that appears to work and does
+ * nothing would leave the foreman staring at the same empty recipe, believing it was refreshed.
+ *
+ * MONEY IS NOT TOUCHED. contractValue, bidItems and every other field ride through on a shallow copy;
+ * only recipeLines, rowCostBasis and the refresh stamp are written. The QUOTE is never written at all —
+ * this reads it (via the drafts the caller resolved) and nothing more.
+ */
+export function refreshJobRecipe(
+  jobs: Job[],
+  jobId: string,
+  freshLines: CreateJobInput["recipeLines"],
+  refreshedBy: string,
+  now: () => string = () => new Date().toISOString(),
+  idFactory: () => string = createId
+): Job[] {
+  const job = (jobs || []).find((j) => j.id === jobId);
+  if (!job) throw new Error("That work order is no longer on file — nothing was refreshed.");
+  const plan = planRecipeRefresh(job);
+  if (!plan.allowed) throw new Error(plan.reason || "This recipe can’t be refreshed.");
+  const by = (refreshedBy || "").trim();
+  if (!by) {
+    throw new Error("A recipe refresh is a stated decision — pick who is refreshing it before saving.");
+  }
+  const { recipeLines, rowCostBasis } = stampRecipeLines(freshLines, idFactory);
+  const at = now();
+  return jobs.map((j) =>
+    j.id === jobId
+      ? {
+          ...j,
+          recipeLines,
+          rowCostBasis,
+          recipeRefreshedAt: at,
+          recipeRefreshedBy: by,
+        }
+      : j
   );
 }
 

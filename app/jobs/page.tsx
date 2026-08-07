@@ -41,6 +41,8 @@ import {
   saveJobs,
   updateRecipeRowActual,
   setJobNotes,
+  refreshJobRecipe,
+  planRecipeRefresh,
   completeJob,
   reopenJob,
   deleteJob,
@@ -67,7 +69,7 @@ import {
   type ChangeOrderDecisionAction,
 } from "@/lib/change-orders";
 import JobChangeOrders, { type ChangeOrderCatalog, type ChangeOrderPick } from "@/components/JobChangeOrders";
-import { runWorkOrderSweep } from "@/lib/work-order-sweep";
+import { runWorkOrderSweep, recipeLinesFromQuote } from "@/lib/work-order-sweep";
 import { buildLineRecipeSections, type LemRateCatalogs } from "@/lib/lem-detail";
 import { useRateStore } from "@/lib/rate-store";
 
@@ -202,6 +204,46 @@ export default function JobsForemanPage() {
     setJobs((prev) => setJobNotes(prev, selectedId, notesDraft));
     setJustSaved(true);
     setTimeout(() => setJustSaved(false), 1400);
+  }
+
+  // ── RECIPE REFRESH ────────────────────────────────────────────────────────────────────────────
+  // The snapshot catching up, ONLY when nothing has been reported against it yet. Offered and stamped,
+  // never automatic: a recipe that rewrote itself under a working crew would be a worse defect than
+  // the stale one it fixes. The RULE lives in lib/jobs.ts (fence-proved); this resolves the quote's
+  // current lines through the SAME builder creation uses and hands them over.
+  const [refreshBy, setRefreshBy] = React.useState("");
+  const [refreshNote, setRefreshNote] = React.useState<string | null>(null);
+  const refreshPlan = React.useMemo(
+    () => (selectedJob ? planRecipeRefresh(selectedJob) : { allowed: false, reason: null }),
+    [selectedJob]
+  );
+
+  function doRefreshRecipe() {
+    if (!selectedJob?.quoteId || !refreshBy) return;
+    try {
+      const quote = getQuoteById(selectedJob.quoteId) as { eppLineItems?: any[] } | null;
+      if (!quote) {
+        alert("That quote could not be read, so there is nothing to refresh the recipe from.");
+        return;
+      }
+      const fresh = recipeLinesFromQuote(quote as any, (it) => buildLineRecipeSections(it, lemCats));
+      const rowCount = fresh.reduce(
+        (n, l) => n + l.sections.reduce((m: number, s: any) => m + (s.rows?.length || 0), 0),
+        0
+      );
+      setJobs((prev) => refreshJobRecipe(prev, selectedJob.id, fresh, refreshBy));
+      setRefreshNote(
+        rowCount > 0
+          ? `Recipe refreshed from the quote — ${rowCount} row${rowCount === 1 ? "" : "s"}.`
+          : "Recipe refreshed — the quote still has no costed rows on these lines."
+      );
+      setRefreshBy("");
+      setTimeout(() => setRefreshNote(null), 4000);
+    } catch (e) {
+      // refreshJobRecipe refuses a frozen recipe by name. Never mute (Law 50).
+      console.error("[jobs] Could not refresh the recipe", e);
+      alert(e instanceof Error ? e.message : "Could not refresh the recipe.");
+    }
   }
 
   // Announcement for the bridge below — what just happened to the quote, in one line, on the screen
@@ -852,6 +894,47 @@ export default function JobsForemanPage() {
               </div>
             </CardHeader>
             <CardContent>
+              {/* RECIPE REFRESH (not printed). A job created before its quote's LEM detail existed
+                  shows a named line with nothing under it; this catches the snapshot up. Offered while
+                  the recipe is untouched, refused with the reason once anything has been reported. */}
+              <div className="wo-noprint mb-3 rounded-md border border-dashed bg-muted/20 px-3 py-2">
+                {refreshPlan.allowed ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">
+                      Recipe out of date? Rebuild it from this job&rsquo;s quote as it stands now.
+                    </span>
+                    <select
+                      value={refreshBy}
+                      onChange={(e) => setRefreshBy(e.target.value)}
+                      aria-label="Who is refreshing the recipe"
+                      className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                    >
+                      <option value="">Refreshed by…</option>
+                      {rosterApprovers.map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                    <Button size="sm" variant="outline" disabled={!refreshBy} onClick={doRefreshRecipe}>
+                      <RotateCcw className="mr-1 h-3.5 w-3.5" /> Refresh recipe from quote
+                    </Button>
+                    {!refreshBy && <span className="text-[11px] text-muted-foreground">Pick who is refreshing it.</span>}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Lock className="h-3.5 w-3.5 shrink-0" />
+                    {refreshPlan.reason}
+                  </div>
+                )}
+                {selectedJob.recipeRefreshedAt && (
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    Recipe last refreshed by{" "}
+                    <span className="font-medium text-foreground">{personName(selectedJob.recipeRefreshedBy || "")}</span>
+                    {" — "}{new Date(selectedJob.recipeRefreshedAt).toLocaleDateString()}
+                  </div>
+                )}
+                {refreshNote && <div className="mt-1 text-[11px] font-medium text-emerald-700">{refreshNote}</div>}
+              </div>
+
               {/* Actuals frozen once the quote is invoiced-ready — small banner, not printed. */}
               {actualsFrozenByInvoice && (
                 <div className="wo-noprint mb-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
