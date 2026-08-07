@@ -14,8 +14,16 @@ import {
 import { BarChart3 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ScorecardView } from "@/components/ScorecardView";
+import { ExtrasRollupView } from "@/components/ExtrasRollupView";
 import { usePeople } from "@/lib/people";
 import { loadJobs, jobActualCost, type Job } from "@/lib/jobs";
+import {
+  loadChangeOrders,
+  releasedTotalsByQuote,
+  buildExtrasRollup,
+  CHANGE_ORDERS_KEY,
+  type ChangeOrder,
+} from "@/lib/change-orders";
 import type { SavedQuote } from "@/lib/pmz-types";
 import {
   deriveTrackerRows,
@@ -44,6 +52,7 @@ export default function SalesTrackerPage() {
   const { people } = usePeople();
   const [quotes, setQuotes] = React.useState<SavedQuote[]>([]);
   const [jobs, setJobs] = React.useState<Job[]>([]);
+  const [changeOrders, setChangeOrders] = React.useState<ChangeOrder[]>([]);
   const [wtFilter, setWtFilter] = React.useState<string>("all");
   const [bucketFilter, setBucketFilter] = React.useState<string>("all");
 
@@ -57,10 +66,11 @@ export default function SalesTrackerPage() {
         setQuotes([]);
       }
       setJobs(loadJobs());
+      setChangeOrders(loadChangeOrders());
     };
     load();
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "pmz_saved_quotes" || e.key === "pmz_jobs_v1") load();
+      if (e.key === "pmz_saved_quotes" || e.key === "pmz_jobs_v1" || e.key === CHANGE_ORDERS_KEY) load();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -76,15 +86,34 @@ export default function SalesTrackerPage() {
     return m;
   }, [jobs]);
 
+  // RELEASED extras per quote (quoted-or-beyond only — Law 83). Resolved by lib/change-orders, the one
+  // place that decides what "released" means, so the tracker, the customer document and the invoice
+  // can never disagree about which extras are money.
+  const extrasByQuoteId = React.useMemo(() => releasedTotalsByQuote(changeOrders), [changeOrders]);
+
   const rows: TrackerRow[] = React.useMemo(() => {
     const inputs = quotes.map((q) => {
       const job = jobByQuoteId.get(q.id);
-      if (!job) return q;
+      const extras = extrasByQuoteId.get(q.id);
+      const withExtras = extras
+        ? { ...q, changeOrderRevenue: extras.revenue, changeOrderGpDollars: extras.gpDollars }
+        : q;
+      if (!job) return withExtras;
       const { cost, complete } = jobActualCost(job);
-      return { ...q, actualCost: cost, actualCostComplete: complete };
+      return { ...withExtras, actualCost: cost, actualCostComplete: complete };
     });
     return deriveTrackerRows(inputs, people);
-  }, [quotes, people, jobByQuoteId]);
+  }, [quotes, people, jobByQuoteId, extrasByQuoteId]);
+
+  // The owner-facing extras ledger. Names resolve here (the roll-up takes resolvers, never a store).
+  const extrasRollup = React.useMemo(
+    () =>
+      buildExtrasRollup(changeOrders, {
+        personName: (id) => people.find((p) => p.id === id)?.name || "a foreman no longer on the roster",
+        jobName: (id) => jobs.find((j) => j.id === id)?.jobName || "a job no longer on file",
+      }),
+    [changeOrders, people, jobs]
+  );
   const scoreboard = React.useMemo(() => computeScoreboard(rows), [rows]);
 
   // How many rows have an existing linked job — surfaces the "actuals pending" reality honestly.
@@ -132,6 +161,7 @@ export default function SalesTrackerPage() {
         <TabsList>
           <TabsTrigger value="bids">Bids &amp; Jobs</TabsTrigger>
           <TabsTrigger value="scorecard">Scorecard</TabsTrigger>
+          <TabsTrigger value="extras">Extras</TabsTrigger>
         </TabsList>
 
         {/* Bids & Jobs — the tracker rows + scoreboard (acceptance rates live here, not on the Scorecard) */}
@@ -280,6 +310,12 @@ export default function SalesTrackerPage() {
         {/* Scorecard — goals vs booked actuals, its own view (separate from the tracker rows) */}
         <TabsContent value="scorecard">
           <ScorecardView rows={rows} people={people} />
+        </TabsContent>
+
+        {/* Extras — the released change-order ledger, grouped by foreman and by job. Owner-facing:
+            the visible pool the credit decision is made from, never the decision itself (Law 82). */}
+        <TabsContent value="extras">
+          <ExtrasRollupView rollup={extrasRollup} />
         </TabsContent>
       </Tabs>
     </div>

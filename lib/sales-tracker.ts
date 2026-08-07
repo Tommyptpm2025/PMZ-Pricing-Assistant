@@ -68,7 +68,11 @@ export interface TrackerQuoteInput {
   // (see deriveTrackerRows). changeOrderRevenue joins this sum when the change-order lane is built.
   actualCost?: number;
   actualCostComplete?: boolean;
+  // RELEASED change-order money on this quote (quoted-or-beyond only — Law 83). Revenue joins the
+  // recognized actual revenue above; the GP is carried at the parent's FROZEN margin. Both are
+  // resolved at the call site from lib/change-orders (releasedTotalsByQuote), never computed here.
   changeOrderRevenue?: number;
+  changeOrderGpDollars?: number;
   // Loss capture.
   objection?: string;
 }
@@ -94,9 +98,14 @@ export interface TrackerRow {
   customer: string;
   workType: string;     // denormalized work-type NAME (display)
   workTypeId: string;   // work-type ID — the join key for goals/scorecard ("" when a legacy row has none)
-  bidAmount: number;    // frozen totalRevenue
+  bidAmount: number;    // frozen totalRevenue — the BID, and only the bid (Law 56/83)
   gpAtBid: number;      // gross profit $ at bid
   margin: number;       // gross profit % at bid
+  // RELEASED extras on this job, carried BESIDE the bid and never folded into it (Law 83 — the bid is
+  // frozen; the contract accretes). Company totals add these; a salesperson's personal row never does
+  // — the gaveled bonus ruling, enforced in computeScorecard where the buckets part ways.
+  changeOrderRevenue: number;
+  changeOrderGp: number;
   salespersonId: string | null;
   salesperson: string;  // roster name (by id) · legacy name · "—" when unattributed
   status: QuoteStatus;
@@ -139,6 +148,8 @@ export function deriveTrackerRows(quotes: TrackerQuoteInput[], people: Person[])
         bidAmount: q.totalRevenue ?? 0,
         gpAtBid: q.grossProfitDollars ?? 0,
         margin: q.grossProfitPercent ?? 0,
+        changeOrderRevenue: q.changeOrderRevenue ?? 0,
+        changeOrderGp: q.changeOrderGpDollars ?? 0,
         salespersonId,
         salesperson,
         status: q.status,
@@ -447,13 +458,38 @@ export function computeScorecard(
     if (r.bucket !== "ACCEPTED") continue;         // booked wins only
     if (rowYear(r.date) !== year) continue;        // scoped to the scorecard year
     const wtId = r.workTypeId || "";
-    const agg: ActualAgg = { salesDollars: r.bidAmount || 0, gpDollars: r.gpAtBid || 0 };
+
+    // ── THE GAVELED BONUS RULING (Tom, 2026-08-07) — WHERE THE BUCKETS PART WAYS ────────────────────
+    // EXTRAS BELONG TO THE COMPANY, NOT TO A SALESPERSON. Two aggregates are built from one row:
+    //
+    //   companyAgg — the bid PLUS its released change orders. What the company booked.
+    //   personAgg  — the bid ALONE. What this salesperson sold.
+    //
+    // A change order is money the company earned because a crew was already on site with the right
+    // iron and the customer asked for more. Nobody closed it as a sale. Crediting it to the person who
+    // sold the parent bid would inflate a personal number against a personal goal for work they did
+    // not do — and, worse, would quietly pre-make a decision the gavel reserves for the owner: extras
+    // are credited from a VISIBLE POOL, by a person, outside the software (Law 82). The Extras roll-up
+    // is that pool; this split is what keeps it a pool instead of an automatic payout.
+    //
+    // IF YOU ARE HERE TO "FIX" A SALESPERSON'S TOTAL NOT MATCHING THE COMPANY TOTAL: that gap is the
+    // extras, and it is the ruling working. The fence mutation-proves this exact line — credit the
+    // change order to personAgg and it fails by name.
+    const companyAgg: ActualAgg = {
+      salesDollars: (r.bidAmount || 0) + (r.changeOrderRevenue || 0),
+      gpDollars: (r.gpAtBid || 0) + (r.changeOrderGp || 0),
+    };
+    const personAgg: ActualAgg = { salesDollars: r.bidAmount || 0, gpDollars: r.gpAtBid || 0 };
+
     workTypeIds.add(wtId);
-    addActual(actualByWorkType, wtId, agg);
-    actualCompany = { salesDollars: actualCompany.salesDollars + agg.salesDollars, gpDollars: actualCompany.gpDollars + agg.gpDollars };
+    addActual(actualByWorkType, wtId, companyAgg);
+    actualCompany = {
+      salesDollars: actualCompany.salesDollars + companyAgg.salesDollars,
+      gpDollars: actualCompany.gpDollars + companyAgg.gpDollars,
+    };
     if (r.salespersonId) {
-      addActual(actualByCell, `${r.salespersonId}::${wtId}`, agg);
-      addActual(actualByPerson, r.salespersonId, agg);
+      addActual(actualByCell, `${r.salespersonId}::${wtId}`, personAgg);
+      addActual(actualByPerson, r.salespersonId, personAgg);
       actualPersonIds.add(r.salespersonId);
     }
   }
@@ -478,25 +514,45 @@ export function computeScorecard(
     // gpDollars otherwise, so an incomplete job contributes its revenue and NOTHING to the margin.
     const costed = a.gpDollars !== null;
     const revenue = a.revenue || 0;
-    const agg: PerformedAgg = {
+
+    // THE SAME BONUS RULING APPLIES HERE. `a.revenue` is the recognized bid PLUS its released change
+    // orders (deriveTrackerRows, the one home of that sum) — so a personal PERFORMED cell would pick
+    // up extras money through the back door if it used it unchanged. It does not.
+    //
+    //   companyAgg — recognized revenue as it stands: bid + released extras. The company earned it.
+    //   personAgg  — the same figure with the extras REMOVED, leaving exactly the recognized frozen
+    //                bid. The subtraction is exact, not an estimate: a.revenue was built as
+    //                totalRevenue + changeOrderRevenue, so taking changeOrderRevenue back off returns
+    //                the bid itself. GP follows the same subtraction, which leaves bid − actual cost.
+    const coRevenue = r.changeOrderRevenue || 0;
+    const personRevenue = revenue - coRevenue;
+    const companyAgg: PerformedAgg = {
       salesDollars: revenue,
       costedSalesDollars: costed ? revenue : 0,
       gpDollars: costed ? (a.gpDollars as number) : 0,
       jobCount: 1,
       costedJobCount: costed ? 1 : 0,
     };
+    const personAgg: PerformedAgg = {
+      salesDollars: personRevenue,
+      costedSalesDollars: costed ? personRevenue : 0,
+      gpDollars: costed ? (a.gpDollars as number) - coRevenue : 0,
+      jobCount: 1,
+      costedJobCount: costed ? 1 : 0,
+    };
+
     workTypeIds.add(wtId);
-    addPerformed(performedByWorkType, wtId, agg);
+    addPerformed(performedByWorkType, wtId, companyAgg);
     performedCompany = {
-      salesDollars: performedCompany.salesDollars + agg.salesDollars,
-      costedSalesDollars: performedCompany.costedSalesDollars + agg.costedSalesDollars,
-      gpDollars: performedCompany.gpDollars + agg.gpDollars,
-      jobCount: performedCompany.jobCount + agg.jobCount,
-      costedJobCount: performedCompany.costedJobCount + agg.costedJobCount,
+      salesDollars: performedCompany.salesDollars + companyAgg.salesDollars,
+      costedSalesDollars: performedCompany.costedSalesDollars + companyAgg.costedSalesDollars,
+      gpDollars: performedCompany.gpDollars + companyAgg.gpDollars,
+      jobCount: performedCompany.jobCount + companyAgg.jobCount,
+      costedJobCount: performedCompany.costedJobCount + companyAgg.costedJobCount,
     };
     if (r.salespersonId) {
-      addPerformed(performedByCell, `${r.salespersonId}::${wtId}`, agg);
-      addPerformed(performedByPerson, r.salespersonId, agg);
+      addPerformed(performedByCell, `${r.salespersonId}::${wtId}`, personAgg);
+      addPerformed(performedByPerson, r.salespersonId, personAgg);
       performedPersonIds.add(r.salespersonId);
     }
   }

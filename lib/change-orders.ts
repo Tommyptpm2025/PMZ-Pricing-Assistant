@@ -472,11 +472,22 @@ export function changeOrderApprovers<T extends ApproverCandidate>(
 // description in plain words and ONE number — priceCharged, the price already computed and already
 // shown. This module hands out exactly those two fields, so no document surface can print a third.
 
-export const PRINTABLE_CHANGE_ORDER_STATUSES: ChangeOrderStatus[] = ['quoted', 'approved'];
+/**
+ * RELEASED = the customer is on the hook for it. 'quoted' (the foreman quoted it on the spot, or
+ * leadership approved & released it) and the legacy 'approved', which meant the same thing before the
+ * desk existed. THE SAME SET decides three things — what prints, what is invoiced, and what counts as
+ * money — because they are the same question asked three times, and a change order that a customer
+ * owes but a total ignores is a bug in one of them.
+ */
+export const RELEASED_CHANGE_ORDER_STATUSES: ChangeOrderStatus[] = ['quoted', 'approved'];
 
-export function isPrintableChangeOrder(co: Pick<ChangeOrder, 'status'>): boolean {
-  return PRINTABLE_CHANGE_ORDER_STATUSES.includes(co.status);
+export function isReleasedChangeOrder(co: Pick<ChangeOrder, 'status'>): boolean {
+  return RELEASED_CHANGE_ORDER_STATUSES.includes(co.status);
 }
+
+/** Printing follows release, exactly — one rule, so paper and ledger can never disagree. */
+export const PRINTABLE_CHANGE_ORDER_STATUSES = RELEASED_CHANGE_ORDER_STATUSES;
+export const isPrintableChangeOrder = isReleasedChangeOrder;
 
 /** One customer-document line: a title, plain words, and the price. Nothing else is on this shape. */
 export interface ChangeOrderDocumentLine {
@@ -567,6 +578,158 @@ export function changeOrderDocumentLines(
 /** What the printed change-order lines add to the document total. */
 export function changeOrderDocumentTotal(lines: ChangeOrderDocumentLine[]): number {
   return round2((lines || []).reduce((sum, l) => sum + (l?.amount || 0), 0));
+}
+
+// ── THE EXTRAS LEDGER ─────────────────────────────────────────────────────────────────────────────
+//
+// What released change orders are worth, and to whom they belong.
+//
+// ── THE GAVELED BONUS RULING (Tom, 2026-08-07) ────────────────────────────────────────────────────
+// EXTRAS BELONG TO THE COMPANY. A change order is money the company earned because a crew was already
+// on site with the right iron and the customer asked for more. It is not a sale anybody closed. So it
+// lands on COMPANY totals and NEVER on a salesperson's personal scorecard row — not the one who sold
+// the parent bid, not anybody.
+//
+// The owner may well decide to credit somebody for it, and often should: the foreman who spotted the
+// work, the salesperson whose relationship made the ask easy. THAT IS A DECISION, MADE BY A PERSON,
+// FROM A VISIBLE POOL — Law 82. PMZ's job is to keep the ledger honest and legible: here is every
+// extra, whose job it was on, which foreman wrote it, what it earned. What that is worth to whom is
+// the owner's call, made outside the software and never quietly pre-made inside it by a sum.
+//
+// The exclusion is enforced in lib/sales-tracker.ts, at the aggregation, where the company buckets and
+// the person buckets part ways — see the ruling comment there. This module supplies the money.
+
+/**
+ * GP on a change order, at the parent's FROZEN margin. Price minus cost — both already rounded to the
+ * cent as values on the record — so it ties out exactly against the two numbers beside it. Never
+ * re-derived from a margin percentage: the margin was applied once, at creation, and this is only
+ * reading what that produced (Law 83 — nothing already written is ever rewritten).
+ */
+export function changeOrderGpDollars(co: Pick<ChangeOrder, 'priceCharged' | 'totalCost'>): number {
+  return round2((co?.priceCharged || 0) - (co?.totalCost || 0));
+}
+
+export interface ReleasedChangeOrderTotals {
+  count: number;
+  revenue: number;
+  gpDollars: number;
+}
+
+const EMPTY_TOTALS: ReleasedChangeOrderTotals = { count: 0, revenue: 0, gpDollars: 0 };
+
+/** Released extras per parent quote — the join the tracker uses to recognize a job's actual revenue. */
+export function releasedTotalsByQuote(list: ChangeOrder[]): Map<string, ReleasedChangeOrderTotals> {
+  const out = new Map<string, ReleasedChangeOrderTotals>();
+  for (const co of list || []) {
+    const quoteId = (co?.quoteId || '').trim();
+    if (!quoteId || !isReleasedChangeOrder(co)) continue;
+    const cur = out.get(quoteId) || { ...EMPTY_TOTALS };
+    out.set(quoteId, {
+      count: cur.count + 1,
+      revenue: round2(cur.revenue + (co.priceCharged || 0)),
+      gpDollars: round2(cur.gpDollars + changeOrderGpDollars(co)),
+    });
+  }
+  return out;
+}
+
+/** Released extras for ONE quote — zeros when it has none, so a caller never has to null-check money. */
+export function releasedTotalsForQuote(list: ChangeOrder[], quoteId: string): ReleasedChangeOrderTotals {
+  return releasedTotalsByQuote(list).get((quoteId || '').trim()) || { ...EMPTY_TOTALS };
+}
+
+// ── THE ROLL-UP ───────────────────────────────────────────────────────────────────────────────────
+
+export interface ExtrasGroup {
+  key: string;         // foreman Person id, or job id
+  label: string;       // resolved name — never a raw id on screen where a name exists
+  count: number;
+  revenue: number;
+  gpDollars: number;
+  firstAt: string;     // ISO of the earliest extra in the group
+  lastAt: string;      // ISO of the latest
+}
+
+export interface ExtrasRollup {
+  byForeman: ExtrasGroup[];
+  byJob: ExtrasGroup[];
+  totals: ReleasedChangeOrderTotals;
+  /**
+   * The ones that are NOT money: held, refused, or moved to the Pricer as new scope. Surfaced as a
+   * COUNT ONLY and never as a dollar figure — a pending extra is not revenue waiting to be claimed,
+   * and showing it in a money column would invite exactly that reading.
+   */
+  notCounted: { pending: number; declined: number; converted: number };
+}
+
+export interface ExtrasRollupNames {
+  personName?: (id: string) => string;
+  jobName?: (id: string) => string;
+}
+
+const groupsToSorted = (m: Map<string, ExtrasGroup>): ExtrasGroup[] =>
+  Array.from(m.values()).sort((a, b) => b.revenue - a.revenue || a.label.localeCompare(b.label));
+
+function addToGroup(
+  m: Map<string, ExtrasGroup>,
+  key: string,
+  label: string,
+  co: ChangeOrder
+): void {
+  const gp = changeOrderGpDollars(co);
+  const at = co.createdAt || '';
+  const cur = m.get(key);
+  if (!cur) {
+    m.set(key, { key, label, count: 1, revenue: round2(co.priceCharged || 0), gpDollars: gp, firstAt: at, lastAt: at });
+    return;
+  }
+  cur.count += 1;
+  cur.revenue = round2(cur.revenue + (co.priceCharged || 0));
+  cur.gpDollars = round2(cur.gpDollars + gp);
+  if (at && (!cur.firstAt || at < cur.firstAt)) cur.firstAt = at;
+  if (at && (!cur.lastAt || at > cur.lastAt)) cur.lastAt = at;
+}
+
+/**
+ * The owner-facing extras ledger: every RELEASED change order grouped by the foreman who wrote it and
+ * by the job it was written on, biggest first. Money counts released orders ONLY; everything else is a
+ * count on the side.
+ *
+ * Grouping by foreman is deliberately NOT a bonus calculation and must never become one. It answers
+ * "who is finding this work", which is the fact the owner needs in front of them to make the credit
+ * decision the gavel reserves for them (Law 82).
+ */
+export function buildExtrasRollup(list: ChangeOrder[], names: ExtrasRollupNames = {}): ExtrasRollup {
+  const byForeman = new Map<string, ExtrasGroup>();
+  const byJob = new Map<string, ExtrasGroup>();
+  let count = 0;
+  let revenue = 0;
+  let gpDollars = 0;
+  const notCounted = { pending: 0, declined: 0, converted: 0 };
+
+  for (const co of list || []) {
+    if (!co) continue;
+    if (!isReleasedChangeOrder(co)) {
+      if (co.status === 'pending_approval') notCounted.pending += 1;
+      else if (co.status === 'declined') notCounted.declined += 1;
+      else if (co.status === 'converted_to_quote') notCounted.converted += 1;
+      continue;
+    }
+    count += 1;
+    revenue = round2(revenue + (co.priceCharged || 0));
+    gpDollars = round2(gpDollars + changeOrderGpDollars(co));
+    const fId = (co.foremanId || '').trim() || 'unattributed';
+    addToGroup(byForeman, fId, names.personName?.(fId) || fId, co);
+    const jId = (co.jobId || '').trim() || 'unknown-job';
+    addToGroup(byJob, jId, names.jobName?.(jId) || jId, co);
+  }
+
+  return {
+    byForeman: groupsToSorted(byForeman),
+    byJob: groupsToSorted(byJob),
+    totals: { count, revenue, gpDollars },
+    notCounted,
+  };
 }
 
 // ── STORAGE ───────────────────────────────────────────────────────────────────────────────────────

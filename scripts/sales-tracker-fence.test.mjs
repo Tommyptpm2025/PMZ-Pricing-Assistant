@@ -277,11 +277,15 @@ assert.equal(annP.byWorkType["wtB"].performed.costedSalesDollars, 0, "Ann/wtB no
 assert.equal(annP.byWorkType["wtB"].performed.jobCount, 1, "Ann/wtB recognized one job (revenue counted)...");
 assert.equal(annP.byWorkType["wtB"].performed.costedJobCount, 0, "...of which none carries complete cost — the coverage gap is reported, not hidden");
 
-// ---- Legacy Completed is realized money, and change orders join PERFORMED revenue (not the bid) ----
-assert.equal(bobP.byWorkType["wtA"].actual.salesDollars, 80000, "Bob/wtA BOOKED sales = the frozen bid 80000 — the change order is NOT booked revenue");
-assert.equal(bobP.byWorkType["wtA"].performed.salesDollars, 85000, "Bob/wtA PERFORMED sales = bid 80000 + approved change order 5000 — legacy Completed recognizes, same rules as Invoiced");
-assert.equal(bobP.byWorkType["wtA"].performed.gpDollars, 21250, "Bob/wtA PERFORMED GP = 85000 − 63750 = 21250");
-near(bobP.byWorkType["wtA"].performed.marginPct, 25, "Bob/wtA PERFORMED margin = 21250/85000 = 25%");
+// ---- Legacy Completed is realized money. THE EXTRA IS COMPANY MONEY, NOT BOB'S ----
+// AMENDED 2026-08-07 by the gaveled bonus ruling. This cell previously read 85000 / 21250 / 25%,
+// crediting pf4's $5,000 change order to Bob's PERSONAL performed row. Extras belong to the COMPANY —
+// see the ruling comment in computeScorecard. Bob's row is now the recognized frozen bid alone; the
+// company rows further down still carry the full 85000, and the difference between them IS the extra.
+assert.equal(bobP.byWorkType["wtA"].actual.salesDollars, 80000, "Bob/wtA BOOKED sales = the frozen bid 80000 — the change order is NOT his booked revenue");
+assert.equal(bobP.byWorkType["wtA"].performed.salesDollars, 80000, "Bob/wtA PERFORMED sales = the recognized BID 80000 — the $5,000 extra is company money and never reaches a personal row");
+assert.equal(bobP.byWorkType["wtA"].performed.gpDollars, 16250, "Bob/wtA PERFORMED GP = bid 80000 − actual cost 63750 = 16250");
+near(bobP.byWorkType["wtA"].performed.marginPct, 20.3125, "Bob/wtA PERFORMED margin = 16250/80000 = 20.3125%");
 
 // ---- Person totals ----
 assert.equal(annP.total.actual.salesDollars, 210000, "Ann TOTAL BOOKED = 100000 + 60000 + 50000");
@@ -291,15 +295,20 @@ assert.equal(annP.total.performed.costedSalesDollars, 100000, "Ann's margin deno
 near(annP.total.performed.marginPct, 30, "Ann TOTAL PERFORMED margin = 30000/100000 = 30% — ties out to the dollars it was computed from, NOT 30000/150000");
 assert.equal(annP.total.performed.jobCount, 2, "Ann recognized 2 jobs...");
 assert.equal(annP.total.performed.costedJobCount, 1, "...1 of them fully costed — the margin covers part of the total, and says so");
-assert.equal(bobP.total.performed.salesDollars, 85000, "Bob TOTAL PERFORMED = pf4 only (pf5 not invoiced)");
-near(bobP.total.performed.marginPct, 25, "Bob TOTAL PERFORMED margin = 21250/85000 = 25%");
+assert.equal(bobP.total.performed.salesDollars, 80000, "Bob TOTAL PERFORMED = pf4's BID only (pf5 not invoiced; the extra is the company's)");
+near(bobP.total.performed.marginPct, 20.3125, "Bob TOTAL PERFORMED margin = 16250/80000 = 20.3125%");
 
 // ---- Both-direction totals: work type and company ----
 assert.equal(pcard.byWorkType["wtA"].performed.salesDollars, 185000, "company wtA PERFORMED = pf1 100000 + pf4 85000");
 assert.equal(pcard.byWorkType["wtA"].performed.gpDollars, 51250, "company wtA PERFORMED GP = 30000 + 21250");
 assert.equal(pcard.byWorkType["wtB"].performed.salesDollars, 50000, "company wtB PERFORMED = pf3 only (pf5 unrecognized)");
 assert.equal(pcard.byWorkType["wtB"].performed.gpDollars, null, "company wtB PERFORMED GP null — its only recognized job has incomplete cost");
-assert.equal(pcard.companyTotal.actual.salesDollars, 330000, "company TOTAL BOOKED = 100000+60000+50000+80000+40000");
+assert.equal(pcard.companyTotal.actual.salesDollars, 335000, "company TOTAL BOOKED = 330000 of bids + pf4's 5000 released change order — COMPANY booked includes extras (gaveled 2026-08-07)");
+assert.equal(
+  pcard.companyTotal.actual.salesDollars - (annP.total.actual.salesDollars + bobP.total.actual.salesDollars),
+  5000,
+  "…and the company total EXCEEDS the sum of the personal rows by EXACTLY the extras. That gap is the ruling working, not a reconciliation bug."
+);
 assert.equal(pcard.companyTotal.performed.salesDollars, 235000, "company TOTAL PERFORMED = 100000 + 50000 + 85000 — 2025 and LOST noise excluded");
 assert.equal(pcard.companyTotal.performed.gpDollars, 51250, "company TOTAL PERFORMED GP = 30000 + 21250");
 assert.equal(pcard.companyTotal.performed.costedSalesDollars, 185000, "company margin denominator = the costed slice 185000, not 235000");
@@ -317,4 +326,4 @@ const emptyPerf = computeScorecard([], [], SC_PEOPLE, 2026).companyTotal.perform
 assert.equal(emptyPerf.salesDollars, null, "no rows → company PERFORMED sales null, never a phantom $0");
 assert.equal(emptyPerf.marginPct, null, "no rows → company PERFORMED margin null, never NaN/Infinity");
 assert.equal(emptyPerf.jobCount, 0, "no rows → no recognized jobs");
-console.log("PASS: sales-tracker scorecard PERFORMED — recognized money beside booked (Invoiced/Paid/legacy Completed only, inherited from row actuals); booked-not-invoiced never performs; GP only on complete cost with the margin tied to its costed denominator; change orders join performed revenue; totals both directions; blanks never zeros");
+console.log("PASS: sales-tracker scorecard PERFORMED — recognized money beside booked (Invoiced/Paid/legacy Completed only, inherited from row actuals); booked-not-invoiced never performs; GP only on complete cost with the margin tied to its costed denominator; released change orders join COMPANY performed revenue while personal rows carry the recognized bid alone (gaveled bonus ruling, 2026-08-07); totals both directions; blanks never zeros");
