@@ -244,10 +244,25 @@ export type QuoteStatus =
   | "Paid"
   | "Completed"; // legacy — no longer part of the forward flow
 
+/**
+ * WHY a status moved, when it was not a person clicking. Absent — the overwhelming case — means a
+ * human made the call, which is the default and needs no explanation. A cause is recorded only when
+ * the system advanced a quote on its own, so the trail can never present an automatic move as a
+ * decision somebody made.
+ */
+export type StatusChangeCause = "job-completion";
+
+/** How a cause reads on screen. Stored values are stable; only these labels change. */
+export const STATUS_CAUSE_LABELS: Record<StatusChangeCause, string> = {
+  "job-completion": "advanced by job completion",
+};
+
 // One entry per status change, appended in order. `at` is an ISO timestamp string.
 export interface StatusHistoryEntry {
   status: QuoteStatus;
   at: string;
+  /** Set only when the system moved this quote itself. Absent ⇒ a person did. */
+  cause?: StatusChangeCause;
 }
 
 // Single source of truth for a persisted quote record ('pmz_saved_quotes').

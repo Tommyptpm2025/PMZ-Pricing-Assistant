@@ -60,8 +60,8 @@ import {
   updateQuote,
   saveQuote,
 } from "@/lib/quote-storage";
-import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
-import { canTransition, applyStatusChange as libApplyStatusChange, sendBlockingFailures } from "@/lib/quote-lifecycle";
+import { STATUS_FLOW, STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, STATUS_CAUSE_LABELS, isStatusLocked, type QuoteStatus, type SavedQuote } from "@/lib/pmz-types";
+import { canTransition, applyStatusChange as libApplyStatusChange, sendBlockingFailures, lastAutomaticStatusChange } from "@/lib/quote-lifecycle";
 import { resolveCustomerName } from "@/lib/customer-resolve";
 import { runCustomerBackfillIfNeeded } from "@/lib/customer-attribution";
 
@@ -142,6 +142,24 @@ function formatDate(iso?: string): string {
 
 // Status pill colors now live in lib/pmz-types (STATUS_COLORS — the locked lifecycle zone map),
 // shared with the Jobs page and QuotePreview so every surface renders the same zone color.
+
+/**
+ * WHY a status moved, when the system moved it. Rendered under the pill so a quote that walked itself
+ * to Ready to Invoice never looks like somebody's decision — the trail says who, and here it says
+ * "advanced by job completion — 8/6/2026" instead of quietly reading as a human's click. A quote whose
+ * last move was a person's shows nothing at all: that is the default and needs no explanation.
+ */
+function AutoAdvanceNote({ quote }: { quote: SavedQuote }) {
+  const auto = lastAutomaticStatusChange(quote);
+  if (!auto) return null;
+  const when = new Date(auto.at);
+  return (
+    <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+      {STATUS_CAUSE_LABELS[auto.cause]}
+      {Number.isNaN(when.getTime()) ? "" : ` — ${when.toLocaleDateString()}`}
+    </div>
+  );
+}
 
 // Status pill. In `trigger` mode it gains an inline chevron + hover affordance so the colored
 // pill itself reads as a dropdown trigger (locked UI standard: the chevron IS the affordance).
@@ -1090,7 +1108,7 @@ export default function QuotesPage() {
                           inline chevron, no separate "Change…" button). An invisible native <select>
                           overlays the pill and carries the exact same action options + handlers as
                           before — UI only, no behavior change. */}
-                      <div className="relative inline-flex items-center group">
+                      <div className="relative inline-flex flex-col items-start group">
                         <StatusBadge status={quote.status} trigger />
                         <select
                           value=""
@@ -1144,6 +1162,7 @@ export default function QuotesPage() {
                           )}
                         </select>
                       </div>
+                      <AutoAdvanceNote quote={quote} />
                     </TableCell>
                     <TableCell className="text-right pr-3 whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
@@ -1554,7 +1573,10 @@ export default function QuotesPage() {
                     <div><span className="font-medium text-muted-foreground">Customer:</span> {resolveCustomerName(previewTarget, customers) || "—"}</div>
                     <div><span className="font-medium text-muted-foreground">Work Type:</span> {previewTarget.workType || "—"}</div>
                     <div><span className="font-medium text-muted-foreground">Salesperson:</span> {previewTarget.salesperson || "—"}</div>
-                    <div><span className="font-medium text-muted-foreground">Status:</span> <StatusBadge status={previewTarget.status} /></div>
+                    <div>
+                      <span className="font-medium text-muted-foreground">Status:</span> <StatusBadge status={previewTarget.status} />
+                      <AutoAdvanceNote quote={previewTarget} />
+                    </div>
                     <div><span className="font-medium text-muted-foreground">Created:</span> {formatDate(previewTarget.createdAt)}</div>
                     <div><span className="font-medium text-muted-foreground">Last Updated:</span> {formatDate(previewTarget.updatedAt || previewTarget.createdAt)}</div>
                     {previewTarget.sentAt && (

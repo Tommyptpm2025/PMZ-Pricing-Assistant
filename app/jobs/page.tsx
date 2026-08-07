@@ -47,8 +47,9 @@ import {
   createId,
   type Job,
 } from "@/lib/jobs";
-import { STATUS_COLORS, STATUS_ORDER, type QuoteStatus } from "@/lib/pmz-types";
-import { getQuoteById } from "@/lib/quote-storage";
+import { STATUS_COLORS, STATUS_ORDER, STATUS_LABELS, type QuoteStatus } from "@/lib/pmz-types";
+import { getQuoteById, updateQuote } from "@/lib/quote-storage";
+import { advanceQuoteOnJobCompletion } from "@/lib/quote-lifecycle";
 import { usePeople, listActiveByRole, personOnTheSpotLimit } from "@/lib/people";
 import { useCompanySettings, changeOrderCeiling } from "@/lib/company-settings";
 import {
@@ -173,6 +174,7 @@ export default function JobsForemanPage() {
     setNotesDraft(job.notes || "");
     setActualDrafts({});
     setJustSaved(false);
+    setBridgeNote(null);
   }
 
   function clearSelection() {
@@ -202,14 +204,43 @@ export default function JobsForemanPage() {
     setTimeout(() => setJustSaved(false), 1400);
   }
 
+  // Announcement for the bridge below — what just happened to the quote, in one line, on the screen
+  // where the person did the thing that caused it. Cleared when another job is opened.
+  const [bridgeNote, setBridgeNote] = React.useState<string | null>(null);
+
+  // THE FINISH-LINE BRIDGE (lib/quote-lifecycle.ts). The crew is done, so the quote walks itself to
+  // Ready to Invoice — the office should not have to remember. The RULE lives in the lifecycle module
+  // and is fence-proved there; this is only the hand-off: read the linked quote, ask, and write only
+  // when the answer is a real move. A quote already at or past the line returns null and nothing is
+  // written at all.
   function doComplete() {
     if (!selectedId) return;
+    const job = jobs.find((j) => j.id === selectedId);
     setJobs((prev) => completeJob(prev, selectedId));
+    setBridgeNote(null);
+    if (!job?.quoteId) return;
+    try {
+      const quote = getQuoteById(job.quoteId);
+      if (!quote) return;
+      const advanced = advanceQuoteOnJobCompletion(quote);
+      if (!advanced) return;
+      updateQuote(advanced);
+      setBridgeNote(
+        `“${quote.jobName || "This quote"}” moved from ${STATUS_LABELS[quote.status]} to ${STATUS_LABELS[advanced.status]} — advanced by job completion.`
+      );
+    } catch (e) {
+      // The job IS complete either way; the quote just did not move. Never mute (Law 50).
+      console.error("[jobs] Could not advance the linked quote on completion", e);
+    }
   }
 
+  // Reopening the job does NOT walk the quote back. A backward move is a human decision (the
+  // lifecycle-guard doctrine) — one more day of punch list almost never means "un-bill this" — so the
+  // quote is deliberately left where it is, and the Quotes page is where anyone changes that.
   function doReopen() {
     if (!selectedId) return;
     setJobs((prev) => reopenJob(prev, selectedId));
+    setBridgeNote(null);
   }
 
   function doDelete(id: string) {
@@ -690,6 +721,16 @@ export default function JobsForemanPage() {
               </Button>
             </div>
           </div>
+
+          {/* THE BRIDGE, ANNOUNCED. The quote moved because of what was just done here, so it is said
+              here — not left to be discovered on another screen. The permanent record of it lives on
+              the quote's own status trail (cause: 'job-completion'). */}
+          {bridgeNote && (
+            <div className="wo-noprint flex items-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              {bridgeNote}
+            </div>
+          )}
 
           {/* HEADER SECTION */}
           <Card className="card wo-print-clean">

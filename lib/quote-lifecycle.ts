@@ -9,6 +9,8 @@ import {
   isStatusLocked,
   type QuoteStatus,
   type SavedQuote,
+  type StatusChangeCause,
+  type StatusHistoryEntry,
 } from "./pmz-types";
 import {
   buildLineGateFailures,
@@ -74,7 +76,14 @@ export type ApplyStatusResult =
 export function applyStatusChange(
   quote: SavedQuote,
   newStatus: QuoteStatus,
-  extra?: { sentAt?: string; decidedAt?: string; decisionNote?: string; zeroConfirmation?: SavedQuote["zeroConfirmation"] },
+  extra?: {
+    sentAt?: string;
+    decidedAt?: string;
+    decisionNote?: string;
+    zeroConfirmation?: SavedQuote["zeroConfirmation"];
+    /** Only for moves the SYSTEM made. A human transition leaves this absent — see StatusChangeCause. */
+    cause?: StatusChangeCause;
+  },
   nowIso?: string
 ): ApplyStatusResult {
   // Send gate (Law 50) — scoped to the one target that reaches a customer. A blank price is refused;
@@ -90,13 +99,18 @@ export function applyStatusChange(
     Array.isArray(quote.statusHistory) && quote.statusHistory.length > 0
       ? quote.statusHistory
       : [{ status: quote.status, at: quote.createdAt || now }];
+  const entry: StatusHistoryEntry = {
+    status: newStatus,
+    at: now,
+    ...(extra?.cause ? { cause: extra.cause } : {}),
+  };
   return {
     ok: true,
     quote: {
       ...quote,
       status: newStatus,
       locked: quote.locked || isStatusLocked(newStatus),
-      statusHistory: [...existing, { status: newStatus, at: now }],
+      statusHistory: [...existing, entry],
       updatedAt: now,
       ...(extra?.sentAt ? { sentAt: extra.sentAt } : {}),
       ...(extra?.decidedAt ? { decidedAt: extra.decidedAt } : {}),
@@ -104,6 +118,61 @@ export function applyStatusChange(
       ...(extra?.zeroConfirmation ? { zeroConfirmation: extra.zeroConfirmation } : {}),
     },
   };
+}
+
+// ── THE FINISH-LINE BRIDGE ────────────────────────────────────────────────────────────────────────
+//
+// The work is done in the field; the money should not wait on someone remembering to say so. When a
+// foreman's job is marked COMPLETE, its linked quote walks itself to Ready to Invoice.
+//
+// ── THE LAWS THIS BRIDGE LIVES UNDER ──────────────────────────────────────────────────────────────
+// FORWARD ONLY. Completing a job moves a quote toward the invoice and NEVER away from it. REOPENING
+// a job does not walk the quote back: a backward move is a human decision (the lifecycle-guard
+// doctrine), because the reasons to reopen — one more day of punch list, a callback, a typo in the
+// actuals — almost never mean "un-bill this". There is deliberately no reverse function here to call.
+//
+// ONLY FROM THE ACCEPTED SIDE, AND ONLY IF IT IS STILL BEHIND. Approved, Scheduled and Work Order
+// Active all advance; already Ready to Invoice, Invoiced or Paid changes NOTHING (an invoiced job
+// completing late must never drag a paid quote back to un-invoiced). Draft, Sent, Declined and Lost
+// are untouched — a job on an unaccepted or dead quote is a data problem, not an invoice.
+//
+// It is a JUMP, not a step: a Scheduled job that completes lands on Ready to Invoice directly rather
+// than walking each rung. The finish line is the same wherever the record had got to, and inventing
+// intermediate history the business never lived through would be a worse record, not a better one.
+//
+// THE MOVE IS STAMPED AS AUTOMATIC. The history entry carries cause: 'job-completion', so nobody ever
+// reads this as a person's decision — see StatusChangeCause. That is the whole reason the cause field
+// exists: a system move that looks human in the trail is a lie the record tells later.
+//
+// Returns null when nothing should change, so the caller writes only on a real move.
+
+/** The accepted-side statuses a job completion advances. Everything else is left alone. */
+export const ADVANCES_ON_JOB_COMPLETION: QuoteStatus[] = ["Approved", "Scheduled", "In Progress"];
+
+export function quoteAdvancesOnJobCompletion(status: QuoteStatus): boolean {
+  return ADVANCES_ON_JOB_COMPLETION.includes(status);
+}
+
+export function advanceQuoteOnJobCompletion(quote: SavedQuote, nowIso?: string): SavedQuote | null {
+  if (!quote || !quoteAdvancesOnJobCompletion(quote.status)) return null;
+  const result = applyStatusChange(quote, "Ready to Invoice", { cause: "job-completion" }, nowIso);
+  // "Ready to Invoice" is not the send gate's target, so this branch is unreachable — but the union
+  // must be narrowed, and a refusal can only ever mean "do not write", never "write anyway".
+  return result.ok ? result.quote : null;
+}
+
+/**
+ * The last status change and why — for the surface that has to say "advanced by job completion".
+ * Returns null when the trail is empty or the last move was a person's (no cause), because the
+ * default needs no announcement.
+ */
+export function lastAutomaticStatusChange(
+  quote: Pick<SavedQuote, "statusHistory">
+): { cause: StatusChangeCause; at: string; status: QuoteStatus } | null {
+  const history = quote?.statusHistory;
+  if (!Array.isArray(history) || history.length === 0) return null;
+  const last = history[history.length - 1];
+  return last?.cause ? { cause: last.cause, at: last.at, status: last.status } : null;
 }
 
 // Send a Draft out for acceptance: Draft -> Ready for Approval, stamping sentAt. Returns null if the
