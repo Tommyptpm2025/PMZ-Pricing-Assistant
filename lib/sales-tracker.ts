@@ -359,6 +359,16 @@ function rowYear(date: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/**
+ * The rows belonging to one scorecard year. Exported so a caller that needs a year-scoped SCOREBOARD
+ * (computeScoreboard takes no year) uses the SAME year rule the scorecard does, instead of writing a
+ * second date filter that could drift from it. A row with no usable date belongs to no year and is
+ * excluded — the same treatment it already gets inside computeScorecard.
+ */
+export function rowsForYear(rows: TrackerRow[], year: number): TrackerRow[] {
+  return (rows || []).filter((r) => rowYear(r.date) === year);
+}
+
 const addGoal = (m: Map<string, GoalAgg>, key: string, g: GoalAgg) => {
   const cur = m.get(key);
   if (cur) { cur.salesDollars += g.salesDollars; cur.marginDollars += g.marginDollars; }
